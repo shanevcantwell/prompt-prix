@@ -72,6 +72,7 @@ function updateTabColors(tabStates) {
 """
 
 
+
 def create_app() -> gr.Blocks:
     """Create the Gradio application."""
 
@@ -90,7 +91,8 @@ def create_app() -> gr.Blocks:
                         label="LM Studio Servers (one per line)",
                         value="\n".join(get_default_servers()),
                         lines=3,
-                        placeholder="http://192.168.1.10:1234\nhttp://192.168.1.11:1234"
+                        placeholder="http://192.168.1.10:1234\nhttp://192.168.1.11:1234",
+                        elem_id="servers"
                     )
                 with gr.Column(scale=1):
                     with gr.Row():
@@ -98,7 +100,8 @@ def create_app() -> gr.Blocks:
                             label="Models to Compare (one per line)",
                             value="\n".join(DEFAULT_MODELS),
                             lines=5,
-                            placeholder="llama-3.2-3b-instruct\nqwen2.5-7b-instruct"
+                            placeholder="llama-3.2-3b-instruct\nqwen2.5-7b-instruct",
+                            elem_id="models"
                         )
                     fetch_models_button = gr.Button("🔄 Fetch Available Models", size="sm")
 
@@ -108,21 +111,24 @@ def create_app() -> gr.Blocks:
                     minimum=0.0,
                     maximum=2.0,
                     step=0.1,
-                    value=DEFAULT_TEMPERATURE
+                    value=DEFAULT_TEMPERATURE,
+                    elem_id="temperature"
                 )
                 timeout_slider = gr.Slider(
                     label="Timeout (seconds)",
                     minimum=30,
                     maximum=600,
                     step=30,
-                    value=DEFAULT_TIMEOUT_SECONDS
+                    value=DEFAULT_TIMEOUT_SECONDS,
+                    elem_id="timeout"
                 )
                 max_tokens_slider = gr.Slider(
                     label="Max Tokens",
                     minimum=256,
                     maximum=8192,
                     step=256,
-                    value=DEFAULT_MAX_TOKENS
+                    value=DEFAULT_MAX_TOKENS,
+                    elem_id="max_tokens"
                 )
 
             with gr.Row():
@@ -302,6 +308,59 @@ def create_app() -> gr.Blocks:
             fn=launch_beyond_compare,
             inputs=[compare_model_a, compare_model_b],
             outputs=[status_display]
+        )
+
+        # ─────────────────────────────────────────────────────────────
+        # PERSISTENCE - Save/Load form values to localStorage
+        # ─────────────────────────────────────────────────────────────
+
+        # Save to localStorage on change
+        servers_input.change(
+            fn=None, inputs=[servers_input], outputs=[],
+            js="(v) => { localStorage.setItem('promptprix_servers', v); }"
+        )
+        models_input.change(
+            fn=None, inputs=[models_input], outputs=[],
+            js="(v) => { localStorage.setItem('promptprix_models', v); }"
+        )
+        temperature_slider.change(
+            fn=None, inputs=[temperature_slider], outputs=[],
+            js="(v) => { localStorage.setItem('promptprix_temperature', v); }"
+        )
+        timeout_slider.change(
+            fn=None, inputs=[timeout_slider], outputs=[],
+            js="(v) => { localStorage.setItem('promptprix_timeout', v); }"
+        )
+        max_tokens_slider.change(
+            fn=None, inputs=[max_tokens_slider], outputs=[],
+            js="(v) => { localStorage.setItem('promptprix_max_tokens', v); }"
+        )
+
+        # Load from localStorage on page load
+        def load_persisted_values():
+            # Return None for each value - JavaScript will handle the actual loading
+            return [None, None, None, None, None]
+
+        app.load(
+            fn=load_persisted_values,
+            inputs=[],
+            outputs=[servers_input, models_input, temperature_slider, timeout_slider, max_tokens_slider],
+            js="""
+            () => {
+                const servers = localStorage.getItem('promptprix_servers');
+                const models = localStorage.getItem('promptprix_models');
+                const temp = localStorage.getItem('promptprix_temperature');
+                const timeout = localStorage.getItem('promptprix_timeout');
+                const max_tokens = localStorage.getItem('promptprix_max_tokens');
+                return [
+                    servers || null,
+                    models || null,
+                    temp ? parseFloat(temp) : null,
+                    timeout ? parseInt(timeout) : null,
+                    max_tokens ? parseInt(max_tokens) : null
+                ];
+            }
+            """
         )
 
     return app
