@@ -21,10 +21,61 @@ from prompt_prix.handlers import (
 )
 
 
+# Custom CSS for tab status colors
+TAB_STATUS_CSS = """
+/* Tab status indicator colors */
+#model-tabs button.tab-pending {
+    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%) !important;
+    border-left: 4px solid #ef4444 !important;
+}
+#model-tabs button.tab-streaming {
+    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
+    border-left: 4px solid #f59e0b !important;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+#model-tabs button.tab-completed {
+    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%) !important;
+    border-left: 4px solid #10b981 !important;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+"""
+
+# JavaScript to update tab colors based on state
+TAB_STATUS_JS = """
+function updateTabColors(tabStates) {
+    if (!tabStates) return tabStates;
+
+    const tabContainer = document.getElementById('model-tabs');
+    if (!tabContainer) return tabStates;
+
+    const buttons = tabContainer.querySelectorAll('button');
+
+    tabStates.forEach((status, index) => {
+        if (index < buttons.length) {
+            const btn = buttons[index];
+            btn.classList.remove('tab-pending', 'tab-streaming', 'tab-completed');
+            if (status === 'pending') {
+                btn.classList.add('tab-pending');
+            } else if (status === 'streaming') {
+                btn.classList.add('tab-streaming');
+            } else if (status === 'completed') {
+                btn.classList.add('tab-completed');
+            }
+        }
+    });
+
+    return tabStates;
+}
+"""
+
+
 def create_app() -> gr.Blocks:
     """Create the Gradio application."""
 
-    with gr.Blocks(title="prompt-prix", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="prompt-prix", theme=gr.themes.Soft(), css=TAB_STATUS_CSS) as app:
         gr.Markdown("# prompt-prix")
         gr.Markdown("Compare responses from multiple LLMs served via LM Studio.")
 
@@ -117,9 +168,12 @@ def create_app() -> gr.Blocks:
         # MODEL OUTPUT TABS
         # ─────────────────────────────────────────────────────────────
 
+        # Hidden component to track tab states and trigger JS updates
+        tab_states = gr.JSON(value=[], visible=False, elem_id="tab-states")
+
         # Create tabs for up to 10 models (can be extended)
         model_outputs = []
-        with gr.Tabs():
+        with gr.Tabs(elem_id="model-tabs"):
             for i in range(10):
                 with gr.Tab(f"Model {i + 1}"):
                     output = gr.Markdown(
@@ -202,14 +256,22 @@ def create_app() -> gr.Blocks:
         send_button.click(
             fn=send_single_prompt,
             inputs=[prompt_input],
-            outputs=[status_display] + model_outputs
+            outputs=[status_display, tab_states] + model_outputs
         )
 
         # Also send on Enter in prompt box
         prompt_input.submit(
             fn=send_single_prompt,
             inputs=[prompt_input],
-            outputs=[status_display] + model_outputs
+            outputs=[status_display, tab_states] + model_outputs
+        )
+
+        # Update tab colors whenever tab_states changes (including during streaming)
+        tab_states.change(
+            fn=None,
+            inputs=[tab_states],
+            outputs=[tab_states],
+            js=TAB_STATUS_JS
         )
 
         batch_button.click(

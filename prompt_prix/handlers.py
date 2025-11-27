@@ -113,12 +113,13 @@ async def send_single_prompt(prompt: str):
     session = state.session
 
     if session is None:
-        yield ("❌ Session not initialized",) + tuple("" for _ in range(10))
+        yield ("❌ Session not initialized", []) + tuple("" for _ in range(10))
         return
 
     if session.state.halted:
         yield (
             f"❌ Session halted: {session.state.halt_reason}",
+            ["completed"] * len(session.state.models) + [""] * (10 - len(session.state.models)),
         ) + tuple(
             session.get_context_display(m) if m in session.state.contexts else ""
             for m in session.state.models[:10]
@@ -126,12 +127,29 @@ async def send_single_prompt(prompt: str):
         return
 
     if not prompt.strip():
-        yield ("❌ Empty prompt",) + tuple("" for _ in range(10))
+        yield ("❌ Empty prompt", []) + tuple("" for _ in range(10))
         return
 
     # Track streaming state for each model
     streaming_responses: dict[str, str] = {m: "" for m in session.state.models}
+    streaming_started: set[str] = set()  # Models that have started receiving data
     completed_models: set[str] = set()
+
+    def build_tab_states():
+        """Build tab state list: pending, streaming, or completed."""
+        states = []
+        for i in range(10):
+            if i < len(session.state.models):
+                model_id = session.state.models[i]
+                if model_id in completed_models:
+                    states.append("completed")
+                elif model_id in streaming_started:
+                    states.append("streaming")
+                else:
+                    states.append("pending")
+            else:
+                states.append("")
+        return states
 
     def build_output():
         """Build current output tuple with streaming state."""
@@ -163,13 +181,13 @@ async def send_single_prompt(prompt: str):
     for model_id in session.state.models:
         session.state.contexts[model_id].add_user_message(prompt.strip())
 
-    # Initial state - show waiting status
+    # Initial state - show waiting status with all tabs pending
     pending = len(session.state.models)
-    yield (f"⏳ Generating responses... (0/{pending} complete)",) + tuple(build_output())
+    yield (f"⏳ Generating responses... (0/{pending} complete)", build_tab_states()) + tuple(build_output())
 
     # Process each model with streaming
     async def stream_model(model_id: str):
-        nonlocal streaming_responses, completed_models
+        nonlocal streaming_responses, streaming_started, completed_models
         context = session.state.contexts[model_id]
 
         # Find server
@@ -181,6 +199,7 @@ async def send_single_prompt(prompt: str):
                 await asyncio.sleep(0.5)
 
         await session.server_pool.acquire_server(server_url)
+        streaming_started.add(model_id)  # Mark as streaming once server acquired
 
         try:
             from prompt_prix.core import stream_completion
@@ -218,15 +237,18 @@ async def send_single_prompt(prompt: str):
         await asyncio.sleep(0.1)  # Update rate
         done = len(completed_models)
         total = len(session.state.models)
-        yield (f"⏳ Generating responses... ({done}/{total} complete)",) + tuple(build_output())
+        yield (f"⏳ Generating responses... ({done}/{total} complete)", build_tab_states()) + tuple(build_output())
 
     # Wait for all tasks to fully complete
     await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Final output with completed conversations
+    # Final output with completed conversations - all tabs completed
     status = "✅ All responses complete"
     if session.state.halted:
         status = f"⚠️ Session halted: {session.state.halt_reason}"
+
+    # All models completed
+    final_tab_states = ["completed"] * len(session.state.models) + [""] * (10 - len(session.state.models))
 
     contexts = []
     for i in range(10):
@@ -236,7 +258,7 @@ async def send_single_prompt(prompt: str):
         else:
             contexts.append("")
 
-    yield (status,) + tuple(contexts)
+    yield (status, final_tab_states) + tuple(contexts)
 
 
 async def run_batch_prompts(file_obj) -> tuple:

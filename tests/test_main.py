@@ -443,7 +443,8 @@ class TestStreamingOutputNoDuplication:
             outputs.append(update)
 
         # Check final output - should have exactly one **User:** and one **Assistant:**
-        final_output = outputs[-1][1]  # First model's output
+        # Output format: (status, tab_states, model1_output, model2_output, ...)
+        final_output = outputs[-1][2]  # First model's output (index 2 after status and tab_states)
         user_count = final_output.count("**User:**")
         assistant_count = final_output.count("**Assistant:**")
 
@@ -487,9 +488,10 @@ class TestStreamingOutputNoDuplication:
             outputs.append(update)
 
         # Check ALL intermediate outputs - none should have duplicate **User:**
+        # Output format: (status, tab_states, model1_output, model2_output, ...)
         for i, output in enumerate(outputs):
-            model_output = output[1]  # First model's output
-            if model_output:  # Skip empty outputs
+            model_output = output[2]  # First model's output (index 2 after status and tab_states)
+            if model_output and isinstance(model_output, str):  # Skip empty outputs
                 user_count = model_output.count("**User:**")
                 assert user_count <= 1, f"Output {i} has {user_count} **User:** tags. Output: {model_output}"
 
