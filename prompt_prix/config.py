@@ -89,6 +89,22 @@ def get_gradio_port() -> int:
         return 7860
 
 
+def get_beyond_compare_path() -> str:
+    """
+    Get Beyond Compare executable path from environment or default.
+
+    Returns path from BEYOND_COMPARE_PATH env var, or platform default.
+    """
+    path = os.environ.get("BEYOND_COMPARE_PATH")
+    if path:
+        return path
+    # Platform defaults
+    if os.name == 'nt':  # Windows
+        return r"C:\Program Files\Beyond Compare 4\BComp.exe"
+    else:  # Linux/Mac
+        return "bcompare"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # DATA MODELS
 # ─────────────────────────────────────────────────────────────────────

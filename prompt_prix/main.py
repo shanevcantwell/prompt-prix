@@ -4,13 +4,16 @@ Gradio application entry point.
 
 import gradio as gr
 import asyncio
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
 from dotenv import load_dotenv
 
 from prompt_prix.config import (
-    get_default_servers, get_gradio_port, DEFAULT_MODELS, DEFAULT_TEMPERATURE,
+    get_default_servers, get_gradio_port, get_beyond_compare_path,
+    DEFAULT_MODELS, DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_TOKENS, DEFAULT_SYSTEM_PROMPT
 )
 from prompt_prix.core import ServerPool, ComparisonSession
@@ -246,6 +249,65 @@ def export_json() -> tuple[str, str]:
     return f"✅ Exported to {filename}", report
 
 
+def launch_beyond_compare(model_a: str, model_b: str) -> str:
+    """
+    Launch Beyond Compare with two model outputs for side-by-side diff.
+    """
+    global session
+
+    if session is None:
+        return "❌ No session - initialize first"
+
+    if not model_a or not model_b:
+        return "❌ Select two models to compare"
+
+    if model_a == model_b:
+        return "❌ Select two different models"
+
+    if model_a not in session.state.contexts:
+        return f"❌ Model '{model_a}' not in session"
+    if model_b not in session.state.contexts:
+        return f"❌ Model '{model_b}' not in session"
+
+    # Get the conversation content
+    content_a = session.get_context_display(model_a)
+    content_b = session.get_context_display(model_b)
+
+    if not content_a.strip() and not content_b.strip():
+        return "❌ No conversation content to compare"
+
+    # Write to temp files with model names in filename for clarity
+    try:
+        # Create temp files that persist (delete=False)
+        safe_name_a = model_a.replace("/", "_").replace("\\", "_")[:50]
+        safe_name_b = model_b.replace("/", "_").replace("\\", "_")[:50]
+
+        file_a = tempfile.NamedTemporaryFile(
+            mode='w', suffix=f'_{safe_name_a}.txt',
+            delete=False, encoding='utf-8'
+        )
+        file_a.write(f"# Model: {model_a}\n\n{content_a}")
+        file_a.close()
+
+        file_b = tempfile.NamedTemporaryFile(
+            mode='w', suffix=f'_{safe_name_b}.txt',
+            delete=False, encoding='utf-8'
+        )
+        file_b.write(f"# Model: {model_b}\n\n{content_b}")
+        file_b.close()
+
+        # Launch Beyond Compare
+        bc_path = get_beyond_compare_path()
+        subprocess.Popen([bc_path, file_a.name, file_b.name])
+
+        return f"✅ Launched Beyond Compare: {model_a} vs {model_b}"
+
+    except FileNotFoundError:
+        return f"❌ Beyond Compare not found. Set BEYOND_COMPARE_PATH in .env"
+    except Exception as e:
+        return f"❌ Failed to launch Beyond Compare: {e}"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # GRADIO UI DEFINITION
 # ─────────────────────────────────────────────────────────────────────
@@ -373,6 +435,25 @@ def create_app() -> gr.Blocks:
         )
 
         # ─────────────────────────────────────────────────────────────
+        # BEYOND COMPARE PANEL
+        # ─────────────────────────────────────────────────────────────
+
+        with gr.Accordion("Compare Models (Beyond Compare)", open=False):
+            gr.Markdown("Select two models to open their outputs in Beyond Compare for side-by-side diff.")
+            with gr.Row():
+                compare_model_a = gr.Dropdown(
+                    label="Model A",
+                    choices=[],
+                    interactive=True
+                )
+                compare_model_b = gr.Dropdown(
+                    label="Model B",
+                    choices=[],
+                    interactive=True
+                )
+                compare_button = gr.Button("Open in Beyond Compare", variant="secondary")
+
+        # ─────────────────────────────────────────────────────────────
         # EVENT BINDINGS
         # ─────────────────────────────────────────────────────────────
 
@@ -424,6 +505,25 @@ def create_app() -> gr.Blocks:
         ).then(
             fn=lambda: gr.update(visible=True),
             outputs=[export_preview]
+        )
+
+        # Beyond Compare - update dropdowns after init
+        def get_model_choices():
+            if session is None:
+                return gr.update(choices=[]), gr.update(choices=[])
+            models = session.state.models
+            return gr.update(choices=models), gr.update(choices=models)
+
+        init_button.click(
+            fn=get_model_choices,
+            inputs=[],
+            outputs=[compare_model_a, compare_model_b]
+        )
+
+        compare_button.click(
+            fn=launch_beyond_compare,
+            inputs=[compare_model_a, compare_model_b],
+            outputs=[status_display]
         )
 
     return app
