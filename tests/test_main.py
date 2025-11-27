@@ -105,22 +105,22 @@ class TestLoadSystemPrompt:
         assert result == "You are a test assistant."
 
     def test_load_system_prompt_default_when_no_file(self):
-        """Test default prompt when no file provided."""
+        """Test fallback prompt when no file provided."""
         from prompt_prix.main import load_system_prompt
-        from prompt_prix.config import DEFAULT_SYSTEM_PROMPT
 
         result = load_system_prompt(None)
 
-        assert result == DEFAULT_SYSTEM_PROMPT
+        # Returns either DEFAULT_SYSTEM_PROMPT or content from system_prompt.txt if it exists
+        assert len(result) > 0
 
     def test_load_system_prompt_nonexistent_file(self):
-        """Test default prompt when file doesn't exist."""
+        """Test fallback prompt when file doesn't exist."""
         from prompt_prix.main import load_system_prompt
-        from prompt_prix.config import DEFAULT_SYSTEM_PROMPT
 
         result = load_system_prompt("/nonexistent/path/file.txt")
 
-        assert result == DEFAULT_SYSTEM_PROMPT
+        # Returns either DEFAULT_SYSTEM_PROMPT or content from system_prompt.txt if it exists
+        assert len(result) > 0
 
 
 class TestParsePromptsFile:
@@ -262,8 +262,8 @@ class TestSendSinglePrompt:
         # Initialize session
         pool = ServerPool([MOCK_SERVER_1])
         await pool.refresh_all_manifests()
-        main.server_pool = pool
-        main.session = ComparisonSession(
+        main.state.server_pool = pool
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
             server_pool=pool,
             system_prompt="Test",
@@ -286,7 +286,7 @@ class TestSendSinglePrompt:
         from prompt_prix import main
 
         # Ensure no session
-        main.session = None
+        main.state.session = None
 
         # Consume the generator
         result = None
@@ -303,8 +303,8 @@ class TestSendSinglePrompt:
 
         # Setup minimal session
         pool = ServerPool([MOCK_SERVER_1])
-        main.server_pool = pool
-        main.session = ComparisonSession(
+        main.state.server_pool = pool
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
             server_pool=pool,
             system_prompt="Test",
@@ -328,7 +328,7 @@ class TestExportFunctions:
         """Test export markdown without session."""
         from prompt_prix import main
 
-        main.session = None
+        main.state.session = None
 
         status, content = main.export_markdown()
 
@@ -338,7 +338,7 @@ class TestExportFunctions:
         """Test export JSON without session."""
         from prompt_prix import main
 
-        main.session = None
+        main.state.session = None
 
         status, content = main.export_json()
 
@@ -356,8 +356,8 @@ class TestExportFunctions:
 
         try:
             pool = ServerPool([MOCK_SERVER_1])
-            main.server_pool = pool
-            main.session = ComparisonSession(
+            main.state.server_pool = pool
+            main.state.session = ComparisonSession(
                 models=[MOCK_MODEL_1],
                 server_pool=pool,
                 system_prompt="Test",
@@ -386,8 +386,8 @@ class TestExportFunctions:
 
         try:
             pool = ServerPool([MOCK_SERVER_1])
-            main.server_pool = pool
-            main.session = ComparisonSession(
+            main.state.server_pool = pool
+            main.state.session = ComparisonSession(
                 models=[MOCK_MODEL_1],
                 server_pool=pool,
                 system_prompt="Test",
@@ -427,8 +427,8 @@ class TestStreamingOutputNoDuplication:
         # Initialize session
         pool = ServerPool([MOCK_SERVER_1])
         await pool.refresh_all_manifests()
-        main.server_pool = pool
-        main.session = ComparisonSession(
+        main.state.server_pool = pool
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
             server_pool=pool,
             system_prompt="Test",
@@ -442,13 +442,13 @@ class TestStreamingOutputNoDuplication:
         async for update in main.send_single_prompt("Hello world"):
             outputs.append(update)
 
-        # Check final output - should have exactly one [User] and one [Assistant]
+        # Check final output - should have exactly one **User:** and one **Assistant:**
         final_output = outputs[-1][1]  # First model's output
-        user_count = final_output.count("[User]:")
-        assistant_count = final_output.count("[Assistant]:")
+        user_count = final_output.count("**User:**")
+        assistant_count = final_output.count("**Assistant:**")
 
-        assert user_count == 1, f"Expected 1 [User], got {user_count}. Output: {final_output}"
-        assert assistant_count == 1, f"Expected 1 [Assistant], got {assistant_count}. Output: {final_output}"
+        assert user_count == 1, f"Expected 1 **User:**, got {user_count}. Output: {final_output}"
+        assert assistant_count == 1, f"Expected 1 **Assistant:**, got {assistant_count}. Output: {final_output}"
 
     @respx.mock
     @pytest.mark.asyncio
@@ -471,8 +471,8 @@ class TestStreamingOutputNoDuplication:
         # Initialize session
         pool = ServerPool([MOCK_SERVER_1])
         await pool.refresh_all_manifests()
-        main.server_pool = pool
-        main.session = ComparisonSession(
+        main.state.server_pool = pool
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
             server_pool=pool,
             system_prompt="Test",
@@ -486,12 +486,12 @@ class TestStreamingOutputNoDuplication:
         async for update in main.send_single_prompt("Test prompt"):
             outputs.append(update)
 
-        # Check ALL intermediate outputs - none should have duplicate [User]
+        # Check ALL intermediate outputs - none should have duplicate **User:**
         for i, output in enumerate(outputs):
             model_output = output[1]  # First model's output
             if model_output:  # Skip empty outputs
-                user_count = model_output.count("[User]:")
-                assert user_count <= 1, f"Output {i} has {user_count} [User] tags. Output: {model_output}"
+                user_count = model_output.count("**User:**")
+                assert user_count <= 1, f"Output {i} has {user_count} **User:** tags. Output: {model_output}"
 
 
 class TestLaunchBeyondCompare:
@@ -501,7 +501,7 @@ class TestLaunchBeyondCompare:
         """Test Beyond Compare fails without session."""
         from prompt_prix import main
 
-        main.session = None
+        main.state.session = None
 
         result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
 
@@ -513,7 +513,7 @@ class TestLaunchBeyondCompare:
         from prompt_prix.core import ServerPool, ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
-        main.session = ComparisonSession(
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
             server_pool=pool,
             system_prompt="Test",
@@ -534,7 +534,7 @@ class TestLaunchBeyondCompare:
         from prompt_prix.core import ServerPool, ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
-        main.session = ComparisonSession(
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
             server_pool=pool,
             system_prompt="Test",
@@ -553,7 +553,7 @@ class TestLaunchBeyondCompare:
         from prompt_prix.core import ServerPool, ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
-        main.session = ComparisonSession(
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],  # Only one model
             server_pool=pool,
             system_prompt="Test",
@@ -572,7 +572,7 @@ class TestLaunchBeyondCompare:
         from prompt_prix.core import ServerPool, ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
-        main.session = ComparisonSession(
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
             server_pool=pool,
             system_prompt="Test",
@@ -592,7 +592,7 @@ class TestLaunchBeyondCompare:
         from prompt_prix.core import ServerPool, ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
-        main.session = ComparisonSession(
+        main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
             server_pool=pool,
             system_prompt="Test",
@@ -602,14 +602,14 @@ class TestLaunchBeyondCompare:
         )
 
         # Add some content to contexts
-        main.session.state.contexts[MOCK_MODEL_1].add_user_message("Hello")
-        main.session.state.contexts[MOCK_MODEL_1].add_assistant_message("Hi there!")
-        main.session.state.contexts[MOCK_MODEL_2].add_user_message("Hello")
-        main.session.state.contexts[MOCK_MODEL_2].add_assistant_message("Greetings!")
+        main.state.session.state.contexts[MOCK_MODEL_1].add_user_message("Hello")
+        main.state.session.state.contexts[MOCK_MODEL_1].add_assistant_message("Hi there!")
+        main.state.session.state.contexts[MOCK_MODEL_2].add_user_message("Hello")
+        main.state.session.state.contexts[MOCK_MODEL_2].add_assistant_message("Greetings!")
 
         # Mock get_beyond_compare_path to return non-existent path
         monkeypatch.setattr(
-            "prompt_prix.main.get_beyond_compare_path",
+            "prompt_prix.handlers.get_beyond_compare_path",
             lambda: "/nonexistent/path/bcompare"
         )
 
