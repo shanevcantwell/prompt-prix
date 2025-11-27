@@ -48,6 +48,46 @@ def parse_models_input(models_text: str) -> list[str]:
     return models
 
 
+async def fetch_available_models(servers_text: str) -> tuple[str, str]:
+    """
+    Query all configured servers and return available models.
+    Returns (status_message, models_text).
+    """
+    servers = parse_servers_input(servers_text)
+
+    if not servers:
+        return "❌ No servers configured", ""
+
+    # Create a temporary server pool to fetch manifests
+    pool = ServerPool(servers)
+    await pool.refresh_all_manifests()
+
+    # Collect all models with their server info
+    models_by_server: dict[str, list[str]] = {}
+    for url, server in pool.servers.items():
+        if server.available_models:
+            models_by_server[url] = server.available_models
+
+    if not models_by_server:
+        return "⚠️ No models found on any server. Are models loaded in LM Studio?", ""
+
+    # Build output: list all unique models
+    all_models = set()
+    for models in models_by_server.values():
+        all_models.update(models)
+
+    # Sort for consistent ordering
+    sorted_models = sorted(all_models)
+    models_text = "\n".join(sorted_models)
+
+    # Build status showing which server has which models
+    status_parts = [f"✅ Found {len(all_models)} model(s):"]
+    for url, models in models_by_server.items():
+        status_parts.append(f"  {url}: {len(models)} model(s)")
+
+    return " | ".join(status_parts), models_text
+
+
 def parse_servers_input(servers_text: str) -> list[str]:
     """Parse newline or comma-separated server list."""
     servers = []
@@ -333,12 +373,14 @@ def create_app() -> gr.Blocks:
                         placeholder="http://192.168.1.10:1234\nhttp://192.168.1.11:1234"
                     )
                 with gr.Column(scale=1):
-                    models_input = gr.Textbox(
-                        label="Models to Compare (one per line)",
-                        value="\n".join(DEFAULT_MODELS),
-                        lines=5,
-                        placeholder="llama-3.2-3b-instruct\nqwen2.5-7b-instruct"
-                    )
+                    with gr.Row():
+                        models_input = gr.Textbox(
+                            label="Models to Compare (one per line)",
+                            value="\n".join(DEFAULT_MODELS),
+                            lines=5,
+                            placeholder="llama-3.2-3b-instruct\nqwen2.5-7b-instruct"
+                        )
+                    fetch_models_button = gr.Button("🔄 Fetch Available Models", size="sm")
 
             with gr.Row():
                 temperature_slider = gr.Slider(
@@ -456,6 +498,12 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
         # EVENT BINDINGS
         # ─────────────────────────────────────────────────────────────
+
+        fetch_models_button.click(
+            fn=fetch_available_models,
+            inputs=[servers_input],
+            outputs=[status_display, models_input]
+        )
 
         init_button.click(
             fn=initialize_session,
