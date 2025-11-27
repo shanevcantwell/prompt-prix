@@ -272,10 +272,13 @@ class TestSendSinglePrompt:
             max_tokens=2048
         )
 
-        result = await main.send_single_prompt("Test prompt")
+        # send_single_prompt is now an async generator for streaming
+        result = None
+        async for update in main.send_single_prompt("Test prompt"):
+            result = update
 
         # Should return success
-        assert "✅" in result[0] or "sent" in result[0].lower()
+        assert "✅" in result[0] or "complete" in result[0].lower()
 
     @pytest.mark.asyncio
     async def test_send_single_prompt_no_session(self):
@@ -285,7 +288,10 @@ class TestSendSinglePrompt:
         # Ensure no session
         main.session = None
 
-        result = await main.send_single_prompt("Test prompt")
+        # Consume the generator
+        result = None
+        async for update in main.send_single_prompt("Test prompt"):
+            result = update
 
         assert "not initialized" in result[0].lower() or "❌" in result[0]
 
@@ -307,7 +313,10 @@ class TestSendSinglePrompt:
             max_tokens=2048
         )
 
-        result = await main.send_single_prompt("   ")
+        # Consume the generator
+        result = None
+        async for update in main.send_single_prompt("   "):
+            result = update
 
         assert "Empty" in result[0] or "❌" in result[0]
 

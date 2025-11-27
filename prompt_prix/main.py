@@ -177,32 +177,120 @@ async def initialize_session(
     )
 
 
-async def send_single_prompt(prompt: str) -> tuple:
+async def send_single_prompt(prompt: str):
     """
-    Send a single prompt to all models.
-    Returns tuple of (status_message, *model_tab_contents)
+    Send a single prompt to all models with streaming output.
+    Yields updates as responses stream in from each model.
     """
     global session
 
     if session is None:
-        return ("❌ Session not initialized",) + tuple("" for _ in range(10))
+        yield ("❌ Session not initialized",) + tuple("" for _ in range(10))
+        return
 
     if session.state.halted:
-        return (
+        yield (
             f"❌ Session halted: {session.state.halt_reason}",
         ) + tuple(
             session.get_context_display(m) if m in session.state.contexts else ""
             for m in session.state.models[:10]
         ) + tuple("" for _ in range(10 - len(session.state.models)))
+        return
 
     if not prompt.strip():
-        return ("❌ Empty prompt",) + tuple("" for _ in range(10))
+        yield ("❌ Empty prompt",) + tuple("" for _ in range(10))
+        return
 
-    # Send prompt to all models
-    await session.send_prompt_to_all(prompt.strip())
+    # Track streaming state for each model
+    streaming_responses: dict[str, str] = {m: "" for m in session.state.models}
+    completed_models: set[str] = set()
 
-    # Build result tuple
-    status = "✅ Prompt sent to all models"
+    def build_output():
+        """Build current output tuple with streaming state."""
+        contexts = []
+        for i in range(10):
+            if i < len(session.state.models):
+                model_id = session.state.models[i]
+                # Show existing conversation + current streaming response
+                existing = session.state.contexts[model_id].to_display_format()
+                current = streaming_responses.get(model_id, "")
+                if current:
+                    if existing:
+                        contexts.append(f"{existing}\n\n[User]: {prompt.strip()}\n\n[Assistant]: {current}")
+                    else:
+                        contexts.append(f"[User]: {prompt.strip()}\n\n[Assistant]: {current}")
+                else:
+                    if existing:
+                        contexts.append(f"{existing}\n\n[User]: {prompt.strip()}\n\n[Assistant]: ...")
+                    else:
+                        contexts.append(f"[User]: {prompt.strip()}\n\n[Assistant]: ...")
+            else:
+                contexts.append("")
+        return contexts
+
+    # Initial state - show waiting status
+    pending = len(session.state.models)
+    yield (f"⏳ Generating responses... (0/{pending} complete)",) + tuple(build_output())
+
+    # Process each model with streaming
+    async def stream_model(model_id: str):
+        nonlocal streaming_responses, completed_models
+        context = session.state.contexts[model_id]
+        context.add_user_message(prompt.strip())
+
+        # Find server
+        server_url = None
+        while server_url is None:
+            await session.server_pool.refresh_all_manifests()
+            server_url = session.server_pool.find_available_server(model_id)
+            if server_url is None:
+                await asyncio.sleep(0.5)
+
+        await session.server_pool.acquire_server(server_url)
+
+        try:
+            from prompt_prix.core import stream_completion
+            messages = context.to_openai_messages(session.state.system_prompt)
+
+            full_response = ""
+            async for chunk in stream_completion(
+                server_url=server_url,
+                model_id=model_id,
+                messages=messages,
+                temperature=session.state.temperature,
+                max_tokens=session.state.max_tokens,
+                timeout_seconds=session.state.timeout_seconds
+            ):
+                full_response += chunk
+                streaming_responses[model_id] = full_response
+
+            context.add_assistant_message(full_response)
+            completed_models.add(model_id)
+
+        except Exception as e:
+            context.error = str(e)
+            session.state.halted = True
+            session.state.halt_reason = f"Model {model_id} failed: {e}"
+            streaming_responses[model_id] = f"[ERROR: {e}]"
+            completed_models.add(model_id)
+        finally:
+            session.server_pool.release_server(server_url)
+
+    # Start all models as tasks
+    tasks = [asyncio.create_task(stream_model(m)) for m in session.state.models]
+
+    # Poll and yield updates while tasks are running
+    while len(completed_models) < len(session.state.models):
+        await asyncio.sleep(0.1)  # Update rate
+        done = len(completed_models)
+        total = len(session.state.models)
+        yield (f"⏳ Generating responses... ({done}/{total} complete)",) + tuple(build_output())
+
+    # Wait for all tasks to fully complete
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Final output with completed conversations
+    status = "✅ All responses complete"
     if session.state.halted:
         status = f"⚠️ Session halted: {session.state.halt_reason}"
 
@@ -214,7 +302,7 @@ async def send_single_prompt(prompt: str) -> tuple:
         else:
             contexts.append("")
 
-    return (status,) + tuple(contexts)
+    yield (status,) + tuple(contexts)
 
 
 async def run_batch_prompts(file_obj) -> tuple:
