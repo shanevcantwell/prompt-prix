@@ -422,8 +422,8 @@ class TestComparisonSession:
 
         display = session.get_context_display(MOCK_MODEL_1)
 
-        assert "[User]: Hello" in display
-        assert "[Assistant]: Hi there!" in display
+        assert "**User:** Hello" in display
+        assert "**Assistant:** Hi there!" in display
 
     def test_comparison_session_get_all_contexts(self, mock_servers, mock_models):
         """Test getting all context displays."""

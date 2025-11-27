@@ -151,15 +151,15 @@ class ModelContext(BaseModel):
         return result
 
     def to_display_format(self) -> str:
-        """Convert to human-readable format for UI display."""
-        lines = []
+        """Convert to human-readable format for UI display (markdown)."""
+        lines = [f"### {self.model_id}"]
         for msg in self.messages:
             if msg.role == "user":
-                lines.append(f"[User]: {msg.content}")
+                lines.append(f"**User:** {msg.content}")
             elif msg.role == "assistant":
-                lines.append(f"[Assistant]: {msg.content}")
+                lines.append(f"**Assistant:** {msg.content}")
         if self.error:
-            lines.append(f"\n[ERROR]: {self.error}")
+            lines.append(f"\n⚠️ **ERROR:** {self.error}")
         return "\n\n".join(lines)
 
 

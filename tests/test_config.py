@@ -161,8 +161,8 @@ class TestModelContext:
 
         display = context.to_display_format()
 
-        assert "[User]: What is 2+2?" in display
-        assert "[Assistant]: 2+2 equals 4." in display
+        assert "**User:** What is 2+2?" in display
+        assert "**Assistant:** 2+2 equals 4." in display
 
     def test_model_context_to_display_format_with_error(self):
         """Test display format includes error when present."""
@@ -174,7 +174,7 @@ class TestModelContext:
 
         display = context.to_display_format()
 
-        assert "[ERROR]: Connection timeout" in display
+        assert "**ERROR:** Connection timeout" in display
 
 
 class TestSessionState:
