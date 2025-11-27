@@ -225,14 +225,14 @@ class TestGetCompletion:
     @respx.mock
     @pytest.mark.asyncio
     async def test_get_completion_http_error(self):
-        """Test completion handles HTTP errors."""
-        from prompt_prix.core import get_completion
+        """Test completion handles HTTP errors with user-friendly message."""
+        from prompt_prix.core import get_completion, LMStudioError
 
         respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
-            return_value=httpx.Response(500, json={"error": "Internal error"})
+            return_value=httpx.Response(500, json={"error": {"message": "Model context limit exceeded"}})
         )
 
-        with pytest.raises(httpx.HTTPStatusError):
+        with pytest.raises(LMStudioError) as exc_info:
             await get_completion(
                 server_url=MOCK_SERVER_1,
                 model_id=MOCK_MODEL_1,
@@ -241,6 +241,9 @@ class TestGetCompletion:
                 max_tokens=100,
                 timeout_seconds=30
             )
+
+        assert "Model context limit exceeded" in str(exc_info.value)
+        assert MOCK_MODEL_1 in str(exc_info.value)
 
 
 class TestComparisonSession:

@@ -13,6 +13,29 @@ from prompt_prix.config import (
 )
 
 
+class LMStudioError(Exception):
+    """Human-readable error from LM Studio API."""
+    pass
+
+
+def parse_lm_studio_error(response: httpx.Response) -> str:
+    """Extract a user-friendly error message from LM Studio response."""
+    try:
+        data = response.json()
+        # LM Studio typically returns {"error": {"message": "..."}}
+        if isinstance(data, dict):
+            error = data.get("error", {})
+            if isinstance(error, dict):
+                message = error.get("message", "")
+                if message:
+                    return message
+            elif isinstance(error, str):
+                return error
+        return f"HTTP {response.status_code}: {response.text[:200]}"
+    except Exception:
+        return f"HTTP {response.status_code}: {response.text[:200]}"
+
+
 # ─────────────────────────────────────────────────────────────────────
 # SERVER POOL
 # ─────────────────────────────────────────────────────────────────────
@@ -96,7 +119,7 @@ async def stream_completion(
     """
     Stream a completion from an LM Studio server.
     Yields text chunks as they arrive.
-    Raises exceptions on error (context limit, timeout, etc.).
+    Raises LMStudioError with user-friendly message on error.
     """
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         async with client.stream(
@@ -110,7 +133,20 @@ async def stream_completion(
                 "stream": True
             }
         ) as response:
-            response.raise_for_status()
+            if response.status_code >= 400:
+                # Read the error body for streaming responses
+                error_body = await response.aread()
+                try:
+                    error_data = json.loads(error_body)
+                    error = error_data.get("error", {})
+                    if isinstance(error, dict):
+                        msg = error.get("message", str(error_body[:200]))
+                    else:
+                        msg = str(error)
+                except Exception:
+                    msg = error_body.decode()[:200]
+                raise LMStudioError(f"LM Studio error for '{model_id}': {msg}")
+
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
                     data = line[6:]
@@ -137,7 +173,7 @@ async def get_completion(
     """
     Get a complete (non-streaming) response from an LM Studio server.
     Returns full response text.
-    Raises exceptions on error.
+    Raises LMStudioError with user-friendly message on error.
     """
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await client.post(
@@ -150,7 +186,9 @@ async def get_completion(
                 "stream": False
             }
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            error_msg = parse_lm_studio_error(response)
+            raise LMStudioError(f"LM Studio error for '{model_id}': {error_msg}")
         data = response.json()
         return data["choices"][0]["message"]["content"]
 
