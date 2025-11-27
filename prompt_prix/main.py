@@ -574,12 +574,14 @@ def create_app() -> gr.Blocks:
                 compare_model_a = gr.Dropdown(
                     label="Model A",
                     choices=[],
-                    interactive=True
+                    interactive=True,
+                    allow_custom_value=True
                 )
                 compare_model_b = gr.Dropdown(
                     label="Model B",
                     choices=[],
-                    interactive=True
+                    interactive=True,
+                    allow_custom_value=True
                 )
                 compare_button = gr.Button("Open in Beyond Compare", variant="secondary")
 
@@ -593,6 +595,14 @@ def create_app() -> gr.Blocks:
             outputs=[status_display, models_input]
         )
 
+        # Beyond Compare - update dropdowns after init
+        def get_model_choices():
+            if session is None:
+                return gr.update(choices=[]), gr.update(choices=[])
+            models = session.state.models
+            return gr.update(choices=models, value=models[0] if models else None), \
+                   gr.update(choices=models, value=models[1] if len(models) > 1 else None)
+
         init_button.click(
             fn=initialize_session,
             inputs=[
@@ -604,6 +614,10 @@ def create_app() -> gr.Blocks:
                 max_tokens_slider
             ],
             outputs=[status_display] + model_outputs
+        ).then(
+            fn=get_model_choices,
+            inputs=[],
+            outputs=[compare_model_a, compare_model_b]
         )
 
         send_button.click(
@@ -641,19 +655,6 @@ def create_app() -> gr.Blocks:
         ).then(
             fn=lambda: gr.update(visible=True),
             outputs=[export_preview]
-        )
-
-        # Beyond Compare - update dropdowns after init
-        def get_model_choices():
-            if session is None:
-                return gr.update(choices=[]), gr.update(choices=[])
-            models = session.state.models
-            return gr.update(choices=models), gr.update(choices=models)
-
-        init_button.click(
-            fn=get_model_choices,
-            inputs=[],
-            outputs=[compare_model_a, compare_model_b]
         )
 
         compare_button.click(
