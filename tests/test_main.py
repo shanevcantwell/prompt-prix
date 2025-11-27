@@ -404,3 +404,261 @@ class TestExportFunctions:
             assert "configuration" in parsed
         finally:
             os.chdir(original_dir)
+
+
+class TestStreamingOutputNoDuplication:
+    """Tests to ensure streaming output doesn't duplicate messages."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_streaming_no_user_message_duplication(self):
+        """Test that user message is not duplicated during streaming."""
+        from prompt_prix import main
+        from prompt_prix.core import ServerPool, ComparisonSession
+
+        # Setup mocks
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
+            return_value=httpx.Response(200, json=MOCK_COMPLETION_RESPONSE)
+        )
+
+        # Initialize session
+        pool = ServerPool([MOCK_SERVER_1])
+        await pool.refresh_all_manifests()
+        main.server_pool = pool
+        main.session = ComparisonSession(
+            models=[MOCK_MODEL_1],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
+
+        # Collect all outputs during streaming
+        outputs = []
+        async for update in main.send_single_prompt("Hello world"):
+            outputs.append(update)
+
+        # Check final output - should have exactly one [User] and one [Assistant]
+        final_output = outputs[-1][1]  # First model's output
+        user_count = final_output.count("[User]:")
+        assistant_count = final_output.count("[Assistant]:")
+
+        assert user_count == 1, f"Expected 1 [User], got {user_count}. Output: {final_output}"
+        assert assistant_count == 1, f"Expected 1 [Assistant], got {assistant_count}. Output: {final_output}"
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_streaming_intermediate_output_no_duplication(self):
+        """Test intermediate streaming updates don't duplicate messages."""
+        from prompt_prix import main
+        from prompt_prix.core import ServerPool, ComparisonSession
+
+        # Setup mocks with streaming response
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+
+        from tests.conftest import MOCK_STREAMING_CHUNKS
+        streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
+            return_value=httpx.Response(200, text=streaming_content)
+        )
+
+        # Initialize session
+        pool = ServerPool([MOCK_SERVER_1])
+        await pool.refresh_all_manifests()
+        main.server_pool = pool
+        main.session = ComparisonSession(
+            models=[MOCK_MODEL_1],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
+
+        # Collect all outputs during streaming
+        outputs = []
+        async for update in main.send_single_prompt("Test prompt"):
+            outputs.append(update)
+
+        # Check ALL intermediate outputs - none should have duplicate [User]
+        for i, output in enumerate(outputs):
+            model_output = output[1]  # First model's output
+            if model_output:  # Skip empty outputs
+                user_count = model_output.count("[User]:")
+                assert user_count <= 1, f"Output {i} has {user_count} [User] tags. Output: {model_output}"
+
+
+class TestLaunchBeyondCompare:
+    """Tests for launch_beyond_compare function."""
+
+    def test_launch_beyond_compare_no_session(self):
+        """Test Beyond Compare fails without session."""
+        from prompt_prix import main
+
+        main.session = None
+
+        result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
+
+        assert "No session" in result or "❌" in result
+
+    def test_launch_beyond_compare_missing_model_selection(self):
+        """Test Beyond Compare fails when models not selected."""
+        from prompt_prix import main
+        from prompt_prix.core import ServerPool, ComparisonSession
+
+        pool = ServerPool([MOCK_SERVER_1])
+        main.session = ComparisonSession(
+            models=[MOCK_MODEL_1, MOCK_MODEL_2],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
+
+        result = main.launch_beyond_compare("", MOCK_MODEL_2)
+        assert "Select two models" in result or "❌" in result
+
+        result = main.launch_beyond_compare(MOCK_MODEL_1, "")
+        assert "Select two models" in result or "❌" in result
+
+    def test_launch_beyond_compare_same_model(self):
+        """Test Beyond Compare fails when same model selected twice."""
+        from prompt_prix import main
+        from prompt_prix.core import ServerPool, ComparisonSession
+
+        pool = ServerPool([MOCK_SERVER_1])
+        main.session = ComparisonSession(
+            models=[MOCK_MODEL_1, MOCK_MODEL_2],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
+
+        result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_1)
+
+        assert "different models" in result or "❌" in result
+
+    def test_launch_beyond_compare_model_not_in_session(self):
+        """Test Beyond Compare fails when model not in session."""
+        from prompt_prix import main
+        from prompt_prix.core import ServerPool, ComparisonSession
+
+        pool = ServerPool([MOCK_SERVER_1])
+        main.session = ComparisonSession(
+            models=[MOCK_MODEL_1],  # Only one model
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
+
+        result = main.launch_beyond_compare(MOCK_MODEL_1, "nonexistent-model")
+
+        assert "not in session" in result or "❌" in result
+
+    def test_launch_beyond_compare_no_content(self):
+        """Test Beyond Compare fails when no conversation content."""
+        from prompt_prix import main
+        from prompt_prix.core import ServerPool, ComparisonSession
+
+        pool = ServerPool([MOCK_SERVER_1])
+        main.session = ComparisonSession(
+            models=[MOCK_MODEL_1, MOCK_MODEL_2],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
+        # Contexts are empty by default
+
+        result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
+
+        assert "No conversation content" in result or "❌" in result
+
+    def test_launch_beyond_compare_executable_not_found(self, monkeypatch):
+        """Test Beyond Compare handles missing executable gracefully."""
+        from prompt_prix import main
+        from prompt_prix.core import ServerPool, ComparisonSession
+
+        pool = ServerPool([MOCK_SERVER_1])
+        main.session = ComparisonSession(
+            models=[MOCK_MODEL_1, MOCK_MODEL_2],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
+
+        # Add some content to contexts
+        main.session.state.contexts[MOCK_MODEL_1].add_user_message("Hello")
+        main.session.state.contexts[MOCK_MODEL_1].add_assistant_message("Hi there!")
+        main.session.state.contexts[MOCK_MODEL_2].add_user_message("Hello")
+        main.session.state.contexts[MOCK_MODEL_2].add_assistant_message("Greetings!")
+
+        # Mock get_beyond_compare_path to return non-existent path
+        monkeypatch.setattr(
+            "prompt_prix.main.get_beyond_compare_path",
+            lambda: "/nonexistent/path/bcompare"
+        )
+
+        result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
+
+        assert "Beyond Compare not found" in result or "❌" in result
+
+
+class TestFetchAvailableModels:
+    """Tests for fetch_available_models function."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_available_models_success(self):
+        """Test fetching models from servers."""
+        from prompt_prix.main import fetch_available_models
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+
+        status, models_text = await fetch_available_models(MOCK_SERVER_1)
+
+        assert "✅" in status
+        assert MOCK_MODEL_1 in models_text
+        assert MOCK_MODEL_2 in models_text
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_available_models_no_servers(self):
+        """Test fetch fails with no servers configured."""
+        from prompt_prix.main import fetch_available_models
+
+        status, models_text = await fetch_available_models("")
+
+        assert "No servers" in status or "❌" in status
+        assert models_text == ""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_available_models_server_down(self):
+        """Test fetch handles unreachable servers."""
+        from prompt_prix.main import fetch_available_models
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+
+        status, models_text = await fetch_available_models(MOCK_SERVER_1)
+
+        assert "No models found" in status or "⚠️" in status
+        assert models_text == ""

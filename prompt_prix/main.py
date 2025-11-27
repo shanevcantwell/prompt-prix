@@ -211,22 +211,29 @@ async def send_single_prompt(prompt: str):
         for i in range(10):
             if i < len(session.state.models):
                 model_id = session.state.models[i]
-                # Show existing conversation + current streaming response
-                existing = session.state.contexts[model_id].to_display_format()
-                current = streaming_responses.get(model_id, "")
-                if current:
-                    if existing:
-                        contexts.append(f"{existing}\n\n[User]: {prompt.strip()}\n\n[Assistant]: {current}")
-                    else:
-                        contexts.append(f"[User]: {prompt.strip()}\n\n[Assistant]: {current}")
+                if model_id in completed_models:
+                    # Model finished - show final context (user + assistant already in context)
+                    contexts.append(session.state.contexts[model_id].to_display_format())
                 else:
+                    # Model still streaming - existing has user message, append streaming response
+                    existing = session.state.contexts[model_id].to_display_format()
+                    current = streaming_responses.get(model_id, "")
                     if existing:
-                        contexts.append(f"{existing}\n\n[User]: {prompt.strip()}\n\n[Assistant]: ...")
+                        # User message already in context, just append assistant streaming
+                        if current:
+                            contexts.append(f"{existing}\n\n[Assistant]: {current}")
+                        else:
+                            contexts.append(f"{existing}\n\n[Assistant]: ...")
                     else:
+                        # No messages yet (shouldn't happen, but handle gracefully)
                         contexts.append(f"[User]: {prompt.strip()}\n\n[Assistant]: ...")
             else:
                 contexts.append("")
         return contexts
+
+    # Add user messages to all contexts upfront (before streaming starts)
+    for model_id in session.state.models:
+        session.state.contexts[model_id].add_user_message(prompt.strip())
 
     # Initial state - show waiting status
     pending = len(session.state.models)
@@ -236,7 +243,6 @@ async def send_single_prompt(prompt: str):
     async def stream_model(model_id: str):
         nonlocal streaming_responses, completed_models
         context = session.state.contexts[model_id]
-        context.add_user_message(prompt.strip())
 
         # Find server
         server_url = None
