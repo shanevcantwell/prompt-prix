@@ -3,11 +3,14 @@ Gradio event handlers for prompt-prix.
 """
 
 import asyncio
+import json
 import subprocess
 import tempfile
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
+
+import gradio as gr
 
 from prompt_prix import state
 from prompt_prix.config import get_beyond_compare_path
@@ -16,15 +19,15 @@ from prompt_prix.export import generate_markdown_report, generate_json_report, s
 from prompt_prix.parsers import parse_models_input, parse_servers_input, parse_prompts_file, load_system_prompt
 
 
-async def fetch_available_models(servers_text: str) -> tuple[str, str]:
+async def fetch_available_models(servers_text: str) -> tuple[str, dict]:
     """
     Query all configured servers and return available models.
-    Returns (status_message, models_text).
+    Returns (status_message, gr.update for CheckboxGroup choices).
     """
     servers = parse_servers_input(servers_text)
 
     if not servers:
-        return "❌ No servers configured", ""
+        return "❌ No servers configured", gr.update(choices=[])
 
     # Create a temporary server pool to fetch manifests
     pool = ServerPool(servers)
@@ -37,7 +40,7 @@ async def fetch_available_models(servers_text: str) -> tuple[str, str]:
             models_by_server[url] = server.available_models
 
     if not models_by_server:
-        return "⚠️ No models found on any server. Are models loaded in LM Studio?", ""
+        return "⚠️ No models found on any server. Are models loaded in LM Studio?", gr.update(choices=[])
 
     # Build output: list all unique models
     all_models = set()
@@ -46,20 +49,19 @@ async def fetch_available_models(servers_text: str) -> tuple[str, str]:
 
     # Sort for consistent ordering
     sorted_models = sorted(all_models)
-    models_text = "\n".join(sorted_models)
 
     # Build status showing which server has which models
     status_parts = [f"✅ Found {len(all_models)} model(s):"]
     for url, models in models_by_server.items():
         status_parts.append(f"  {url}: {len(models)} model(s)")
 
-    return " | ".join(status_parts), models_text
+    return " | ".join(status_parts), gr.update(choices=sorted_models)
 
 
 async def initialize_session(
     servers_text: str,
-    models_text: str,
-    system_prompt_file: Optional[str],
+    models_selected: list[str],
+    system_prompt_text: str,
     temperature: float,
     timeout: int,
     max_tokens: int
@@ -67,10 +69,18 @@ async def initialize_session(
     """
     Initialize or reinitialize the comparison session.
     Returns tuple of (status_message, *model_tab_contents)
+
+    Args:
+        servers_text: Newline-separated server URLs
+        models_selected: List of selected model IDs from CheckboxGroup
+        system_prompt_text: System prompt text directly from textbox
+        temperature: Model temperature setting
+        timeout: Timeout in seconds
+        max_tokens: Maximum tokens to generate
     """
     servers = parse_servers_input(servers_text)
-    models = parse_models_input(models_text)
-    system_prompt = load_system_prompt(system_prompt_file)
+    models = models_selected if models_selected else []
+    system_prompt = system_prompt_text.strip() if system_prompt_text else ""
 
     if not servers:
         return ("❌ No servers configured",) + tuple("" for _ in range(10))
@@ -105,7 +115,7 @@ async def initialize_session(
     )
 
 
-async def send_single_prompt(prompt: str):
+async def send_single_prompt(prompt: str, tools_json: str = ""):
     """
     Send a single prompt to all models with streaming output.
     Yields updates as responses stream in from each model.
@@ -129,6 +139,18 @@ async def send_single_prompt(prompt: str):
     if not prompt.strip():
         yield ("❌ Empty prompt", []) + tuple("" for _ in range(10))
         return
+
+    # Parse tools JSON if provided
+    tools = None
+    if tools_json and tools_json.strip():
+        try:
+            tools = json.loads(tools_json)
+            if not isinstance(tools, list):
+                yield ("❌ Tools must be a JSON array", []) + tuple("" for _ in range(10))
+                return
+        except json.JSONDecodeError as e:
+            yield (f"❌ Invalid tools JSON: {e}", []) + tuple("" for _ in range(10))
+            return
 
     # Track streaming state for each model
     streaming_responses: dict[str, str] = {m: "" for m in session.state.models}
@@ -181,38 +203,41 @@ async def send_single_prompt(prompt: str):
     for model_id in session.state.models:
         session.state.contexts[model_id].add_user_message(prompt.strip())
 
+    # Refresh manifests once before starting
+    await session.server_pool.refresh_all_manifests()
+
     # Initial state - show waiting status with all tabs pending
     pending = len(session.state.models)
     yield (f"⏳ Generating responses... (0/{pending} complete)", build_tab_states()) + tuple(build_output())
 
-    # Process each model with streaming
-    async def stream_model(model_id: str):
+    # Work-stealing dispatcher: queue of models, servers pull work
+    model_queue = list(session.state.models)  # Models waiting to be processed
+    active_tasks: dict[str, asyncio.Task] = {}  # server_url -> task
+
+    async def run_model_on_server(model_id: str, server_url: str):
+        """Run a single model on a specific server."""
         nonlocal streaming_responses, streaming_started, completed_models
         context = session.state.contexts[model_id]
 
-        # Find server
-        server_url = None
-        while server_url is None:
-            await session.server_pool.refresh_all_manifests()
-            server_url = session.server_pool.find_available_server(model_id)
-            if server_url is None:
-                await asyncio.sleep(0.5)
+        streaming_started.add(model_id)
 
-        await session.server_pool.acquire_server(server_url)
-        streaming_started.add(model_id)  # Mark as streaming once server acquired
+        # Show which server is handling this model
+        server_label = server_url.split("//")[-1]
+        streaming_responses[model_id] = f"*[Server: {server_label}]*\n\n"
 
         try:
             from prompt_prix.core import stream_completion
             messages = context.to_openai_messages(session.state.system_prompt)
 
-            full_response = ""
+            full_response = f"*[Server: {server_label}]*\n\n"
             async for chunk in stream_completion(
                 server_url=server_url,
                 model_id=model_id,
                 messages=messages,
                 temperature=session.state.temperature,
                 max_tokens=session.state.max_tokens,
-                timeout_seconds=session.state.timeout_seconds
+                timeout_seconds=session.state.timeout_seconds,
+                tools=tools
             ):
                 full_response += chunk
                 streaming_responses[model_id] = full_response
@@ -229,18 +254,47 @@ async def send_single_prompt(prompt: str):
         finally:
             session.server_pool.release_server(server_url)
 
-    # Start all models as tasks
-    tasks = [asyncio.create_task(stream_model(m)) for m in session.state.models]
+    def find_work_for_server(server_url: str) -> str | None:
+        """Find first model in queue that this server can run."""
+        server = session.server_pool.servers[server_url]
+        for model_id in model_queue:
+            if model_id in server.available_models:
+                return model_id
+        return None
 
-    # Poll and yield updates while tasks are running
-    while len(completed_models) < len(session.state.models):
-        await asyncio.sleep(0.1)  # Update rate
+    # Dispatcher loop - keeps servers busy
+    while model_queue or active_tasks:
+        # Try to assign work to any idle server
+        for server_url, server in session.server_pool.servers.items():
+            if server.is_busy:
+                continue  # Server already working
+
+            # Find a model this server can run
+            model_id = find_work_for_server(server_url)
+            if model_id:
+                model_queue.remove(model_id)
+                await session.server_pool.acquire_server(server_url)
+                task = asyncio.create_task(run_model_on_server(model_id, server_url))
+                active_tasks[server_url] = task
+
+        # Wait a bit, yield UI update
+        await asyncio.sleep(0.1)
         done = len(completed_models)
         total = len(session.state.models)
         yield (f"⏳ Generating responses... ({done}/{total} complete)", build_tab_states()) + tuple(build_output())
 
-    # Wait for all tasks to fully complete
-    await asyncio.gather(*tasks, return_exceptions=True)
+        # Clean up completed tasks
+        for server_url in list(active_tasks.keys()):
+            if active_tasks[server_url].done():
+                del active_tasks[server_url]
+
+        # Refresh manifests occasionally if we have queued work but no progress
+        if model_queue and not active_tasks:
+            await session.server_pool.refresh_all_manifests()
+
+    # Wait for any remaining tasks
+    if active_tasks:
+        await asyncio.gather(*active_tasks.values(), return_exceptions=True)
 
     # Final output with completed conversations - all tabs completed
     status = "✅ All responses complete"
@@ -390,3 +444,89 @@ def launch_beyond_compare(model_a: str, model_b: str) -> str:
         return f"❌ Beyond Compare not found. Set BEYOND_COMPARE_PATH in .env"
     except Exception as e:
         return f"❌ Failed to launch Beyond Compare: {e}"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BATTERY HANDLERS
+# ─────────────────────────────────────────────────────────────────────
+
+def battery_validate_file(file_obj) -> tuple[str, dict]:
+    """
+    Validate benchmark file before enabling Run button.
+
+    Returns (status_message, gr.update for run_button interactive state).
+    Fail-fast: validation happens before any execution.
+    """
+    if file_obj is None:
+        return "Upload a benchmark JSON file", gr.update(interactive=False)
+
+    from prompt_prix.benchmarks import CustomJSONLoader
+
+    valid, message = CustomJSONLoader.validate(file_obj.name)
+    return message, gr.update(interactive=valid)
+
+
+async def battery_run_handler(file_obj, models_selected: list[str], servers_text: str):
+    """
+    Run battery tests across selected models.
+
+    Yields (status, grid_data) tuples for streaming UI updates.
+    """
+    # Fail-fast validation
+    if file_obj is None:
+        yield "❌ No benchmark file uploaded", []
+        return
+
+    if not models_selected:
+        yield "❌ No models selected", []
+        return
+
+    servers = parse_servers_input(servers_text)
+    if not servers:
+        yield "❌ No servers configured", []
+        return
+
+    # Import here to avoid circular imports
+    from prompt_prix.benchmarks import CustomJSONLoader
+    from prompt_prix.adapters import LMStudioAdapter
+    from prompt_prix.battery import BatteryRunner
+    from prompt_prix.core import ServerPool
+
+    # Load test cases
+    try:
+        tests = CustomJSONLoader.load(file_obj.name)
+    except Exception as e:
+        yield f"❌ Failed to load tests: {e}", []
+        return
+
+    # Create server pool and adapter
+    pool = ServerPool(servers)
+    await pool.refresh_all_manifests()
+
+    # Verify models are available
+    available = pool.get_all_available_models()
+    missing = [m for m in models_selected if m not in available]
+    if missing:
+        yield f"❌ Models not available: {', '.join(missing)}", []
+        return
+
+    adapter = LMStudioAdapter(pool)
+
+    # Create and run battery
+    runner = BatteryRunner(
+        adapter=adapter,
+        tests=tests,
+        models=models_selected,
+        temperature=0.0,  # Deterministic for evals
+        max_tokens=2048,
+        timeout_seconds=300
+    )
+
+    # Stream state updates to UI
+    async for battery_state in runner.run():
+        grid = battery_state.to_grid()
+        progress = f"⏳ Running... ({battery_state.completed_count}/{battery_state.total_count})"
+        yield progress, grid
+
+    # Final status
+    yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
