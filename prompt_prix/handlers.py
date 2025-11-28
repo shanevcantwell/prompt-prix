@@ -450,27 +450,62 @@ def launch_beyond_compare(model_a: str, model_b: str) -> str:
 # BATTERY HANDLERS
 # ─────────────────────────────────────────────────────────────────────
 
-def battery_validate_file(file_obj) -> tuple[str, dict]:
+def battery_validate_file(file_obj) -> str:
     """
     Validate benchmark file before enabling Run button.
 
-    Returns (status_message, gr.update for run_button interactive state).
+    Returns validation message string. Starts with ✅ if valid, ❌ if not.
     Fail-fast: validation happens before any execution.
     """
     if file_obj is None:
-        return "Upload a benchmark JSON file", gr.update(interactive=False)
+        return "Upload a benchmark JSON file"
 
     from prompt_prix.benchmarks import CustomJSONLoader
 
-    valid, message = CustomJSONLoader.validate(file_obj.name)
-    return message, gr.update(interactive=valid)
+    valid, message = CustomJSONLoader.validate(file_obj)
+    return message
 
 
-async def battery_run_handler(file_obj, models_selected: list[str], servers_text: str):
+def battery_get_test_ids(file_obj) -> list[str]:
+    """
+    Extract test IDs from benchmark file for dropdown population.
+
+    Returns list of test IDs, or empty list on error.
+    """
+    if file_obj is None:
+        return []
+
+    from prompt_prix.benchmarks import CustomJSONLoader
+
+    try:
+        tests = CustomJSONLoader.load(file_obj)
+        return [t.id for t in tests]
+    except Exception:
+        return []
+
+
+async def battery_run_handler(
+    file_obj,
+    models_selected: list[str],
+    servers_text: str,
+    temperature: float,
+    timeout: int,
+    max_tokens: int,
+    system_prompt: str
+):
     """
     Run battery tests across selected models.
 
     Yields (status, grid_data) tuples for streaming UI updates.
+
+    Args:
+        file_obj: Uploaded benchmark JSON file
+        models_selected: List of model IDs to test
+        servers_text: Newline-separated server URLs
+        temperature: Sampling temperature
+        timeout: Timeout per request in seconds
+        max_tokens: Maximum tokens per response
+        system_prompt: Optional override for test-defined system prompts
     """
     # Fail-fast validation
     if file_obj is None:
@@ -494,7 +529,7 @@ async def battery_run_handler(file_obj, models_selected: list[str], servers_text
 
     # Load test cases
     try:
-        tests = CustomJSONLoader.load(file_obj.name)
+        tests = CustomJSONLoader.load(file_obj)
     except Exception as e:
         yield f"❌ Failed to load tests: {e}", []
         return
@@ -517,10 +552,13 @@ async def battery_run_handler(file_obj, models_selected: list[str], servers_text
         adapter=adapter,
         tests=tests,
         models=models_selected,
-        temperature=0.0,  # Deterministic for evals
-        max_tokens=2048,
-        timeout_seconds=300
+        temperature=temperature,
+        max_tokens=max_tokens,
+        timeout_seconds=timeout
     )
+
+    # Store state for later detail retrieval
+    state.battery_run = runner.state
 
     # Stream state updates to UI
     async for battery_state in runner.run():
@@ -530,3 +568,35 @@ async def battery_run_handler(file_obj, models_selected: list[str], servers_text
 
     # Final status
     yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
+
+
+def battery_get_cell_detail(model: str, test: str) -> str:
+    """
+    Get response detail for a (model, test) cell.
+
+    Returns markdown-formatted detail including latency and response content.
+    """
+    from prompt_prix.battery import TestStatus
+
+    if not state.battery_run:
+        return "*No battery run available*"
+
+    if not model or not test:
+        return "*Select a model and test to view the response*"
+
+    result = state.battery_run.get_result(test, model)
+    if not result:
+        return f"*No result for {model} × {test}*"
+
+    if result.status == TestStatus.ERROR:
+        return f"**Status:** ❌ Error\n\n**Error:** {result.error}"
+
+    if result.status == TestStatus.PENDING:
+        return f"**Status:** — Pending"
+
+    if result.status == TestStatus.RUNNING:
+        return f"**Status:** ⏳ Running..."
+
+    # Completed
+    latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
+    return f"**Status:** ✓ Completed\n\n**Latency:** {latency}\n\n---\n\n{result.response}"

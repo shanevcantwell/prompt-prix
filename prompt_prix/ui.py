@@ -1,5 +1,8 @@
 """
 Gradio UI definition for prompt-prix.
+
+Battery-first design: Model × Test grid is the primary interface.
+Interactive comparison is secondary (Compare tab).
 """
 
 import gradio as gr
@@ -7,26 +10,40 @@ import gradio as gr
 from prompt_prix import state
 from prompt_prix.config import (
     get_default_servers,
-    DEFAULT_MODELS, DEFAULT_TEMPERATURE,
-    DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_TOKENS
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TIMEOUT_SECONDS,
+    DEFAULT_MAX_TOKENS
 )
 from prompt_prix.handlers import (
     fetch_available_models,
     initialize_session,
     send_single_prompt,
-    run_batch_prompts,
     export_markdown,
     export_json,
-    launch_beyond_compare,
     battery_validate_file,
-    battery_run_handler
+    battery_run_handler,
+    battery_get_cell_detail,
+    battery_get_test_ids
 )
 from prompt_prix.parsers import get_default_system_prompt
 
 
-# Custom CSS for tab status colors
-TAB_STATUS_CSS = """
-/* Tab status indicator colors */
+# ─────────────────────────────────────────────────────────────────────
+# CSS
+# ─────────────────────────────────────────────────────────────────────
+
+CUSTOM_CSS = """
+/* Battery grid styling */
+#battery-grid table {
+    font-family: monospace;
+    font-size: 14px;
+}
+#battery-grid td {
+    text-align: center;
+    min-width: 80px;
+}
+
+/* Status colors for Compare tab */
 #model-tabs button.tab-pending {
     background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%) !important;
     border-left: 4px solid #ef4444 !important;
@@ -44,22 +61,28 @@ TAB_STATUS_CSS = """
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }
 }
+
+/* Hero grid prominence */
+#battery-grid {
+    min-height: 300px;
+}
+
+/* Compact config panels */
+.config-row {
+    gap: 1rem;
+}
 """
 
-# JavaScript to update tab colors based on state (uses inline styles for highest specificity)
+# JavaScript for Compare tab colors
 TAB_STATUS_JS = """
 function updateTabColors(tabStates) {
     if (!tabStates) return tabStates;
-
     const tabContainer = document.getElementById('model-tabs');
     if (!tabContainer) return tabStates;
-
     const buttons = tabContainer.querySelectorAll('button[role="tab"]');
-
     tabStates.forEach((status, index) => {
         if (index < buttons.length) {
             const btn = buttons[index];
-            // Use inline styles for highest specificity (overcomes Gradio theme)
             if (status === 'pending') {
                 btn.style.background = 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)';
                 btn.style.borderLeft = '4px solid #ef4444';
@@ -73,288 +96,392 @@ function updateTabColors(tabStates) {
                 btn.style.borderLeft = '4px solid #10b981';
                 btn.style.animation = '';
             } else {
-                // Reset styles for empty/inactive tabs
                 btn.style.background = '';
                 btn.style.borderLeft = '';
                 btn.style.animation = '';
             }
         }
     });
-
     return tabStates;
 }
 """
 
 
+# ─────────────────────────────────────────────────────────────────────
+# APPLICATION
+# ─────────────────────────────────────────────────────────────────────
 
 def create_app() -> gr.Blocks:
     """Create the Gradio application."""
 
-    with gr.Blocks(title="prompt-prix", theme=gr.themes.Soft(), css=TAB_STATUS_CSS) as app:
+    with gr.Blocks(
+        title="prompt-prix",
+        theme=gr.themes.Soft(),
+        css=CUSTOM_CSS
+    ) as app:
+        
         gr.Markdown("# prompt-prix")
-        gr.Markdown("Compare responses from multiple LLMs served via LM Studio.")
+        gr.Markdown("Find your optimal open-weights model.")
 
         # ─────────────────────────────────────────────────────────────
-        # CONFIGURATION PANEL
+        # SHARED: SERVER CONFIGURATION
         # ─────────────────────────────────────────────────────────────
 
-        with gr.Accordion("Configuration", open=True):
+        with gr.Accordion("🖥️ Servers", open=False):
             with gr.Row():
+                servers_input = gr.Textbox(
+                    label="LM Studio Servers (one per line)",
+                    value="\n".join(get_default_servers()),
+                    lines=3,
+                    placeholder="http://192.168.1.10:1234\nhttp://192.168.1.11:1234",
+                    elem_id="servers",
+                    scale=2
+                )
                 with gr.Column(scale=1):
-                    servers_input = gr.Textbox(
-                        label="LM Studio Servers (one per line)",
-                        value="\n".join(get_default_servers()),
-                        lines=3,
-                        placeholder="http://127.0.0.1:1234\nhttp://192.168.137.2:1234",
-                        elem_id="servers"
+                    fetch_models_btn = gr.Button("🔄 Fetch Models", variant="secondary")
+                    server_status = gr.Textbox(
+                        label="Status",
+                        value="Click Fetch to discover models",
+                        interactive=False,
+                        lines=2
                     )
-                with gr.Column(scale=1):
-                    models_checkboxes = gr.CheckboxGroup(
-                        label="Models to Compare",
-                        choices=[],  # Populated by Fetch button or localStorage
-                        value=[],    # Selected models
-                        elem_id="models"
-                    )
-                    with gr.Row():
-                        fetch_models_button = gr.Button("🔄 Fetch Available Models", size="sm")
-                        clear_models_btn = gr.Button("Clear Selection", size="sm")
-
-            with gr.Row():
-                temperature_slider = gr.Slider(
-                    label="Temperature",
-                    minimum=0.0,
-                    maximum=2.0,
-                    step=0.1,
-                    value=DEFAULT_TEMPERATURE,
-                    elem_id="temperature"
-                )
-                timeout_slider = gr.Slider(
-                    label="Timeout (seconds)",
-                    minimum=30,
-                    maximum=600,
-                    step=30,
-                    value=DEFAULT_TIMEOUT_SECONDS,
-                    elem_id="timeout"
-                )
-                max_tokens_slider = gr.Slider(
-                    label="Max Tokens",
-                    minimum=256,
-                    maximum=8192,
-                    step=256,
-                    value=DEFAULT_MAX_TOKENS,
-                    elem_id="max_tokens"
-                )
-
-            with gr.Row():
-                system_prompt_input = gr.Textbox(
-                    label="System Prompt",
-                    value=get_default_system_prompt(),
-                    lines=50,
-                    max_lines=50,
-                    elem_id="system_prompt"
-                )
-
-            with gr.Row():
-                save_state_btn = gr.Button("💾 Save State", variant="secondary")
-                init_button = gr.Button("Initialize Session", variant="primary")
+        
+        # Shared model list (populated by fetch, used by both tabs)
+        available_models = gr.State([])
 
         # ─────────────────────────────────────────────────────────────
-        # STATUS DISPLAY
+        # MAIN TABS
         # ─────────────────────────────────────────────────────────────
 
-        status_display = gr.Textbox(
-            label="Status",
-            value="Session not initialized",
-            interactive=False
-        )
-
-        # ─────────────────────────────────────────────────────────────
-        # INPUT PANEL
-        # ─────────────────────────────────────────────────────────────
-
-        with gr.Row():
-            with gr.Column(scale=3):
-                prompt_input = gr.Textbox(
-                    label="Prompt",
-                    placeholder="Enter your prompt here...",
-                    lines=3
-                )
-                send_button = gr.Button("Send Prompt", variant="primary")
-
-            with gr.Column(scale=1):
-                batch_file = gr.File(
-                    label="Batch Prompts File",
-                    file_types=[".txt"],
-                    type="filepath"
-                )
-                batch_button = gr.Button("Run Batch")
-
-        # Tools input for function calling tests
-        with gr.Accordion("Tools (Function Calling)", open=False):
-            tools_input = gr.Code(
-                label="Tools JSON (OpenAI format)",
-                language="json",
-                value="",
-                lines=10,
-                elem_id="tools"
-            )
-            gr.Markdown("*Example: `[{\"type\": \"function\", \"function\": {\"name\": \"get_weather\", ...}}]`*")
-
-        # ─────────────────────────────────────────────────────────────
-        # MODEL OUTPUT TABS
-        # ─────────────────────────────────────────────────────────────
-
-        # Hidden component to track tab states and trigger JS updates
-        tab_states = gr.JSON(value=[], visible=False, elem_id="tab-states")
-
-        # Create tabs for up to 10 models (can be extended)
-        model_outputs = []
-        with gr.Tabs(elem_id="model-tabs"):
-            for i in range(10):
-                with gr.Tab(f"Model {i + 1}"):
-                    output = gr.Markdown(
-                        value="",
-                        label=f"Conversation"
-                    )
-                    model_outputs.append(output)
-
-        # ─────────────────────────────────────────────────────────────
-        # EXPORT PANEL
-        # ─────────────────────────────────────────────────────────────
-
-        with gr.Row():
-            export_md_button = gr.Button("Export Markdown")
-            export_json_button = gr.Button("Export JSON")
-
-        export_preview = gr.Textbox(
-            label="Export Preview",
-            lines=10,
-            interactive=False,
-            visible=False
-        )
-
-        # ─────────────────────────────────────────────────────────────
-        # BEYOND COMPARE PANEL
-        # ─────────────────────────────────────────────────────────────
-
-        with gr.Accordion("Compare Models (Beyond Compare)", open=False):
-            gr.Markdown("Select two models to open their outputs in Beyond Compare for side-by-side diff.")
-            with gr.Row():
-                compare_model_a = gr.Dropdown(
-                    label="Model A",
-                    choices=[],
-                    interactive=True,
-                    allow_custom_value=True
-                )
-                compare_model_b = gr.Dropdown(
-                    label="Model B",
-                    choices=[],
-                    interactive=True,
-                    allow_custom_value=True
-                )
-            compare_button = gr.Button("Open in Beyond Compare", variant="primary")
-
-        # ─────────────────────────────────────────────────────────────
-        # BATTERY PANEL
-        # ─────────────────────────────────────────────────────────────
-
-        with gr.Accordion("Battery (Benchmark Suite)", open=False):
-            gr.Markdown("""
-            **Fan-out benchmark tests across all selected models.**
-
-            Upload a JSON benchmark file (e.g., `tool_competence_tests.json`) and run
-            all tests against your selected models. Results display in a grid showing
-            pass/fail status for each (test, model) combination.
-            """)
-
-            with gr.Row():
-                with gr.Column(scale=2):
-                    battery_file = gr.File(
-                        label="Benchmark JSON File",
-                        file_types=[".json"],
-                        type="filepath"
-                    )
-                with gr.Column(scale=1):
-                    battery_validation_status = gr.Textbox(
-                        label="Validation",
-                        value="Upload a benchmark JSON file",
-                        interactive=False
-                    )
+        with gr.Tabs() as main_tabs:
+            
+            # ─────────────────────────────────────────────────────────
+            # TAB 1: BATTERY (Primary)
+            # ─────────────────────────────────────────────────────────
+            
+            with gr.Tab("🔋 Battery", id="battery-tab"):
+                
+                gr.Markdown("""
+                Run benchmark test suites across multiple models. 
+                Upload a test file, select models, and see results in the grid below.
+                """)
+                
+                with gr.Row():
+                    # Left column: Test suite + Models
+                    with gr.Column(scale=1):
+                        battery_file = gr.File(
+                            label="Test Suite (JSON)",
+                            file_types=[".json"],
+                            type="filepath"
+                        )
+                        battery_validation = gr.Textbox(
+                            label="Validation",
+                            value="Upload a benchmark file",
+                            interactive=False,
+                            lines=1
+                        )
+                        
+                        battery_models = gr.CheckboxGroup(
+                            label="Models to Test",
+                            choices=[],
+                            value=[],
+                            elem_id="battery-models"
+                        )
+                    
+                    # Right column: Config
+                    with gr.Column(scale=1):
+                        battery_temp = gr.Slider(
+                            label="Temperature",
+                            minimum=0.0,
+                            maximum=2.0,
+                            step=0.1,
+                            value=DEFAULT_TEMPERATURE
+                        )
+                        battery_timeout = gr.Slider(
+                            label="Timeout (seconds)",
+                            minimum=30,
+                            maximum=600,
+                            step=30,
+                            value=DEFAULT_TIMEOUT_SECONDS
+                        )
+                        battery_max_tokens = gr.Slider(
+                            label="Max Tokens",
+                            minimum=256,
+                            maximum=8192,
+                            step=256,
+                            value=DEFAULT_MAX_TOKENS
+                        )
+                        battery_system_prompt = gr.Textbox(
+                            label="System Prompt Override (optional)",
+                            placeholder="Leave empty to use test-defined prompts",
+                            lines=3
+                        )
+                
+                with gr.Row():
                     battery_run_btn = gr.Button(
-                        "🔋 Run Battery",
+                        "▶️ Run Battery",
                         variant="primary",
-                        interactive=False
+                        interactive=False,
+                        scale=2
                     )
+                    battery_stop_btn = gr.Button(
+                        "⏹️ Stop",
+                        variant="stop",
+                        scale=1
+                    )
+                
+                battery_status = gr.Textbox(
+                    label="Status",
+                    value="Ready",
+                    interactive=False
+                )
+                
+                # ─────────────────────────────────────────────────────
+                # HERO: Results Grid
+                # ─────────────────────────────────────────────────────
+                
+                gr.Markdown("### Results")
+                gr.Markdown("*Rows: Models | Columns: Tests | Cells: ✓ completed, ❌ error, ⏳ running, — pending*")
+                
+                battery_grid = gr.Dataframe(
+                    label="Model × Test Results",
+                    headers=["Model"],
+                    interactive=False,
+                    wrap=True,
+                    elem_id="battery-grid"
+                )
+                
+                # Detail view for clicked cell
+                with gr.Accordion("📋 Response Detail", open=False):
+                    with gr.Row():
+                        detail_model = gr.Dropdown(
+                            label="Model",
+                            choices=[],
+                            interactive=True
+                        )
+                        detail_test = gr.Dropdown(
+                            label="Test",
+                            choices=[],
+                            interactive=True
+                        )
+                        detail_refresh_btn = gr.Button("Show", size="sm")
+                    
+                    detail_content = gr.Markdown(
+                        value="*Select a model and test to view the response*"
+                    )
+                
+                # Export
+                with gr.Row():
+                    battery_export_json_btn = gr.Button("Export JSON")
+                    battery_export_csv_btn = gr.Button("Export CSV")
 
-            battery_status = gr.Textbox(
-                label="Battery Status",
-                value="",
-                interactive=False
-            )
-
-            battery_grid = gr.Dataframe(
-                label="Results Grid",
-                headers=["Test"],
-                interactive=False,
-                wrap=True
-            )
+            # ─────────────────────────────────────────────────────────
+            # TAB 2: COMPARE (Secondary)
+            # ─────────────────────────────────────────────────────────
+            
+            with gr.Tab("💬 Compare", id="compare-tab"):
+                
+                gr.Markdown("""
+                Interactive prompt comparison. Send the same prompt to multiple models
+                and see responses side-by-side in real-time.
+                """)
+                
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        compare_models = gr.CheckboxGroup(
+                            label="Models to Compare",
+                            choices=[],
+                            value=[],
+                            elem_id="compare-models"
+                        )
+                    
+                    with gr.Column(scale=1):
+                        compare_temp = gr.Slider(
+                            label="Temperature",
+                            minimum=0.0,
+                            maximum=2.0,
+                            step=0.1,
+                            value=DEFAULT_TEMPERATURE
+                        )
+                        compare_timeout = gr.Slider(
+                            label="Timeout (seconds)",
+                            minimum=30,
+                            maximum=600,
+                            step=30,
+                            value=DEFAULT_TIMEOUT_SECONDS
+                        )
+                        compare_max_tokens = gr.Slider(
+                            label="Max Tokens",
+                            minimum=256,
+                            maximum=8192,
+                            step=256,
+                            value=DEFAULT_MAX_TOKENS
+                        )
+                
+                with gr.Accordion("System Prompt", open=False):
+                    compare_system_prompt = gr.Textbox(
+                        label="System Prompt",
+                        value=get_default_system_prompt(),
+                        lines=10
+                    )
+                
+                with gr.Accordion("Tools (Function Calling)", open=False):
+                    compare_tools = gr.Code(
+                        label="Tools JSON (OpenAI format)",
+                        language="json",
+                        value="",
+                        lines=10,
+                        elem_id="tools"
+                    )
+                
+                compare_init_btn = gr.Button("Initialize Session", variant="secondary")
+                compare_status = gr.Textbox(
+                    label="Status",
+                    value="Session not initialized",
+                    interactive=False
+                )
+                
+                with gr.Row():
+                    compare_prompt = gr.Textbox(
+                        label="Prompt",
+                        placeholder="Enter your prompt here...",
+                        lines=3,
+                        scale=3
+                    )
+                    compare_send_btn = gr.Button(
+                        "Send",
+                        variant="primary",
+                        scale=1
+                    )
+                
+                # Hidden state for tab colors
+                tab_states = gr.JSON(value=[], visible=False, elem_id="tab-states")
+                
+                # Model output tabs (up to 10)
+                model_outputs = []
+                with gr.Tabs(elem_id="model-tabs"):
+                    for i in range(10):
+                        with gr.Tab(f"Model {i + 1}"):
+                            output = gr.Markdown(value="", label="Conversation")
+                            model_outputs.append(output)
+                
+                # Export
+                with gr.Row():
+                    compare_export_md_btn = gr.Button("Export Markdown")
+                    compare_export_json_btn = gr.Button("Export JSON")
+                
+                compare_export_preview = gr.Textbox(
+                    label="Export Preview",
+                    lines=10,
+                    interactive=False,
+                    visible=False
+                )
 
         # ─────────────────────────────────────────────────────────────
-        # EVENT BINDINGS
+        # EVENT BINDINGS: Shared
         # ─────────────────────────────────────────────────────────────
 
-        fetch_models_button.click(
-            fn=fetch_available_models,
+        def on_fetch_models(servers_text):
+            """Fetch models and update both tabs' checkboxes."""
+            status, models_update = fetch_available_models(servers_text)
+            choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
+            return (
+                status,
+                choices,  # State
+                gr.update(choices=choices),  # Battery models
+                gr.update(choices=choices),  # Compare models
+                gr.update(choices=choices),  # Detail model dropdown
+            )
+
+        fetch_models_btn.click(
+            fn=on_fetch_models,
             inputs=[servers_input],
-            outputs=[status_display, models_checkboxes]
+            outputs=[
+                server_status,
+                available_models,
+                battery_models,
+                compare_models,
+                detail_model
+            ]
         )
 
-        # Clear model selection
-        clear_models_btn.click(
-            fn=lambda: gr.update(value=[]),
-            inputs=[],
-            outputs=[models_checkboxes]
+        # ─────────────────────────────────────────────────────────────
+        # EVENT BINDINGS: Battery Tab
+        # ─────────────────────────────────────────────────────────────
+
+        def on_battery_file_change(file_obj):
+            """Validate file and enable/disable run button."""
+            if file_obj is None:
+                return "Upload a benchmark file", gr.update(interactive=False), gr.update(choices=[])
+
+            validation_result = battery_validate_file(file_obj)
+            is_valid = validation_result.startswith("✅")
+
+            # Extract test IDs for detail dropdown (if valid)
+            test_choices = battery_get_test_ids(file_obj) if is_valid else []
+
+            return (
+                validation_result,
+                gr.update(interactive=is_valid),
+                gr.update(choices=test_choices)
+            )
+
+        battery_file.change(
+            fn=on_battery_file_change,
+            inputs=[battery_file],
+            outputs=[battery_validation, battery_run_btn, detail_test]
         )
 
-        # Beyond Compare - update dropdowns after init
-        def get_model_choices():
-            if state.session is None:
-                return gr.update(choices=[]), gr.update(choices=[])
-            models = state.session.state.models
-            return gr.update(choices=models, value=models[0] if models else None), \
-                   gr.update(choices=models, value=models[1] if len(models) > 1 else None)
+        battery_run_btn.click(
+            fn=battery_run_handler,
+            inputs=[
+                battery_file,
+                battery_models,
+                servers_input,
+                battery_temp,
+                battery_timeout,
+                battery_max_tokens,
+                battery_system_prompt
+            ],
+            outputs=[battery_status, battery_grid]
+        )
 
-        init_button.click(
+        # Detail view
+        detail_refresh_btn.click(
+            fn=battery_get_cell_detail,
+            inputs=[detail_model, detail_test],
+            outputs=[detail_content]
+        )
+
+        # ─────────────────────────────────────────────────────────────
+        # EVENT BINDINGS: Compare Tab
+        # ─────────────────────────────────────────────────────────────
+
+        compare_init_btn.click(
             fn=initialize_session,
             inputs=[
                 servers_input,
-                models_checkboxes,
-                system_prompt_input,
-                temperature_slider,
-                timeout_slider,
-                max_tokens_slider
+                compare_models,
+                compare_system_prompt,
+                compare_temp,
+                compare_timeout,
+                compare_max_tokens
             ],
-            outputs=[status_display] + model_outputs
-        ).then(
-            fn=get_model_choices,
-            inputs=[],
-            outputs=[compare_model_a, compare_model_b]
+            outputs=[compare_status] + model_outputs
         )
 
-        send_button.click(
+        compare_send_btn.click(
             fn=send_single_prompt,
-            inputs=[prompt_input, tools_input],
-            outputs=[status_display, tab_states] + model_outputs
+            inputs=[compare_prompt, compare_tools],
+            outputs=[compare_status, tab_states] + model_outputs
         )
 
-        # Also send on Enter in prompt box
-        prompt_input.submit(
+        compare_prompt.submit(
             fn=send_single_prompt,
-            inputs=[prompt_input, tools_input],
-            outputs=[status_display, tab_states] + model_outputs
+            inputs=[compare_prompt, compare_tools],
+            outputs=[compare_status, tab_states] + model_outputs
         )
 
-        # Update tab colors whenever tab_states changes (including during streaming)
         tab_states.change(
             fn=None,
             inputs=[tab_states],
@@ -362,165 +489,40 @@ def create_app() -> gr.Blocks:
             js=TAB_STATUS_JS
         )
 
-        batch_button.click(
-            fn=run_batch_prompts,
-            inputs=[batch_file],
-            outputs=[status_display] + model_outputs
-        )
-
-        export_md_button.click(
+        compare_export_md_btn.click(
             fn=export_markdown,
             inputs=[],
-            outputs=[status_display, export_preview]
+            outputs=[compare_status, compare_export_preview]
         ).then(
             fn=lambda: gr.update(visible=True),
-            outputs=[export_preview]
+            outputs=[compare_export_preview]
         )
 
-        export_json_button.click(
+        compare_export_json_btn.click(
             fn=export_json,
             inputs=[],
-            outputs=[status_display, export_preview]
+            outputs=[compare_status, compare_export_preview]
         ).then(
             fn=lambda: gr.update(visible=True),
-            outputs=[export_preview]
-        )
-
-        compare_button.click(
-            fn=launch_beyond_compare,
-            inputs=[compare_model_a, compare_model_b],
-            outputs=[status_display]
-        )
-
-        # Battery event bindings
-        battery_file.change(
-            fn=battery_validate_file,
-            inputs=[battery_file],
-            outputs=[battery_validation_status, battery_run_btn]
-        )
-
-        battery_run_btn.click(
-            fn=battery_run_handler,
-            inputs=[battery_file, models_checkboxes, servers_input],
-            outputs=[battery_status, battery_grid]
+            outputs=[compare_export_preview]
         )
 
         # ─────────────────────────────────────────────────────────────
-        # PERSISTENCE - Save/Load form values to localStorage
+        # PERSISTENCE
         # ─────────────────────────────────────────────────────────────
-
-        # Save State button - ONLY way to save (explicit save, no auto-save)
-        save_state_btn.click(
-            fn=lambda: "✅ State saved to browser storage",
-            inputs=[],
-            outputs=[status_display],
-            js="""
-            () => {
-                // Get all current values from Gradio components
-                const serversEl = document.querySelector('#servers textarea');
-                const modelsEl = document.querySelector('#models');
-                const tempEl = document.querySelector('#temperature input[type="range"]');
-                const timeoutEl = document.querySelector('#timeout input[type="range"]');
-                const maxTokensEl = document.querySelector('#max_tokens input[type="range"]');
-                const toolsEl = document.querySelector('#tools textarea');
-                const systemPromptEl = document.querySelector('#system_prompt textarea');
-
-                // Save servers
-                if (serversEl) {
-                    localStorage.setItem('promptprix_servers', serversEl.value);
-                }
-
-                // Save model choices and selected models (CheckboxGroup)
-                if (modelsEl) {
-                    const checkboxes = modelsEl.querySelectorAll('input[type="checkbox"]');
-                    const choices = [];
-                    const selected = [];
-                    checkboxes.forEach(cb => {
-                        const label = cb.parentElement.textContent.trim();
-                        choices.push(label);
-                        if (cb.checked) {
-                            selected.push(label);
-                        }
-                    });
-                    localStorage.setItem('promptprix_model_choices', JSON.stringify(choices));
-                    localStorage.setItem('promptprix_models', JSON.stringify(selected));
-                }
-
-                // Save sliders
-                if (tempEl) {
-                    localStorage.setItem('promptprix_temperature', tempEl.value);
-                }
-                if (timeoutEl) {
-                    localStorage.setItem('promptprix_timeout', timeoutEl.value);
-                }
-                if (maxTokensEl) {
-                    localStorage.setItem('promptprix_max_tokens', maxTokensEl.value);
-                }
-
-                // Save tools JSON
-                if (toolsEl) {
-                    localStorage.setItem('promptprix_tools', toolsEl.value);
-                }
-
-                // Save system prompt
-                if (systemPromptEl) {
-                    localStorage.setItem('promptprix_system_prompt', systemPromptEl.value);
-                }
-
-                return [];
-            }
-            """
-        )
-
-        # Load from localStorage on page load
-        def load_persisted_values():
-            # Return defaults - JS will override with localStorage values
-            return [
-                gr.update(),  # servers
-                gr.update(),  # models_checkboxes (choices + value)
-                gr.update(),  # temperature
-                gr.update(),  # timeout
-                gr.update(),  # max_tokens
-                gr.update(),  # tools
-                gr.update(),  # system_prompt
-            ]
 
         app.load(
-            fn=load_persisted_values,
+            fn=lambda: [gr.update()] * 3,
             inputs=[],
-            outputs=[
-                servers_input, models_checkboxes, temperature_slider,
-                timeout_slider, max_tokens_slider, tools_input, system_prompt_input
-            ],
+            outputs=[servers_input, battery_temp, compare_temp],
             js="""
             () => {
                 const servers = localStorage.getItem('promptprix_servers');
-                const modelChoices = localStorage.getItem('promptprix_model_choices');
-                const modelSelected = localStorage.getItem('promptprix_models');
                 const temp = localStorage.getItem('promptprix_temperature');
-                const timeout = localStorage.getItem('promptprix_timeout');
-                const maxTokens = localStorage.getItem('promptprix_max_tokens');
-                const tools = localStorage.getItem('promptprix_tools');
-                const systemPrompt = localStorage.getItem('promptprix_system_prompt');
-
-                // Parse model data - CheckboxGroup needs {choices: [...], value: [...]}
-                let modelUpdate = undefined;
-                if (modelChoices || modelSelected) {
-                    const choices = modelChoices ? JSON.parse(modelChoices) : [];
-                    const selected = modelSelected ? JSON.parse(modelSelected) : [];
-                    // Filter selected to only include models that exist in choices
-                    const validSelected = selected.filter(s => choices.includes(s));
-                    modelUpdate = {choices: choices, value: validSelected};
-                }
-
                 return [
                     servers ? servers : undefined,
-                    modelUpdate,
                     temp ? parseFloat(temp) : undefined,
-                    timeout ? parseInt(timeout) : undefined,
-                    maxTokens ? parseInt(maxTokens) : undefined,
-                    tools ? tools : undefined,
-                    systemPrompt ? systemPrompt : undefined
+                    temp ? parseFloat(temp) : undefined
                 ];
             }
             """
