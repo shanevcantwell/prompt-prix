@@ -114,24 +114,29 @@ async def stream_completion(
     messages: list[dict],
     temperature: float,
     max_tokens: int,
-    timeout_seconds: int
+    timeout_seconds: int,
+    tools: Optional[list[dict]] = None
 ) -> AsyncGenerator[str, None]:
     """
     Stream a completion from an LM Studio server.
     Yields text chunks as they arrive.
     Raises LMStudioError with user-friendly message on error.
     """
+    payload = {
+        "model": model_id,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": True
+    }
+    if tools:
+        payload["tools"] = tools
+
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         async with client.stream(
             "POST",
             f"{server_url}/v1/chat/completions",
-            json={
-                "model": model_id,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": True
-            }
+            json=payload
         ) as response:
             if response.status_code >= 400:
                 # Read the error body for streaming responses
@@ -155,9 +160,22 @@ async def stream_completion(
                     try:
                         chunk = json.loads(data)
                         delta = chunk.get("choices", [{}])[0].get("delta", {})
+
+                        # Handle regular content
                         content = delta.get("content", "")
                         if content:
                             yield content
+
+                        # Handle tool calls
+                        tool_calls = delta.get("tool_calls", [])
+                        for tc in tool_calls:
+                            func = tc.get("function", {})
+                            name = func.get("name", "")
+                            args = func.get("arguments", "")
+                            if name:
+                                yield f"\n**Tool Call:** `{name}`\n"
+                            if args:
+                                yield f"```json\n{args}\n```\n"
                     except json.JSONDecodeError:
                         continue
 
