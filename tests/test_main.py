@@ -172,12 +172,12 @@ class TestInitializeSession:
         )
 
         servers_text = f"{MOCK_SERVER_1}\n{MOCK_SERVER_2}"
-        models_text = f"{MOCK_MODEL_1}\n{MOCK_MODEL_2}"
+        models_selected = [MOCK_MODEL_1, MOCK_MODEL_2]
 
         result = await initialize_session(
             servers_text=servers_text,
-            models_text=models_text,
-            system_prompt_file=None,
+            models_selected=models_selected,
+            system_prompt_text="You are a test assistant.",
             temperature=0.7,
             timeout=300,
             max_tokens=2048
@@ -193,8 +193,8 @@ class TestInitializeSession:
 
         result = await initialize_session(
             servers_text="",
-            models_text=MOCK_MODEL_1,
-            system_prompt_file=None,
+            models_selected=[MOCK_MODEL_1],
+            system_prompt_text="",
             temperature=0.7,
             timeout=300,
             max_tokens=2048
@@ -209,8 +209,8 @@ class TestInitializeSession:
 
         result = await initialize_session(
             servers_text=MOCK_SERVER_1,
-            models_text="",
-            system_prompt_file=None,
+            models_selected=[],
+            system_prompt_text="",
             temperature=0.7,
             timeout=300,
             max_tokens=2048
@@ -231,8 +231,8 @@ class TestInitializeSession:
 
         result = await initialize_session(
             servers_text=MOCK_SERVER_1,
-            models_text="nonexistent-model",
-            system_prompt_file=None,
+            models_selected=["nonexistent-model"],
+            system_prompt_text="",
             temperature=0.7,
             timeout=300,
             max_tokens=2048
@@ -633,11 +633,13 @@ class TestFetchAvailableModels:
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
         )
 
-        status, models_text = await fetch_available_models(MOCK_SERVER_1)
+        status, models_update = await fetch_available_models(MOCK_SERVER_1)
 
         assert "✅" in status
-        assert MOCK_MODEL_1 in models_text
-        assert MOCK_MODEL_2 in models_text
+        # Returns gr.update dict with choices
+        assert "choices" in models_update
+        assert MOCK_MODEL_1 in models_update["choices"]
+        assert MOCK_MODEL_2 in models_update["choices"]
 
     @respx.mock
     @pytest.mark.asyncio
@@ -645,10 +647,12 @@ class TestFetchAvailableModels:
         """Test fetch fails with no servers configured."""
         from prompt_prix.main import fetch_available_models
 
-        status, models_text = await fetch_available_models("")
+        status, models_update = await fetch_available_models("")
 
         assert "No servers" in status or "❌" in status
-        assert models_text == ""
+        # Returns gr.update dict with empty choices
+        assert "choices" in models_update
+        assert models_update["choices"] == []
 
     @respx.mock
     @pytest.mark.asyncio
@@ -660,7 +664,9 @@ class TestFetchAvailableModels:
             side_effect=httpx.ConnectError("Connection refused")
         )
 
-        status, models_text = await fetch_available_models(MOCK_SERVER_1)
+        status, models_update = await fetch_available_models(MOCK_SERVER_1)
 
         assert "No models found" in status or "⚠️" in status
-        assert models_text == ""
+        # Returns gr.update dict with empty choices
+        assert "choices" in models_update
+        assert models_update["choices"] == []
