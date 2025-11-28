@@ -113,3 +113,5 @@ prompt-prix/
 ## License
 
 MIT
+
+(C) 2025 Reflective Attention
