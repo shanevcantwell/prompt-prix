@@ -49,3 +49,5 @@ MIT
 - [Development branch](https://github.com/shanevcantwell/prompt-prix/tree/development/testing) — working code
 - [BFCL](https://github.com/ShishirPatil/gorilla) — upstream benchmark source
 - [Inspect AI](https://inspect.ai-safety-institute.org.uk/) — UK AISI evaluation framework
+
+(C) 2025 Reflective Attention
