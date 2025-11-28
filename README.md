@@ -1,115 +1,51 @@
 # prompt-prix
 
-Multi-LLM head-to-head comparison tool for LM Studio servers.
+**Find your optimal open-weights model.**
 
-## Overview
+prompt-prix is a visual tool for running benchmark test suites across multiple LLMs simultaneously, helping you discover which model and quantization best fits your VRAM constraints and task requirements.
 
-prompt-prix is a Gradio-based tool for comparing responses from multiple LLMs (open-weights models, quantizations, or any combination) served via LM Studio's OpenAI-compatible API. Designed to "audition" models for use as backing LLMs in agentic workflows.
+## The Problem
 
-## Features
+You have a 24GB GPU. Should you run `qwen2.5-72b-instruct-q4_k_m` or `llama-3.1-70b-instruct-q5_k_s` for tool calling? BFCL gives you leaderboard scores for full-precision models. That doesn't answer your question.
 
-- Compare responses from multiple models side-by-side
-- Support for 2+ LM Studio servers
-- Multi-turn conversations with isolated context per model
-- Interactive prompt input or batch file processing
-- Streaming responses per model tab
-- Export reports in Markdown or JSON format
-- Configurable temperature, timeout, and system prompts
+## The Solution
 
-## Installation
+Run existing benchmarks against *your* candidate models, on *your* hardware, and see results side-by-side.
 
-```bash
-# Clone the repository
-git clone https://github.com/shanevcantwell/prompt-prix.git
-cd prompt-prix
+- **Fan-out dispatch**: Same test case → N models in parallel
+- **Work-stealing scheduler**: Efficient multi-GPU utilization across heterogeneous workstations
+- **Visual comparison**: Real-time streaming with Model × Test result grid
+- **Benchmark-native**: Consumes BFCL and Inspect AI test formats directly
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+## Status
 
-# Install dependencies
-pip install -e .
+🚧 **Active Development**
 
-# For development
-pip install -e ".[dev]"
-```
+The working codebase is on the [`development/testing`](https://github.com/shanevcantwell/prompt-prix/tree/development/testing) branch.
 
-## Configuration
+## Ecosystem Position
 
-1. Copy the environment template:
-   ```bash
-   cp .env.example .env
-   ```
+| Tool | Purpose |
+|------|---------|
+| [BFCL](https://github.com/ShishirPatil/gorilla) | Function-calling benchmark with leaderboard |
+| [Inspect AI](https://inspect.ai-safety-institute.org.uk/) | Evaluation framework (UK AISI) |
+| **prompt-prix** | Visual fan-out for model selection |
 
-2. Edit `.env` with your LM Studio server addresses:
-   ```
-   LM_STUDIO_SERVER_1=http://192.168.1.10:1234
-   LM_STUDIO_SERVER_2=http://192.168.1.11:1234
-   ```
+prompt-prix complements these tools—it's a visual layer for comparing models during selection, not a replacement for rigorous evaluation.
 
-3. Optionally configure the Gradio port (default 7860):
-   ```
-   GRADIO_PORT=7865
-   ```
+## Architecture Highlights
 
-4. Ensure LM Studio is running on your servers with models loaded.
-
-## Usage
-
-### Start the application
-
-```bash
-prompt-prix
-```
-
-Or run directly:
-
-```bash
-python -m prompt_prix.main
-```
-
-Open `http://localhost:7860` in your browser.
-
-### Using the interface
-
-1. **Configure**: Enter your LM Studio server URLs and model names in the Configuration panel
-2. **Initialize**: Click "Initialize Session" to connect to servers and verify models
-3. **Prompt**: Enter prompts interactively or upload a batch file (one prompt per line)
-4. **Compare**: View responses in model-specific tabs
-5. **Export**: Save comparison reports as Markdown or JSON
-
-## Development
-
-### Running tests
-
-```bash
-pytest
-```
-
-With coverage:
-
-```bash
-pytest --cov=prompt_prix --cov-report=html
-```
-
-### Project structure
-
-```
-prompt-prix/
-├── prompt_prix/
-│   ├── __init__.py
-│   ├── config.py      # Configuration and data models
-│   ├── core.py        # Server pool and session management
-│   ├── export.py      # Report generation
-│   └── main.py        # Gradio UI
-└── tests/
-    ├── conftest.py
-    ├── test_config.py
-    ├── test_core.py
-    ├── test_export.py
-    └── test_main.py
-```
+- **Adapter pattern**: OpenAI-compatible API now (LM Studio), extensible to Ollama/vLLM
+- **Fail-fast validation**: Invalid benchmark files rejected immediately
+- **Pydantic state management**: Explicit, typed, observable
+- **Work-stealing dispatcher**: Asymmetric GPU setups handled automatically
 
 ## License
 
 MIT
+
+## Links
+
+- [Development branch](https://github.com/shanevcantwell/prompt-prix/tree/development/testing) — working code
+- [BFCL](https://github.com/ShishirPatil/gorilla) — upstream benchmark source
+- [Inspect AI](https://inspect.ai-safety-institute.org.uk/) — UK AISI evaluation framework
