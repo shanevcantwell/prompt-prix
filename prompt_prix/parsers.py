@@ -45,9 +45,26 @@ def load_system_prompt(file_path: Optional[str]) -> str:
     if file_path:
         path = Path(file_path)
         if path.exists():
-            return path.read_text(encoding="utf-8")
+            content = path.read_text(encoding="utf-8").strip()
+            if content:  # Only use file if it has content
+                return content
     # Try default file in package directory
     default_path = Path(__file__).parent / "system_prompt.txt"
     if default_path.exists():
-        return default_path.read_text(encoding="utf-8")
+        content = default_path.read_text(encoding="utf-8").strip()
+        if content:  # Only use file if it has content
+            return content
+    return DEFAULT_SYSTEM_PROMPT
+
+
+def get_default_system_prompt() -> str:
+    """
+    Get default system prompt for initial UI display.
+    Tries system_prompt.txt in package directory first, then falls back to constant.
+    """
+    default_path = Path(__file__).parent / "system_prompt.txt"
+    if default_path.exists():
+        content = default_path.read_text(encoding="utf-8").strip()
+        if content:  # Only use file if it has content
+            return content
     return DEFAULT_SYSTEM_PROMPT
