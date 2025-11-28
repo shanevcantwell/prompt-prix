@@ -708,6 +708,58 @@ db_user = "readonly_user"  # Can only SELECT, not INSERT/UPDATE/DELETE
 
 ---
 
+## Git Operations Safety
+
+### NEVER Use These Commands
+These commands can destroy working directory state and break IDE sessions:
+
+```bash
+# ❌ FORBIDDEN - wipes working directory, breaks VS Code workspace
+git rm -rf .
+git clean -fdx  # without explicit user confirmation
+
+# ❌ FORBIDDEN - orphan + cleanup combo is dangerous
+git checkout --orphan <branch> && git rm -rf .
+```
+
+### Critical Files to Preserve
+**NEVER delete these files** - they maintain IDE/agent context:
+- `*.code-workspace` - VS Code workspace definition (deleting detaches Claude from project)
+- `.vscode/` - Editor settings and extensions
+- `.claude/` - Claude Code configuration and context
+
+### Safe Branch Restructuring
+When creating branches with different content:
+
+```bash
+# ✅ SAFE - create branch first, preserve working directory
+git branch <new-branch>                    # branch from current HEAD
+git checkout <new-branch>                  # switch to it
+
+# ✅ SAFE - use GitHub UI for orphan branches
+# Create empty branch via GitHub web interface, then fetch locally
+
+# ✅ SAFE - selective file operations
+git checkout <branch> -- specific/file.txt  # checkout single file
+```
+
+### Pre-Flight Checks
+Before any destructive git operation:
+1. Verify `development/testing` or equivalent branch exists with all work
+2. Confirm working directory can be restored from `.git/`
+3. Ask user before running `rm`, `clean`, or `reset --hard`
+
+### Recovery Knowledge
+If workspace is accidentally cleared:
+```bash
+# Files are still in .git/ - can restore
+git checkout HEAD -- .              # restore all tracked files
+git stash list                       # check for stashed changes
+git reflog                           # find lost commits
+```
+
+---
+
 ## License
 
 These patterns are provided as-is for building production systems. Adapt freely to your project's needs.
