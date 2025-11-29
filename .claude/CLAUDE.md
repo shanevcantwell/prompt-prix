@@ -1,87 +1,181 @@
-# prompt-prix Development Guide
+# prompt-prix
 
-**Purpose:** Find your optimal open-weights model by running benchmarks across LM Studio servers.
+**Purpose:** Visual fan-out UI for running evaluation prompts across multiple LLMs simultaneously and comparing results side-by-side.
 
 ---
 
-## Project Architecture
+## Communication Style
+
+- Calm and level, professional tone
+- Avoid premature confidence: "Ready for production!" before testing is overconfident
+- Follow the user's pace: "4 tests passed, let's run a full batch!" is unnecessarily urgent
+
+---
+
+## Core Concept: Fan-Out Pattern
+
+prompt-prix is NOT an eval framework. It's a visual comparison layer.
+
+```
+Input:  One prompt (or benchmark test case)
+        ↓
+Fan-Out: Dispatch to N models in parallel
+        ↓
+Output: Side-by-side visual comparison
+```
+
+**Positioning:**
+| Tool | Purpose |
+|------|---------|
+| BFCL | Function-calling benchmark |
+| Inspect AI | Evaluation framework |
+| prompt-prix | Visual fan-out comparison |
+
+---
+
+## Architecture
 
 ```
 prompt_prix/
-├── main.py          # Entry point, Gradio launch
-├── ui.py            # Gradio UI definition (Battery-first design)
-├── ui_helpers.py    # CSS, JS constants
-├── handlers.py      # Event handlers for UI
+├── config.py        # Pydantic models, constants, env loading
 ├── core.py          # ServerPool, ComparisonSession, streaming
-├── adapters.py      # LMStudioAdapter (provider abstraction)
-├── battery.py       # BatteryRunner, test execution engine
-├── benchmarks/      # Test loaders (CustomJSONLoader)
-├── config.py        # Configuration, .env loading
-├── parsers.py       # Input parsing utilities
-└── state.py         # Global mutable state
+├── handlers.py      # Gradio event handlers (async)
+├── ui.py            # Gradio component definitions
+├── parsers.py       # Text parsing utilities
+├── export.py        # Markdown/JSON report generation
+├── state.py         # Global mutable state
+└── main.py          # Entry point
 ```
 
-### Key Design Patterns
+### Module Responsibilities
 
-**1. Provider-Agnostic Adapters**
+| Module | Purpose |
+|--------|---------|
+| `config.py` | ServerConfig, ModelContext, SessionState (Pydantic) |
+| `core.py` | ServerPool management, streaming functions |
+| `handlers.py` | Async handlers bridging UI to core logic |
+| `ui.py` | Gradio components and event bindings |
+| `state.py` | Mutable state shared across handlers |
+
+---
+
+## Key Components
+
+### ServerPool
+Manages multiple LM Studio servers:
 ```python
-# adapters.py - Abstract interface for LLM providers
-class LMStudioAdapter:
-    """Wraps ServerPool for battery execution."""
-    async def complete(self, model_id, messages, ...) -> str
+servers: dict[str, ServerConfig]  # URL → config
+find_available_server(model_id)   # Find idle server with model
+acquire_server(url)               # Mark busy
+release_server(url)               # Mark available
 ```
 
-**2. Fail-Fast Validation**
+### ComparisonSession
+Maintains comparison state:
+- Selected models
+- Separate conversation context per model
+- Configuration (temperature, max tokens, system prompt)
+- Halt state
+
+### Work-Stealing Dispatcher
+Efficient multi-GPU utilization:
+1. Queue all models to process
+2. Find idle server that has queued model
+3. Execute and stream response
+4. Release server for next model
+
+---
+
+## Design Principles
+
+### Fail-Fast Validation
+Validate servers and models before starting sessions:
 ```python
-# Validate before expensive operations
-def battery_validate_file(file_obj) -> str:
-    """Returns ✅ message if valid, ❌ if not."""
+# In initialize_session
+if not servers_configured:
+    return "Error: No servers configured"
+if not all_models_available:
+    return "Error: Model X not found on any server"
 ```
 
-**3. Explicit State Management**
-```python
-# state.py - Clear ownership of mutable state
-server_pool: Optional[ServerPool] = None
-session: Optional[ComparisonSession] = None
-battery_run: Optional[BatteryRun] = None
+### Explicit State Management
+- Session state (Python): models, contexts, halted status
+- UI state (localStorage): server URLs, selected models, settings
+
+### Separation of Concerns
+- `ui.py`: Component definitions only
+- `handlers.py`: Event logic only
+- `core.py`: Business logic only
+
+### Progressive Error Handling
+- Human-readable errors
+- Halt on model failures
+- Subsequent prompts rejected if halted
+
+---
+
+## Data Flow: Sending a Prompt
+
+```
+1. User clicks "Send Prompt"
+        ↓
+2. handlers.send_single_prompt()
+   - Validate session
+   - Parse tools JSON
+   - Add user message to all contexts
+        ↓
+3. Work-Stealing Loop
+   - Find idle server with queued model
+   - Start async task
+   - Yield UI updates every 100ms
+        ↓
+4. Each task: stream_completion()
+   - Mark model "streaming"
+   - Accumulate chunks
+   - On complete: add to context, release server
+        ↓
+5. Final yield: "✅ All responses complete"
 ```
 
 ---
 
-## Configuration
+## Tab Status Colors
 
-### Environment Variables (.env)
+| Status | Color | Meaning |
+|--------|-------|---------|
+| pending | Red | Waiting to start |
+| streaming | Yellow | In progress |
+| completed | Green | Done |
+
+---
+
+## Environment Configuration
+
 ```bash
-# Server URLs (LM_STUDIO_SERVER_1, LM_STUDIO_SERVER_2, ...)
+# .env file
 LM_STUDIO_SERVER_1=http://192.168.1.10:1234
 LM_STUDIO_SERVER_2=http://192.168.1.11:1234
-
-# Optional
 GRADIO_PORT=7860
-BEYOND_COMPARE_PATH=/path/to/bcompare
+BEYOND_COMPARE_PATH=/usr/bin/bcompare  # Optional
 ```
-
-### Gradio Compatibility
-- **Gradio 5.x**: `theme`/`css` on `gr.Blocks()`
-- **Gradio 6.x**: `theme`/`css` on `.launch()`
-- Code auto-detects via `inspect.signature()`
 
 ---
 
-## Testing
+## Integration Points
 
-```bash
-# Run all tests
-pytest tests/ -v
+### Upstream: Benchmark Sources
+- BFCL: JSON with function schemas
+- Inspect AI: Export prompts as JSON
+- Custom: OpenAI-compatible message format
 
-# Run specific test file
-pytest tests/test_battery.py -v
+### API Layer: OpenAI-Compatible
+All servers must expose:
+```
+GET  /v1/models
+POST /v1/chat/completions
 ```
 
-### Test Patterns
-- Use `respx` for mocking HTTP requests
-- Use `pytest-asyncio` for async tests
-- Fixtures in `conftest.py` for shared setup
+Supported: LM Studio, Ollama (OpenAI mode), vLLM, llama.cpp server
 
 ---
 
@@ -89,53 +183,56 @@ pytest tests/test_battery.py -v
 
 ### NEVER Use These Commands
 ```bash
-# FORBIDDEN - wipes working directory, breaks VS Code workspace
 git rm -rf .
-git clean -fdx  # without explicit user confirmation
+git clean -fdx  # without explicit confirmation
+```
 
-# FORBIDDEN - orphan + cleanup combo is dangerous
-git checkout --orphan <branch> && git rm -rf .
+### SAFE Alternatives
+```bash
+git checkout HEAD -- .
+git stash
+git reflog
 ```
 
 ### Critical Files to Preserve
-- `*.code-workspace` - VS Code workspace (deleting detaches Claude)
-- `.vscode/` - Editor settings
-- `.claude/` - Claude Code configuration
+- `*.code-workspace`
+- `.vscode/`
+- `.claude/`
+- `pyproject.toml`
 
-### Safe Branch Operations
+---
+
+## Testing
+
 ```bash
-# SAFE - create branch, preserve working directory
-git branch <new-branch>
-git checkout <new-branch>
+# Run tests
+pytest
 
-# SAFE - use GitHub UI for orphan branches
+# Run with async support
+pytest -v tests/
 
-# SAFE - selective file operations
-git checkout <branch> -- specific/file.txt
+# Coverage
+pytest --cov=prompt_prix
 ```
 
-### Pre-Flight Checks
-Before any destructive git operation:
-1. Verify `development/testing` branch has all work
-2. Confirm working directory can be restored from `.git/`
-3. Ask user before `rm`, `clean`, or `reset --hard`
-
-### Recovery
-```bash
-git checkout HEAD -- .    # restore all tracked files
-git stash list            # check stashed changes
-git reflog                # find lost commits
-```
+### Test Patterns
+- Mock HTTP responses for server tests
+- Use `pytest-asyncio` for async handlers
+- Test Pydantic validation at boundaries
 
 ---
 
 ## Development Workflow
 
-1. **Run locally**: `python -m prompt_prix.main`
-2. **Test changes**: `pytest tests/ -v`
-3. **Commit**: Use descriptive messages, include Co-Authored-By for Claude
+1. Edit code in `prompt_prix/`
+2. Run `pytest` to verify
+3. Launch with `prompt-prix` command
+4. Test against LM Studio servers
+5. Commit with descriptive messages
 
-### Branch Structure
-- `main` - Release branch
-- `development/functional` - Feature preview
-- `development/testing` - Active development
+### Adding a New Feature
+1. Check if existing module handles it
+2. Update Pydantic models in `config.py` if new state needed
+3. Add core logic to appropriate module
+4. Wire UI in `ui.py` and handlers in `handlers.py`
+5. Add tests

@@ -19,6 +19,41 @@ from prompt_prix.export import generate_markdown_report, generate_json_report, s
 from prompt_prix.parsers import parse_models_input, parse_servers_input, parse_prompts_file, load_system_prompt
 
 
+# ─────────────────────────────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────────────────────────────
+
+def _empty_tabs(n: int = 10) -> tuple:
+    """Return tuple of n empty strings for model tabs."""
+    return tuple("" for _ in range(n))
+
+
+async def _init_pool_and_validate(
+    servers_text: str,
+    models_selected: list[str]
+) -> tuple[Optional[ServerPool], Optional[str]]:
+    """
+    Initialize server pool and validate models are available.
+
+    Returns:
+        (pool, None) on success
+        (None, error_message) on failure
+    """
+    servers = parse_servers_input(servers_text)
+    if not servers:
+        return None, "❌ No servers configured"
+
+    pool = ServerPool(servers)
+    await pool.refresh_all_manifests()
+
+    available = pool.get_all_available_models()
+    missing = [m for m in models_selected if m not in available]
+    if missing:
+        return None, f"❌ Models not available: {', '.join(missing)}"
+
+    return pool, None
+
+
 def handle_stop():
     """Handle Stop button click - signal cancellation."""
     state.request_stop()
@@ -89,9 +124,9 @@ async def initialize_session(
     system_prompt = system_prompt_text.strip() if system_prompt_text else ""
 
     if not servers:
-        return ("❌ No servers configured",) + tuple("" for _ in range(10))
+        return ("❌ No servers configured",) + _empty_tabs()
     if not models:
-        return ("❌ No models configured",) + tuple("" for _ in range(10))
+        return ("❌ No models configured",) + _empty_tabs()
 
     # Initialize server pool and refresh manifests
     state.server_pool = ServerPool(servers)
@@ -104,7 +139,7 @@ async def initialize_session(
     if missing:
         return (
             f"⚠️ Models not found on any server: {', '.join(missing)}",
-        ) + tuple("" for _ in range(10))
+        ) + _empty_tabs()
 
     # Create session
     state.session = ComparisonSession(
@@ -116,9 +151,7 @@ async def initialize_session(
         max_tokens=max_tokens
     )
 
-    return (f"✅ Session initialized with {len(models)} models",) + tuple(
-        "" for _ in range(10)
-    )
+    return (f"✅ Session initialized with {len(models)} models",) + _empty_tabs()
 
 
 async def send_single_prompt(prompt: str, tools_json: str = ""):
@@ -129,7 +162,7 @@ async def send_single_prompt(prompt: str, tools_json: str = ""):
     session = state.session
 
     if session is None:
-        yield ("❌ Session not initialized", []) + tuple("" for _ in range(10))
+        yield ("❌ Session not initialized", []) + _empty_tabs()
         return
 
     if session.state.halted:
@@ -143,7 +176,7 @@ async def send_single_prompt(prompt: str, tools_json: str = ""):
         return
 
     if not prompt.strip():
-        yield ("❌ Empty prompt", []) + tuple("" for _ in range(10))
+        yield ("❌ Empty prompt", []) + _empty_tabs()
         return
 
     # Parse tools JSON if provided
@@ -152,10 +185,10 @@ async def send_single_prompt(prompt: str, tools_json: str = ""):
         try:
             tools = json.loads(tools_json)
             if not isinstance(tools, list):
-                yield ("❌ Tools must be a JSON array", []) + tuple("" for _ in range(10))
+                yield ("❌ Tools must be a JSON array", []) + _empty_tabs()
                 return
         except json.JSONDecodeError as e:
-            yield (f"❌ Invalid tools JSON: {e}", []) + tuple("" for _ in range(10))
+            yield (f"❌ Invalid tools JSON: {e}", []) + _empty_tabs()
             return
 
     # Track streaming state for each model
@@ -329,17 +362,17 @@ async def run_batch_prompts(file_obj) -> tuple:
     session = state.session
 
     if session is None:
-        return ("❌ Session not initialized",) + tuple("" for _ in range(10))
+        return ("❌ Session not initialized",) + _empty_tabs()
 
     if file_obj is None:
-        return ("❌ No file uploaded",) + tuple("" for _ in range(10))
+        return ("❌ No file uploaded",) + _empty_tabs()
 
     # Read file content
     content = Path(file_obj.name).read_text(encoding="utf-8")
     prompts = parse_prompts_file(content)
 
     if not prompts:
-        return ("❌ No prompts found in file",) + tuple("" for _ in range(10))
+        return ("❌ No prompts found in file",) + _empty_tabs()
 
     # Run each prompt in sequence
     completed = 0
@@ -365,32 +398,26 @@ async def run_batch_prompts(file_obj) -> tuple:
     return (status,) + tuple(contexts)
 
 
-def export_markdown() -> tuple[str, str]:
-    """Export current session as Markdown."""
+def _export_session(generator_fn, extension: str) -> tuple[str, str]:
+    """Export current session using the specified generator function."""
     session = state.session
-
     if session is None:
         return "❌ No session to export", ""
 
-    report = generate_markdown_report(session.state)
-    filename = f"prompt-prix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+    report = generator_fn(session.state)
+    filename = f"prompt-prix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{extension}"
     save_report(report, filename)
-
     return f"✅ Exported to {filename}", report
+
+
+def export_markdown() -> tuple[str, str]:
+    """Export current session as Markdown."""
+    return _export_session(generate_markdown_report, "md")
 
 
 def export_json() -> tuple[str, str]:
     """Export current session as JSON."""
-    session = state.session
-
-    if session is None:
-        return "❌ No session to export", ""
-
-    report = generate_json_report(session.state)
-    filename = f"prompt-prix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    save_report(report, filename)
-
-    return f"✅ Exported to {filename}", report
+    return _export_session(generate_json_report, "json")
 
 
 def launch_beyond_compare(model_a: str, model_b: str) -> str:
@@ -522,16 +549,10 @@ async def battery_run_handler(
         yield "❌ No models selected", []
         return
 
-    servers = parse_servers_input(servers_text)
-    if not servers:
-        yield "❌ No servers configured", []
-        return
-
     # Import here to avoid circular imports
     from prompt_prix.benchmarks import CustomJSONLoader
     from prompt_prix.adapters import LMStudioAdapter
     from prompt_prix.battery import BatteryRunner
-    from prompt_prix.core import ServerPool
 
     # Load test cases
     try:
@@ -540,15 +561,10 @@ async def battery_run_handler(
         yield f"❌ Failed to load tests: {e}", []
         return
 
-    # Create server pool and adapter
-    pool = ServerPool(servers)
-    await pool.refresh_all_manifests()
-
-    # Verify models are available
-    available = pool.get_all_available_models()
-    missing = [m for m in models_selected if m not in available]
-    if missing:
-        yield f"❌ Models not available: {', '.join(missing)}", []
+    # Validate servers and models
+    pool, error = await _init_pool_and_validate(servers_text, models_selected)
+    if error:
+        yield error, []
         return
 
     adapter = LMStudioAdapter(pool)
@@ -600,21 +616,12 @@ async def battery_quick_prompt_handler(
         yield "❌ No models selected"
         return
 
-    servers = parse_servers_input(servers_text)
-    if not servers:
-        yield "❌ No servers configured"
-        return
+    from prompt_prix.core import stream_completion
 
-    from prompt_prix.core import ServerPool, stream_completion
-
-    pool = ServerPool(servers)
-    await pool.refresh_all_manifests()
-
-    # Verify models are available
-    available = pool.get_all_available_models()
-    missing = [m for m in models_selected if m not in available]
-    if missing:
-        yield f"❌ Models not available: {', '.join(missing)}"
+    # Validate servers and models
+    pool, error = await _init_pool_and_validate(servers_text, models_selected)
+    if error:
+        yield error
         return
 
     # Build messages
