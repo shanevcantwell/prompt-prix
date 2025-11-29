@@ -35,6 +35,46 @@ CONVERSATION_SEPARATOR: str = "\n\n---\n\n"
 
 
 # ─────────────────────────────────────────────────────────────────────
+# RETRY CONFIGURATION - For model loading failures
+# ─────────────────────────────────────────────────────────────────────
+
+def get_retry_attempts() -> int:
+    """
+    Get max retry attempts from environment or default.
+
+    Set BATTERY_RETRY_ATTEMPTS in .env (default: 3).
+    """
+    try:
+        return int(os.environ.get("BATTERY_RETRY_ATTEMPTS", "3"))
+    except ValueError:
+        return 3
+
+
+def get_retry_min_wait() -> int:
+    """
+    Get minimum wait between retries in seconds.
+
+    Set BATTERY_RETRY_MIN_WAIT in .env (default: 4).
+    """
+    try:
+        return int(os.environ.get("BATTERY_RETRY_MIN_WAIT", "4"))
+    except ValueError:
+        return 4
+
+
+def get_retry_max_wait() -> int:
+    """
+    Get maximum wait between retries in seconds.
+
+    Set BATTERY_RETRY_MAX_WAIT in .env (default: 30).
+    """
+    try:
+        return int(os.environ.get("BATTERY_RETRY_MAX_WAIT", "30"))
+    except ValueError:
+        return 30
+
+
+# ─────────────────────────────────────────────────────────────────────
 # ENVIRONMENT LOADING
 # ─────────────────────────────────────────────────────────────────────
 

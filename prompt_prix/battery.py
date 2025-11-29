@@ -7,16 +7,50 @@ State management per CLAUDE.md:
 - Fail loudly on errors (no swallowing exceptions)
 
 Uses WorkStealingDispatcher for parallel execution across servers.
+Includes retry logic with exponential backoff for transient errors.
 """
 
+import logging
 import time
 from dataclasses import dataclass
 from enum import Enum
 from typing import AsyncGenerator, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception,
+    before_sleep_log,
+)
 
 from prompt_prix.core import stream_completion
+from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
+
+logger = logging.getLogger(__name__)
+
+
+def is_retryable_error(exception: BaseException) -> bool:
+    """
+    Determine if an exception is retryable.
+
+    Retryable errors include:
+    - Model loading failures (LM Studio swapping models)
+    - Connection errors (transient network issues)
+    - Timeout errors (server overloaded)
+    """
+    error_msg = str(exception).lower()
+    retryable_patterns = [
+        "failed to load model",
+        "model loading",
+        "connection",
+        "timeout",
+        "server busy",
+        "503",
+        "502",
+    ]
+    return any(pattern in error_msg for pattern in retryable_patterns)
 
 if TYPE_CHECKING:
     from prompt_prix.adapters.lmstudio import LMStudioAdapter
@@ -201,7 +235,7 @@ class BatteryRunner:
         dispatcher = WorkStealingDispatcher(self.adapter.pool)
 
         async def execute_test(item: BatteryWorkItem, server_url: str) -> None:
-            """Execute a single test on a specific server."""
+            """Execute a single test on a specific server with retry logic."""
             # Mark as running
             self.state.set_result(TestResult(
                 test_id=item.test.id,
@@ -210,7 +244,16 @@ class BatteryRunner:
             ))
 
             start_time = time.time()
-            try:
+
+            @retry(
+                stop=stop_after_attempt(get_retry_attempts()),
+                wait=wait_exponential(multiplier=2, min=get_retry_min_wait(), max=get_retry_max_wait()),
+                retry=retry_if_exception(is_retryable_error),
+                before_sleep=before_sleep_log(logger, logging.WARNING),
+                reraise=True,
+            )
+            async def stream_with_retry() -> str:
+                """Stream completion with retry for transient errors."""
                 response = ""
                 async for chunk in stream_completion(
                     server_url=server_url,
@@ -222,7 +265,10 @@ class BatteryRunner:
                     tools=item.test.tools
                 ):
                     response += chunk
+                return response
 
+            try:
+                response = await stream_with_retry()
                 latency_ms = (time.time() - start_time) * 1000
 
                 # Mark as completed
