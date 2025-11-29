@@ -31,6 +31,11 @@ from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry
 logger = logging.getLogger(__name__)
 
 
+class EmptyResponseError(Exception):
+    """Raised when model returns empty response (possible aborted load)."""
+    pass
+
+
 def is_retryable_error(exception: BaseException) -> bool:
     """
     Determine if an exception is retryable.
@@ -39,7 +44,12 @@ def is_retryable_error(exception: BaseException) -> bool:
     - Model loading failures (LM Studio swapping models)
     - Connection errors (transient network issues)
     - Timeout errors (server overloaded)
+    - Empty responses (aborted model loads)
     """
+    # Empty responses are retryable (often caused by model load abort)
+    if isinstance(exception, EmptyResponseError):
+        return True
+
     error_msg = str(exception).lower()
     retryable_patterns = [
         "failed to load model",
@@ -51,6 +61,35 @@ def is_retryable_error(exception: BaseException) -> bool:
         "502",
     ]
     return any(pattern in error_msg for pattern in retryable_patterns)
+
+
+def validate_response(response: str) -> None:
+    """
+    Validate that a response is actually valid, not a false positive.
+
+    Raises:
+        EmptyResponseError: If response is empty or contains error indicators
+
+    False positives can occur when:
+    - Model load is aborted mid-stream
+    - Server returns empty response
+    - Response contains error message instead of actual content
+    """
+    if not response or not response.strip():
+        raise EmptyResponseError("Empty response received (possible aborted model load)")
+
+    # Check for common error indicators in response content
+    response_lower = response.lower()
+    error_indicators = [
+        "failed to load",
+        "model not loaded",
+        "error loading",
+        "internal server error",
+    ]
+    for indicator in error_indicators:
+        if indicator in response_lower and len(response) < 200:
+            # Short response with error indicator = likely false positive
+            raise EmptyResponseError(f"Response appears to be error message: {response[:100]}")
 
 if TYPE_CHECKING:
     from prompt_prix.adapters.lmstudio import LMStudioAdapter
@@ -265,6 +304,9 @@ class BatteryRunner:
                     tools=item.test.tools
                 ):
                     response += chunk
+
+                # Validate response to catch false positives (empty/error responses)
+                validate_response(response)
                 return response
 
             try:
