@@ -19,6 +19,12 @@ from prompt_prix.export import generate_markdown_report, generate_json_report, s
 from prompt_prix.parsers import parse_models_input, parse_servers_input, parse_prompts_file, load_system_prompt
 
 
+def handle_stop():
+    """Handle Stop button click - signal cancellation."""
+    state.request_stop()
+    return "🛑 Stop requested..."
+
+
 async def fetch_available_models(servers_text: str) -> tuple[str, dict]:
     """
     Query all configured servers and return available models.
@@ -584,6 +590,8 @@ async def battery_quick_prompt_handler(
 
     Yields markdown-formatted results as each model completes.
     """
+    state.clear_stop()  # Reset stop flag at start
+
     if not prompt or not prompt.strip():
         yield "*Enter a prompt to test*"
         return
@@ -619,6 +627,12 @@ async def battery_quick_prompt_handler(
     output_lines = [f"**Prompt:** {prompt.strip()}\n\n---\n"]
 
     for model_id in models_selected:
+        # Check for stop request
+        if state.should_stop():
+            output_lines.append("---\n🛑 **Stopped by user**")
+            yield "\n".join(output_lines)
+            return
+
         # Find available server for this model
         server_url = pool.find_available_server(model_id)
         if not server_url:
@@ -641,6 +655,12 @@ async def battery_quick_prompt_handler(
                 max_tokens=max_tokens,
                 timeout_seconds=timeout
             ):
+                # Check for stop during streaming
+                if state.should_stop():
+                    output_lines[-1] = f"### {model_id}\n{response}\n\n*(stopped)*\n\n"
+                    output_lines.append("---\n🛑 **Stopped by user**")
+                    yield "\n".join(output_lines)
+                    return
                 response += chunk
 
             results[model_id] = response
@@ -657,6 +677,61 @@ async def battery_quick_prompt_handler(
 
     output_lines.append("---\n✅ **Complete**")
     yield "\n".join(output_lines)
+
+
+def battery_export_json() -> tuple[str, str]:
+    """Export battery results as JSON."""
+    if not state.battery_run:
+        return "❌ No battery results to export", ""
+
+    from prompt_prix.battery import TestStatus
+
+    # Build export structure
+    export_data = {
+        "tests": state.battery_run.tests,
+        "models": state.battery_run.models,
+        "results": []
+    }
+
+    for test_id in state.battery_run.tests:
+        for model_id in state.battery_run.models:
+            result = state.battery_run.get_result(test_id, model_id)
+            if result:
+                export_data["results"].append({
+                    "test_id": result.test_id,
+                    "model_id": result.model_id,
+                    "status": result.status.value,
+                    "response": result.response,
+                    "latency_ms": result.latency_ms,
+                    "error": result.error
+                })
+
+    json_str = json.dumps(export_data, indent=2)
+    return f"✅ Exported {len(export_data['results'])} results", json_str
+
+
+def battery_export_csv() -> tuple[str, str]:
+    """Export battery results as CSV."""
+    if not state.battery_run:
+        return "❌ No battery results to export", ""
+
+    from prompt_prix.battery import TestStatus
+
+    lines = ["test_id,model_id,status,latency_ms,response"]
+
+    for test_id in state.battery_run.tests:
+        for model_id in state.battery_run.models:
+            result = state.battery_run.get_result(test_id, model_id)
+            if result:
+                # Escape CSV fields
+                response = result.response or ""
+                response = response.replace('"', '""')  # Escape quotes
+                response = response.replace('\n', '\\n')  # Escape newlines
+                latency = f"{result.latency_ms:.0f}" if result.latency_ms else ""
+                lines.append(f'"{test_id}","{model_id}","{result.status.value}",{latency},"{response}"')
+
+    csv_str = "\n".join(lines)
+    return f"✅ Exported {len(lines) - 1} results", csv_str
 
 
 def battery_get_cell_detail(model: str, test: str) -> str:

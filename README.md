@@ -1,20 +1,29 @@
 # prompt-prix
 
-Multi-LLM head-to-head comparison tool for LM Studio servers.
+Find your optimal open-weights model. Run benchmarks across LM Studio servers.
 
 ## Overview
 
-prompt-prix is a Gradio-based tool for comparing responses from multiple LLMs (open-weights models, quantizations, or any combination) served via LM Studio's OpenAI-compatible API. Designed to "audition" models for use as backing LLMs in agentic workflows.
+prompt-prix is a Gradio-based tool for benchmarking and comparing responses from multiple LLMs (open-weights models, quantizations, or any combination) served via LM Studio's OpenAI-compatible API. Designed to "audition" models for use as backing LLMs in agentic workflows.
 
 ## Features
 
-- Compare responses from multiple models side-by-side
-- Support for 2+ LM Studio servers
-- Multi-turn conversations with isolated context per model
-- Interactive prompt input or batch file processing
+**Battery Mode (Primary)**
+- Run benchmark test suites across multiple models
+- Model x Test results grid with real-time updates
+- JSON test suite format with system prompts per test
+- Export results to JSON or CSV
+
+**Compare Mode (Secondary)**
+- Interactive multi-turn conversations
+- Side-by-side response comparison
 - Streaming responses per model tab
-- Export reports in Markdown or JSON format
-- Configurable temperature, timeout, and system prompts
+- Export reports in Markdown or JSON
+
+**Shared**
+- Support for 2+ LM Studio servers with work-stealing dispatch
+- Configurable temperature, timeout, and max tokens
+- Quick prompt testing against selected models
 
 ## Installation
 
@@ -72,11 +81,40 @@ Open `http://localhost:7860` in your browser.
 
 ### Using the interface
 
-1. **Configure**: Enter your LM Studio server URLs and model names in the Configuration panel
-2. **Initialize**: Click "Initialize Session" to connect to servers and verify models
-3. **Prompt**: Enter prompts interactively or upload a batch file (one prompt per line)
-4. **Compare**: View responses in model-specific tabs
-5. **Export**: Save comparison reports as Markdown or JSON
+**Battery Mode**
+1. **Configure Servers**: Expand the Servers panel and enter your LM Studio URLs
+2. **Fetch Models**: Click "Fetch Models" to discover available models
+3. **Upload Test Suite**: Upload a JSON benchmark file (see format below)
+4. **Select Models**: Check the models you want to test
+5. **Run Battery**: Click "Run Battery" to execute all tests
+6. **View Results**: See the Model x Test grid update in real-time
+7. **Export**: Download results as JSON or CSV
+
+**Compare Mode**
+1. **Select Models**: Check models to compare
+2. **Send Prompt**: Enter a prompt and click "Send to All"
+3. **View Responses**: See streaming responses in model tabs
+4. **Continue Conversation**: Send follow-up prompts for multi-turn
+5. **Export**: Save as Markdown or JSON
+
+### Test Suite Format
+
+```json
+{
+  "prompts": [
+    {
+      "id": "test-1",
+      "name": "Basic greeting",
+      "system": "You are a helpful assistant.",
+      "user": "Say hello!"
+    },
+    {
+      "id": "test-2",
+      "user": "What is 2+2?"
+    }
+  ]
+}
+```
 
 ## Development
 
@@ -97,13 +135,21 @@ pytest --cov=prompt_prix --cov-report=html
 ```
 prompt-prix/
 ├── prompt_prix/
-│   ├── __init__.py
-│   ├── config.py      # Configuration and data models
-│   ├── core.py        # Server pool and session management
-│   ├── export.py      # Report generation
-│   └── main.py        # Gradio UI
+│   ├── main.py          # Entry point, Gradio launch
+│   ├── ui.py            # Gradio UI definition (Battery-first)
+│   ├── ui_helpers.py    # CSS, JS constants
+│   ├── handlers.py      # Event handlers for UI
+│   ├── core.py          # ServerPool, ComparisonSession
+│   ├── adapters.py      # LMStudioAdapter (provider abstraction)
+│   ├── battery.py       # BatteryRunner, test execution
+│   ├── benchmarks/      # Test loaders (CustomJSONLoader)
+│   ├── config.py        # Configuration, .env loading
+│   ├── parsers.py       # Input parsing utilities
+│   ├── export.py        # Report generation
+│   └── state.py         # Global mutable state
 └── tests/
     ├── conftest.py
+    ├── test_battery.py
     ├── test_config.py
     ├── test_core.py
     ├── test_export.py

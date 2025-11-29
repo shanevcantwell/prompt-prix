@@ -24,7 +24,10 @@ from prompt_prix.handlers import (
     battery_run_handler,
     battery_get_cell_detail,
     battery_get_test_ids,
-    battery_quick_prompt_handler
+    battery_quick_prompt_handler,
+    battery_export_json,
+    battery_export_csv,
+    handle_stop
 )
 from prompt_prix.parsers import get_default_system_prompt
 from prompt_prix.ui_helpers import (
@@ -228,18 +231,26 @@ def create_app() -> gr.Blocks:
                     battery_export_json_btn = gr.Button("Export JSON")
                     battery_export_csv_btn = gr.Button("Export CSV")
 
+                battery_export_preview = gr.Textbox(
+                    label="Export Preview",
+                    lines=10,
+                    interactive=False,
+                    visible=False
+                )
+
             # ─────────────────────────────────────────────────────────
             # TAB 2: COMPARE (Secondary)
             # ─────────────────────────────────────────────────────────
             
             with gr.Tab("💬 Compare", id="compare-tab"):
-                
+
                 gr.Markdown("""
-                Interactive prompt comparison. Send the same prompt to multiple models
-                and see responses side-by-side in real-time.
+                Interactive multi-turn comparison. Send prompts to multiple models
+                and see responses side-by-side with conversation history.
                 """)
-                
+
                 with gr.Row():
+                    # Left column: Models
                     with gr.Column(scale=1):
                         compare_models = gr.CheckboxGroup(
                             label="Models to Compare",
@@ -247,7 +258,8 @@ def create_app() -> gr.Blocks:
                             value=[],
                             elem_id="compare-models"
                         )
-                    
+
+                    # Right column: Config + Quick Prompt
                     with gr.Column(scale=1):
                         compare_temp = gr.Slider(
                             label="Temperature",
@@ -270,42 +282,40 @@ def create_app() -> gr.Blocks:
                             step=256,
                             value=DEFAULT_MAX_TOKENS
                         )
-                
-                with gr.Accordion("System Prompt", open=False):
-                    compare_system_prompt = gr.Textbox(
-                        label="System Prompt",
-                        value=get_default_system_prompt(),
-                        lines=10
-                    )
-                
-                with gr.Accordion("Tools (Function Calling)", open=False):
-                    compare_tools = gr.Code(
-                        label="Tools JSON (OpenAI format)",
-                        language="json",
-                        value="",
-                        lines=10,
-                        elem_id="tools"
-                    )
-                
-                compare_init_btn = gr.Button("Initialize Session", variant="secondary")
+                        compare_system_prompt = gr.Textbox(
+                            label="System Prompt (optional)",
+                            value=get_default_system_prompt(),
+                            placeholder="System instructions for all models",
+                            lines=3
+                        )
+
+                        with gr.Accordion("Tools (Function Calling)", open=False):
+                            compare_tools = gr.Code(
+                                label="Tools JSON (OpenAI format)",
+                                language="json",
+                                value="",
+                                lines=8,
+                                elem_id="tools"
+                            )
+
+                        # Quick prompt for comparison
+                        gr.Markdown("---")
+                        gr.Markdown("**Prompt**")
+                        compare_prompt = gr.Textbox(
+                            label="User Message",
+                            placeholder="Enter your prompt here...",
+                            lines=2
+                        )
+                        compare_send_btn = gr.Button(
+                            "⚡ Send to All",
+                            variant="primary"
+                        )
+
                 compare_status = gr.Textbox(
                     label="Status",
-                    value="Session not initialized",
+                    value="Select models and send a prompt",
                     interactive=False
                 )
-                
-                with gr.Row():
-                    compare_prompt = gr.Textbox(
-                        label="Prompt",
-                        placeholder="Enter your prompt here...",
-                        lines=3,
-                        scale=3
-                    )
-                    compare_send_btn = gr.Button(
-                        "Send",
-                        variant="primary",
-                        scale=1
-                    )
                 
                 # Hidden state for tab colors
                 tab_states = gr.JSON(value=[], visible=False, elem_id="tab-states")
@@ -414,6 +424,13 @@ def create_app() -> gr.Blocks:
             outputs=[quick_prompt_output]
         )
 
+        # Stop button - signals cancellation to running handlers
+        battery_stop_btn.click(
+            fn=handle_stop,
+            inputs=[],
+            outputs=[battery_status]
+        )
+
         # Detail view
         detail_refresh_btn.click(
             fn=battery_get_cell_detail,
@@ -421,32 +438,65 @@ def create_app() -> gr.Blocks:
             outputs=[detail_content]
         )
 
+        # Battery export
+        battery_export_json_btn.click(
+            fn=battery_export_json,
+            inputs=[],
+            outputs=[battery_status, battery_export_preview]
+        ).then(
+            fn=lambda: gr.update(visible=True),
+            outputs=[battery_export_preview]
+        )
+
+        battery_export_csv_btn.click(
+            fn=battery_export_csv,
+            inputs=[],
+            outputs=[battery_status, battery_export_preview]
+        ).then(
+            fn=lambda: gr.update(visible=True),
+            outputs=[battery_export_preview]
+        )
+
         # ─────────────────────────────────────────────────────────────
         # EVENT BINDINGS: Compare Tab
         # ─────────────────────────────────────────────────────────────
 
-        compare_init_btn.click(
-            fn=initialize_session,
-            inputs=[
-                servers_input,
-                compare_models,
-                compare_system_prompt,
-                compare_temp,
-                compare_timeout,
-                compare_max_tokens
-            ],
-            outputs=[compare_status] + model_outputs
-        )
+        async def compare_send_with_auto_init(
+            prompt, tools, servers_text, models_selected,
+            system_prompt, temperature, timeout, max_tokens
+        ):
+            """Auto-initialize session if needed, then send prompt."""
+            # Auto-initialize if session doesn't exist or models changed
+            if (state.session is None or
+                set(state.session.state.models) != set(models_selected)):
+                init_status, *init_outputs = await initialize_session(
+                    servers_text, models_selected, system_prompt,
+                    temperature, timeout, max_tokens
+                )
+                if "❌" in init_status or "⚠️" in init_status:
+                    # Initialization failed
+                    yield (init_status, []) + tuple(init_outputs)
+                    return
+
+            # Now send the prompt
+            async for result in send_single_prompt(prompt, tools):
+                yield result
 
         compare_send_btn.click(
-            fn=send_single_prompt,
-            inputs=[compare_prompt, compare_tools],
+            fn=compare_send_with_auto_init,
+            inputs=[
+                compare_prompt, compare_tools, servers_input, compare_models,
+                compare_system_prompt, compare_temp, compare_timeout, compare_max_tokens
+            ],
             outputs=[compare_status, tab_states] + model_outputs
         )
 
         compare_prompt.submit(
-            fn=send_single_prompt,
-            inputs=[compare_prompt, compare_tools],
+            fn=compare_send_with_auto_init,
+            inputs=[
+                compare_prompt, compare_tools, servers_input, compare_models,
+                compare_system_prompt, compare_temp, compare_timeout, compare_max_tokens
+            ],
             outputs=[compare_status, tab_states] + model_outputs
         )
 
