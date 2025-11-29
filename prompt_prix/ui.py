@@ -119,12 +119,20 @@ def create_app() -> gr.Blocks:
                             lines=1
                         )
                         
-                        battery_models = gr.CheckboxGroup(
-                            label="Models to Test",
-                            choices=[],
-                            value=[],
-                            elem_id="battery-models"
-                        )
+                        with gr.Row():
+                            battery_models = gr.CheckboxGroup(
+                                label="Models to Test",
+                                choices=[],
+                                value=[],
+                                elem_id="battery-models",
+                                scale=3
+                            )
+                            battery_fetch_btn = gr.Button(
+                                "🔄 Fetch",
+                                variant="secondary",
+                                size="sm",
+                                scale=1
+                            )
                     
                     # Right column: Config
                     with gr.Column(scale=1):
@@ -252,12 +260,20 @@ def create_app() -> gr.Blocks:
                 with gr.Row():
                     # Left column: Models
                     with gr.Column(scale=1):
-                        compare_models = gr.CheckboxGroup(
-                            label="Models to Compare",
-                            choices=[],
-                            value=[],
-                            elem_id="compare-models"
-                        )
+                        with gr.Row():
+                            compare_models = gr.CheckboxGroup(
+                                label="Models to Compare",
+                                choices=[],
+                                value=[],
+                                elem_id="compare-models",
+                                scale=3
+                            )
+                            compare_fetch_btn = gr.Button(
+                                "🔄 Fetch",
+                                variant="secondary",
+                                size="sm",
+                                scale=1
+                            )
 
                     # Right column: Config + Quick Prompt
                     with gr.Column(scale=1):
@@ -357,6 +373,31 @@ def create_app() -> gr.Blocks:
             )
 
         fetch_models_btn.click(
+            fn=on_fetch_models,
+            inputs=[servers_input],
+            outputs=[
+                server_status,
+                available_models,
+                battery_models,
+                compare_models,
+                detail_model
+            ]
+        )
+
+        # Tab-local fetch buttons (same handler, updates both tabs)
+        battery_fetch_btn.click(
+            fn=on_fetch_models,
+            inputs=[servers_input],
+            outputs=[
+                server_status,
+                available_models,
+                battery_models,
+                compare_models,
+                detail_model
+            ]
+        )
+
+        compare_fetch_btn.click(
             fn=on_fetch_models,
             inputs=[servers_input],
             outputs=[
