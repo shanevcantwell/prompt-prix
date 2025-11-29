@@ -5,17 +5,30 @@ State management per CLAUDE.md:
 - Pydantic models for all state (TestResult, BatteryRun)
 - Observable by default (yields state snapshots for UI)
 - Fail loudly on errors (no swallowing exceptions)
+
+Uses WorkStealingDispatcher for parallel execution across servers.
 """
 
 import time
+from dataclasses import dataclass
 from enum import Enum
 from typing import AsyncGenerator, Optional, TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
+from prompt_prix.core import stream_completion
+
 if TYPE_CHECKING:
-    from prompt_prix.adapters.base import HostAdapter
+    from prompt_prix.adapters.lmstudio import LMStudioAdapter
     from prompt_prix.benchmarks.base import TestCase
+
+
+@dataclass
+class BatteryWorkItem:
+    """Work item for battery dispatcher."""
+
+    test: "TestCase"
+    model_id: str
 
 
 class TestStatus(str, Enum):
@@ -124,17 +137,18 @@ class BatteryRun(BaseModel):
 
 class BatteryRunner:
     """
-    Orchestrates battery execution.
+    Orchestrates battery execution with work-stealing parallelism.
 
     Design per CLAUDE.md:
     - Dependency injection (adapter passed in, not hardcoded)
     - Observable (yields state snapshots for UI updates)
     - Fail loudly (errors recorded in TestResult, not swallowed)
+    - Work-stealing dispatcher for parallel execution across servers
     """
 
     def __init__(
         self,
-        adapter: "HostAdapter",
+        adapter: "LMStudioAdapter",
         tests: list["TestCase"],
         models: list[str],
         temperature: float = 0.0,  # Deterministic for evals
@@ -145,7 +159,7 @@ class BatteryRunner:
         Initialize battery runner.
 
         Args:
-            adapter: HostAdapter for model inference (DI)
+            adapter: LMStudioAdapter for model inference (DI)
             tests: List of TestCase objects to run
             models: List of model IDs to test against
             temperature: Sampling temperature (default 0.0 for reproducibility)
@@ -167,62 +181,74 @@ class BatteryRunner:
 
     async def run(self) -> AsyncGenerator[BatteryRun, None]:
         """
-        Execute all tests across all models.
+        Execute all tests across all models using work-stealing.
+
+        Uses WorkStealingDispatcher to run tests in parallel across
+        available servers, keeping all servers busy.
 
         Yields:
-            BatteryRun state snapshot after each (test, model) state change
-
-        Execution order: For each test, run all models sequentially.
-        This allows streaming UI updates as each cell completes.
+            BatteryRun state snapshot periodically for UI updates
         """
-        for test in self.tests:
-            for model_id in self.models:
-                # Mark as running
+        from prompt_prix.dispatcher import WorkStealingDispatcher
+
+        # Build work items for all (test, model) combinations
+        work_items = [
+            BatteryWorkItem(test=test, model_id=model_id)
+            for test in self.tests
+            for model_id in self.models
+        ]
+
+        dispatcher = WorkStealingDispatcher(self.adapter.pool)
+
+        async def execute_test(item: BatteryWorkItem, server_url: str) -> None:
+            """Execute a single test on a specific server."""
+            # Mark as running
+            self.state.set_result(TestResult(
+                test_id=item.test.id,
+                model_id=item.model_id,
+                status=TestStatus.RUNNING
+            ))
+
+            start_time = time.time()
+            try:
+                response = ""
+                async for chunk in stream_completion(
+                    server_url=server_url,
+                    model_id=item.model_id,
+                    messages=item.test.to_messages(),
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    timeout_seconds=self.timeout_seconds,
+                    tools=item.test.tools
+                ):
+                    response += chunk
+
+                latency_ms = (time.time() - start_time) * 1000
+
+                # Mark as completed
                 self.state.set_result(TestResult(
-                    test_id=test.id,
-                    model_id=model_id,
-                    status=TestStatus.RUNNING
+                    test_id=item.test.id,
+                    model_id=item.model_id,
+                    status=TestStatus.COMPLETED,
+                    response=response,
+                    latency_ms=latency_ms
                 ))
-                yield self.state
 
-                # Execute
-                start_time = time.time()
-                try:
-                    response = ""
-                    async for chunk in self.adapter.stream_completion(
-                        model_id=model_id,
-                        messages=test.to_messages(),
-                        temperature=self.temperature,
-                        max_tokens=self.max_tokens,
-                        timeout_seconds=self.timeout_seconds,
-                        tools=test.tools
-                    ):
-                        response += chunk
+            except Exception as e:
+                latency_ms = (time.time() - start_time) * 1000
 
-                    latency_ms = (time.time() - start_time) * 1000
+                # Mark as error (fail loudly - record error, don't hide it)
+                self.state.set_result(TestResult(
+                    test_id=item.test.id,
+                    model_id=item.model_id,
+                    status=TestStatus.ERROR,
+                    error=str(e),
+                    latency_ms=latency_ms
+                ))
 
-                    # Mark as completed
-                    self.state.set_result(TestResult(
-                        test_id=test.id,
-                        model_id=model_id,
-                        status=TestStatus.COMPLETED,
-                        response=response,
-                        latency_ms=latency_ms
-                    ))
-
-                except Exception as e:
-                    latency_ms = (time.time() - start_time) * 1000
-
-                    # Mark as error (fail loudly - record error, don't hide it)
-                    self.state.set_result(TestResult(
-                        test_id=test.id,
-                        model_id=model_id,
-                        status=TestStatus.ERROR,
-                        error=str(e),
-                        latency_ms=latency_ms
-                    ))
-
-                yield self.state
+        # Run dispatcher and yield state on each iteration
+        async for _ in dispatcher.dispatch(work_items, execute_test):
+            yield self.state
 
         # Final yield with complete state
         yield self.state

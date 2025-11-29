@@ -29,6 +29,11 @@ class LMStudioAdapter:
         self._pool = server_pool
         self._lock = asyncio.Lock()
 
+    @property
+    def pool(self) -> ServerPool:
+        """Expose ServerPool for work-stealing dispatcher access."""
+        return self._pool
+
     async def get_available_models(self) -> list[str]:
         """Return list of all models available across all servers."""
         async with self._lock:

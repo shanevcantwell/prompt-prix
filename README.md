@@ -153,11 +153,12 @@ prompt-prix/
 │   ├── ui_helpers.py    # CSS, JS constants
 │   ├── handlers.py      # Async event handlers
 │   ├── core.py          # ServerPool, ComparisonSession, streaming
+│   ├── dispatcher.py    # WorkStealingDispatcher (parallel execution)
 │   ├── config.py        # Pydantic models, constants, .env loading
 │   ├── parsers.py       # Input parsing utilities
 │   ├── export.py        # Markdown/JSON report generation
 │   ├── state.py         # Global mutable state
-│   ├── battery.py       # BatteryRunner, BatteryRun state
+│   ├── battery.py       # BatteryRunner (uses work-stealing)
 │   ├── adapters/
 │   │   ├── base.py      # LLMAdapter protocol
 │   │   └── lmstudio.py  # LMStudioAdapter implementation

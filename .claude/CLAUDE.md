@@ -42,6 +42,7 @@ prompt_prix/
 ├── ui_helpers.py    # CSS, JS constants
 ├── handlers.py      # Async event handlers (bridging UI to core)
 ├── core.py          # ServerPool, ComparisonSession, streaming
+├── dispatcher.py    # WorkStealingDispatcher (parallel execution)
 ├── config.py        # Pydantic models, constants, .env loading
 ├── parsers.py       # Input parsing utilities
 ├── export.py        # Markdown/JSON report generation
@@ -61,6 +62,7 @@ prompt_prix/
 |--------|---------|
 | `config.py` | ServerConfig, ModelContext, SessionState (Pydantic) |
 | `core.py` | ServerPool management, streaming functions |
+| `dispatcher.py` | WorkStealingDispatcher for parallel execution |
 | `handlers.py` | Async handlers bridging UI to core logic |
 | `ui.py` | Gradio components and event bindings |
 | `state.py` | Mutable state shared across handlers |
@@ -88,19 +90,25 @@ Maintains comparison state:
 - Configuration (temperature, max tokens, system prompt)
 - Halt state
 
-### Work-Stealing Dispatcher
-Efficient multi-GPU utilization:
-1. Queue all models to process
-2. Find idle server that has queued model
-3. Execute and stream response
-4. Release server for next model
+### WorkStealingDispatcher (`dispatcher.py`)
+Reusable parallel execution strategy:
+```python
+dispatcher = WorkStealingDispatcher(pool)
+async for completed in dispatcher.dispatch(work_items, execute_fn):
+    yield state  # UI update opportunity
+```
+Work-stealing algorithm:
+1. Queue all work items (must have `model_id` property)
+2. For each idle server, find work it can run
+3. Spawn async task for matched work
+4. Yield periodically for UI updates
 
 ### BatteryRunner (Battery Mode)
-Orchestrates benchmark execution:
+Orchestrates benchmark execution using WorkStealingDispatcher:
 ```python
 runner = BatteryRunner(adapter, tests, models, temperature, max_tokens, timeout)
 async for state in runner.run():
-    yield state.to_grid()  # Model × Test results grid
+    yield state.to_grid()  # Model × Test grid updates in parallel
 ```
 
 ### CustomJSONLoader
