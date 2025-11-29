@@ -8,11 +8,15 @@ Efficiently distributes work items to available servers.
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import AsyncGenerator, Callable, Coroutine, Protocol, TypeVar
+from typing import AsyncGenerator, Callable, Coroutine, Optional, Protocol, TypeVar
 
 from prompt_prix.core import ServerPool
 
 logger = logging.getLogger(__name__)
+
+
+# Type for optional cancellation check function
+CancellationCheck = Optional[Callable[[], bool]]
 
 
 class WorkItem(Protocol):
@@ -53,6 +57,7 @@ class WorkStealingDispatcher:
         self,
         work_items: list[T],
         execute_fn: Callable[[T, str], Coroutine[None, None, None]],
+        should_cancel: CancellationCheck = None,
     ) -> AsyncGenerator[int, None]:
         """
         Execute work items across available servers.
@@ -67,6 +72,7 @@ class WorkStealingDispatcher:
         Args:
             work_items: List of items to process (must have model_id property)
             execute_fn: async fn(item, server_url) to execute each item
+            should_cancel: Optional fn() -> bool to check for cancellation
 
         Yields:
             int: Number of completed items (for progress tracking)
@@ -80,6 +86,10 @@ class WorkStealingDispatcher:
         yield completed
 
         while work_queue or active_tasks:
+            # Check for cancellation - stop assigning new work
+            if should_cancel and should_cancel():
+                logger.info("Cancellation requested, clearing work queue")
+                work_queue.clear()
             # Assign work to idle servers
             for server_url, server in self.pool.servers.items():
                 if server.is_busy:

@@ -27,8 +27,14 @@ from tenacity import (
 
 from prompt_prix.core import stream_completion
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
+from prompt_prix import state as app_state
 
 logger = logging.getLogger(__name__)
+
+
+class CancelledError(Exception):
+    """Raised when battery run is cancelled by user."""
+    pass
 
 
 class EmptyResponseError(Exception):
@@ -325,6 +331,10 @@ class BatteryRunner:
             )
             async def stream_with_retry() -> str:
                 """Stream completion with retry for transient errors."""
+                # Check for cancellation before each attempt
+                if app_state.should_stop():
+                    raise CancelledError("Battery run cancelled by user")
+
                 response = ""
                 async for chunk in stream_completion(
                     server_url=server_url,
@@ -336,6 +346,9 @@ class BatteryRunner:
                     tools=item.test.tools
                 ):
                     response += chunk
+                    # Check for cancellation during streaming
+                    if app_state.should_stop():
+                        raise CancelledError("Battery run cancelled by user")
 
                 # Validate response to catch false positives (empty/error responses)
                 validate_response(response)
@@ -367,7 +380,9 @@ class BatteryRunner:
                 ))
 
         # Run dispatcher and yield state on each iteration
-        async for _ in dispatcher.dispatch(work_items, execute_test):
+        async for _ in dispatcher.dispatch(
+            work_items, execute_test, should_cancel=app_state.should_stop
+        ):
             yield self.state
 
         # Final yield with complete state
