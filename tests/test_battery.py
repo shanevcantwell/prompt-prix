@@ -515,10 +515,12 @@ class TestBatteryExport:
         from prompt_prix.tabs.battery.handlers import export_json
 
         state.battery_run = None
-        status, filepath = export_json()
+        status, file_update = export_json()
 
         assert "❌" in status
-        assert filepath is None
+        # Returns gr.update(visible=False, value=None)
+        assert file_update["visible"] is False
+        assert file_update["value"] is None
 
     def test_export_json_with_results(self):
         """Test export creates file with results."""
@@ -541,9 +543,12 @@ class TestBatteryExport:
         ))
         state.battery_run = run
 
-        status, filepath = export_json()
+        status, file_update = export_json()
 
         assert "✅" in status
+        # Returns gr.update(visible=True, value=filepath)
+        assert file_update["visible"] is True
+        filepath = file_update["value"]
         assert filepath is not None
         assert os.path.exists(filepath)
 
@@ -573,9 +578,12 @@ class TestBatteryExport:
         ))
         state.battery_run = run
 
-        status, filepath = export_csv()
+        status, file_update = export_csv()
 
         assert "✅" in status
+        # Returns gr.update(visible=True, value=filepath)
+        assert file_update["visible"] is True
+        filepath = file_update["value"]
         assert filepath is not None
         assert filepath.endswith(".csv")
 

@@ -437,20 +437,12 @@ def create_app() -> gr.Blocks:
             fn=battery_handlers.export_json,
             inputs=[],
             outputs=[battery_status, battery_export_file]
-        ).then(
-            fn=lambda f: gr.update(visible=f is not None),
-            inputs=[battery_export_file],
-            outputs=[battery_export_file]
         )
 
         battery_export_csv_btn.click(
             fn=battery_handlers.export_csv,
             inputs=[],
             outputs=[battery_status, battery_export_file]
-        ).then(
-            fn=lambda f: gr.update(visible=f is not None),
-            inputs=[battery_export_file],
-            outputs=[battery_export_file]
         )
 
         # ─────────────────────────────────────────────────────────────

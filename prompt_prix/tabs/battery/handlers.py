@@ -201,10 +201,10 @@ async def quick_prompt_handler(
     yield "\n".join(output_lines)
 
 
-def export_json() -> tuple[str, str | None]:
+def export_json():
     """Export battery results as JSON file."""
     if not state.battery_run:
-        return "❌ No battery results to export", None
+        return "❌ No battery results to export", gr.update(visible=False, value=None)
 
     export_data = {
         "tests": state.battery_run.tests,
@@ -233,13 +233,13 @@ def export_json() -> tuple[str, str | None]:
     with open(filepath, "w") as f:
         json.dump(export_data, f, indent=2)
 
-    return f"✅ Exported {len(export_data['results'])} results", filepath
+    return f"✅ Exported {len(export_data['results'])} results", gr.update(visible=True, value=filepath)
 
 
-def export_csv() -> tuple[str, str | None]:
+def export_csv():
     """Export battery results as CSV file."""
     if not state.battery_run:
-        return "❌ No battery results to export", None
+        return "❌ No battery results to export", gr.update(visible=False, value=None)
 
     lines = ["test_id,model_id,status,latency_ms,response"]
 
@@ -261,7 +261,7 @@ def export_csv() -> tuple[str, str | None]:
     with open(filepath, "w") as f:
         f.write("\n".join(lines))
 
-    return f"✅ Exported {len(lines) - 1} results", filepath
+    return f"✅ Exported {len(lines) - 1} results", gr.update(visible=True, value=filepath)
 
 
 def get_cell_detail(model: str, test: str) -> str:
