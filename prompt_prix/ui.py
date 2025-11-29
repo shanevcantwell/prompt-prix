@@ -206,18 +206,12 @@ def create_app() -> gr.Blocks:
                 # ─────────────────────────────────────────────────────
 
                 gr.Markdown("### Results")
-                with gr.Row():
-                    battery_display_mode = gr.Radio(
-                        label="Display",
-                        choices=["Symbols (✓/❌)", "Latency (seconds)"],
-                        value="Symbols (✓/❌)",
-                        interactive=True,
-                        scale=2
-                    )
-                    gr.Markdown(
-                        "*Rows: Tests | Columns: Models*",
-                        scale=3
-                    )
+                battery_display_mode = gr.Radio(
+                    label="Display",
+                    choices=["Symbols (✓/❌)", "Latency (seconds)"],
+                    value="Symbols (✓/❌)",
+                    interactive=True
+                )
 
                 battery_grid = gr.Dataframe(
                     label="Model × Test Results",
