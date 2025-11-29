@@ -611,7 +611,7 @@ class TestLaunchBeyondCompare:
 
         # Mock get_beyond_compare_path to return non-existent path
         monkeypatch.setattr(
-            "prompt_prix.handlers.get_beyond_compare_path",
+            "prompt_prix.config.get_beyond_compare_path",
             lambda: "/nonexistent/path/bcompare"
         )
 

@@ -16,11 +16,10 @@ from prompt_prix.parsers import (
     parse_prompts_file,
     load_system_prompt
 )
-from prompt_prix.handlers import (
-    fetch_available_models,
+from prompt_prix.handlers import fetch_available_models
+from prompt_prix.tabs.compare.handlers import (
     initialize_session,
     send_single_prompt,
-    run_batch_prompts,
     export_markdown,
     export_json,
     launch_beyond_compare
