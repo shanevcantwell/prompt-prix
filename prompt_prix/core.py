@@ -108,6 +108,33 @@ class ServerPool:
 # LLM CLIENT
 # ─────────────────────────────────────────────────────────────────────
 
+def _normalize_tools_for_openai(tools: list[dict]) -> list[dict]:
+    """
+    Normalize tool definitions to OpenAI format.
+
+    BFCL flat format:
+        {"name": "...", "description": "...", "parameters": {...}}
+
+    OpenAI nested format:
+        {"type": "function", "function": {"name": "...", ...}}
+
+    This function wraps flat tools in the OpenAI structure.
+    Already-wrapped tools are returned as-is.
+    """
+    normalized = []
+    for tool in tools:
+        # Already in OpenAI format (has "type": "function" wrapper)
+        if tool.get("type") == "function" and "function" in tool:
+            normalized.append(tool)
+        # Flat format - wrap it
+        else:
+            normalized.append({
+                "type": "function",
+                "function": tool
+            })
+    return normalized
+
+
 async def stream_completion(
     server_url: str,
     model_id: str,
@@ -130,7 +157,7 @@ async def stream_completion(
         "stream": True
     }
     if tools:
-        payload["tools"] = tools
+        payload["tools"] = _normalize_tools_for_openai(tools)
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         async with client.stream(
