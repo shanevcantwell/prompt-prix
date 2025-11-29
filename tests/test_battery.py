@@ -500,3 +500,162 @@ class TestBatteryRunner:
         result = final_state.get_result("test_1", "m1")
         assert result.latency_ms is not None
         assert result.latency_ms > 0
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BATTERY HANDLER TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestBatteryExport:
+    """Tests for battery export handlers."""
+
+    def test_export_json_no_results(self):
+        """Test export returns error when no battery run exists."""
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import export_json
+
+        state.battery_run = None
+        status, filepath = export_json()
+
+        assert "❌" in status
+        assert filepath is None
+
+    def test_export_json_with_results(self):
+        """Test export creates file with results."""
+        import os
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import export_json
+
+        # Setup battery run with results
+        run = BatteryRun(tests=["t1", "t2"], models=["m1"])
+        run.set_result(TestResult(
+            test_id="t1", model_id="m1",
+            status=TestStatus.COMPLETED,
+            response="Test response",
+            latency_ms=1234.5
+        ))
+        run.set_result(TestResult(
+            test_id="t2", model_id="m1",
+            status=TestStatus.ERROR,
+            error="Test error"
+        ))
+        state.battery_run = run
+
+        status, filepath = export_json()
+
+        assert "✅" in status
+        assert filepath is not None
+        assert os.path.exists(filepath)
+
+        # Verify file contents
+        with open(filepath) as f:
+            data = json.load(f)
+
+        assert data["tests"] == ["t1", "t2"]
+        assert data["models"] == ["m1"]
+        assert len(data["results"]) == 2
+
+        # Cleanup
+        state.battery_run = None
+
+    def test_export_csv_with_results(self):
+        """Test CSV export creates file with results."""
+        import os
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import export_csv
+
+        run = BatteryRun(tests=["t1"], models=["m1"])
+        run.set_result(TestResult(
+            test_id="t1", model_id="m1",
+            status=TestStatus.COMPLETED,
+            response="Hello\nWorld",  # Test newline handling
+            latency_ms=500.0
+        ))
+        state.battery_run = run
+
+        status, filepath = export_csv()
+
+        assert "✅" in status
+        assert filepath is not None
+        assert filepath.endswith(".csv")
+
+        with open(filepath) as f:
+            content = f.read()
+
+        assert "test_id,model_id,status,latency_ms,response" in content
+        assert "t1" in content
+        assert "m1" in content
+        assert "500" in content
+
+        state.battery_run = None
+
+    def test_export_basename_from_source_file(self):
+        """Test export filename derives from source file."""
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import _get_export_basename
+
+        state.battery_source_file = "/path/to/my_test_suite.jsonl"
+        basename = _get_export_basename()
+        assert basename == "my_test_suite_results"
+
+        state.battery_source_file = None
+        basename = _get_export_basename()
+        assert basename == "battery_results"
+
+
+class TestBatteryStateClearing:
+    """Tests for state clearing when file changes."""
+
+    def test_state_cleared_on_file_upload(self):
+        """Test that battery_run is cleared when new file is uploaded."""
+        from prompt_prix import state
+
+        # Setup existing battery run
+        state.battery_run = BatteryRun(tests=["old"], models=["old"])
+        state.battery_source_file = "/old/file.json"
+
+        # Simulate file change (what on_battery_file_change does)
+        state.battery_run = None
+        state.battery_source_file = "/new/file.json"
+
+        assert state.battery_run is None
+        assert state.battery_source_file == "/new/file.json"
+
+    def test_state_cleared_on_file_removal(self):
+        """Test that state is cleared when file is removed."""
+        from prompt_prix import state
+
+        state.battery_run = BatteryRun(tests=["test"], models=["model"])
+        state.battery_source_file = "/some/file.json"
+
+        # Simulate file removal
+        state.battery_run = None
+        state.battery_source_file = None
+
+        assert state.battery_run is None
+        assert state.battery_source_file is None
+
+
+class TestCooperativeCancellation:
+    """Tests for cooperative cancellation via state.should_stop()."""
+
+    def test_stop_flag_default_false(self):
+        """Test stop flag starts as False."""
+        from prompt_prix import state
+        state.clear_stop()
+        assert state.should_stop() is False
+
+    def test_request_stop_sets_flag(self):
+        """Test request_stop sets the flag."""
+        from prompt_prix import state
+        state.clear_stop()
+        state.request_stop()
+        assert state.should_stop() is True
+
+    def test_clear_stop_resets_flag(self):
+        """Test clear_stop resets the flag."""
+        from prompt_prix import state
+        state.request_stop()
+        assert state.should_stop() is True
+        state.clear_stop()
+        assert state.should_stop() is False
