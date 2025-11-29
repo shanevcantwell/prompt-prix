@@ -72,6 +72,35 @@ This document describes the system architecture of prompt-prix, including module
 
 ## Module Breakdown
 
+### Directory Structure
+
+```
+prompt_prix/
+├── main.py              # Entry point
+├── ui.py                # Gradio UI definition
+├── handlers.py          # Shared event handlers (fetch, stop)
+├── state.py             # Global mutable state
+├── core.py              # ServerPool, ComparisonSession, streaming
+├── config.py            # Pydantic models, constants, env loading
+├── parsers.py           # Input parsing utilities
+├── export.py            # Report generation
+├── dispatcher.py        # WorkStealingDispatcher for parallel execution
+├── battery.py           # BatteryRunner, TestResult, BatteryRun
+├── tabs/
+│   ├── __init__.py
+│   ├── battery/
+│   │   ├── __init__.py
+│   │   └── handlers.py  # Battery-specific handlers
+│   └── compare/
+│       ├── __init__.py
+│       └── handlers.py  # Compare-specific handlers
+├── adapters/
+│   └── lmstudio.py      # LMStudioAdapter
+└── benchmarks/
+    ├── base.py          # TestCase protocol
+    └── custom_json.py   # CustomJSONLoader
+```
+
 ### config.py - Configuration & Data Models
 
 **Purpose**: Define all Pydantic models for type-safe configuration and state.
@@ -135,41 +164,65 @@ async def get_completion(...) -> str:
     """Non-streaming version, returns full response."""
 ```
 
-### handlers.py - Gradio Event Handlers
+### handlers.py - Shared Event Handlers
 
-**Purpose**: Async handlers that bridge UI events to core logic.
+**Purpose**: Shared async handlers used across multiple tabs.
+
+| Handler | Purpose | Returns |
+|---------|---------|---------|
+| `fetch_available_models(servers_text)` | Query all servers for available models | `(status, gr.update(choices=[...]))` |
+| `handle_stop()` | Signal cancellation via global state | `status` |
+| `_init_pool_and_validate(servers_text, models)` | Initialize ServerPool and validate models | `(pool, error_message)` |
+
+### tabs/battery/handlers.py - Battery Tab Handlers
+
+**Purpose**: Handlers specific to the Battery (benchmark) tab.
 
 | Handler | Trigger | Returns |
 |---------|---------|---------|
-| `fetch_available_models(servers_text)` | "Fetch Available Models" button | `(status, gr.update(choices=[...]))` |
-| `initialize_session(servers, models, system_prompt, ...)` | "Initialize Session" button | `(status, *model_tabs)` |
-| `send_single_prompt(prompt, tools_json)` | "Send Prompt" button | Generator yielding `(status, tab_states, *model_outputs)` |
-| `run_batch_prompts(file_obj)` | "Run Batch" button | `(status, *model_outputs)` |
+| `validate_file(file_path)` | File upload | Validation status string |
+| `get_test_ids(file_path)` | File upload | List of test IDs |
+| `run_handler(file, models, servers, ...)` | "Run Battery" button | Generator yielding `(status, grid_df)` |
+| `quick_prompt_handler(prompt, models, ...)` | "Run Prompt" button | Markdown results |
+| `export_json()` | "Export JSON" button | `(status, preview)` |
+| `export_csv()` | "Export CSV" button | `(status, preview)` |
+| `get_cell_detail(model, test)` | Detail dropdown | Markdown detail |
+| `refresh_grid(display_mode)` | Display mode change | Updated grid DataFrame |
+
+### tabs/compare/handlers.py - Compare Tab Handlers
+
+**Purpose**: Handlers specific to the Compare (interactive) tab.
+
+| Handler | Trigger | Returns |
+|---------|---------|---------|
+| `initialize_session(servers, models, system_prompt, ...)` | Auto-init on send | `(status, *model_tabs)` |
+| `send_single_prompt(prompt, tools_json)` | "Send to All" button | Generator yielding `(status, tab_states, *model_outputs)` |
 | `export_markdown()` | "Export Markdown" button | `(status, preview)` |
 | `export_json()` | "Export JSON" button | `(status, preview)` |
 | `launch_beyond_compare(model_a, model_b)` | "Open in Beyond Compare" button | `status` |
 
-#### Work-Stealing Dispatcher
+### dispatcher.py - Work-Stealing Dispatcher
 
-In `send_single_prompt`, prompts are dispatched using work-stealing:
+**Purpose**: Parallel execution across multiple servers with work-stealing.
 
 ```python
-model_queue = list(session.state.models)  # Models to process
-active_tasks = {}  # server_url -> asyncio.Task
+class WorkStealingDispatcher:
+    """Dispatches work items to servers using work-stealing pattern."""
 
-while model_queue or active_tasks:
-    for server_url, server in session.server_pool.servers.items():
-        if server.is_busy:
-            continue
-        model_id = find_work_for_server(server_url)  # First model this server can run
-        if model_id:
-            model_queue.remove(model_id)
-            task = asyncio.create_task(run_model_on_server(model_id, server_url))
-            active_tasks[server_url] = task
-
-    await asyncio.sleep(0.1)
-    yield (status, tab_states, *outputs)  # Update UI
+    async def dispatch(
+        self,
+        work_items: list[WorkItem],
+        execute_fn: Callable[[WorkItem, str], Coroutine],
+        on_progress: Optional[Callable[[str, str], None]] = None
+    ) -> dict[str, Any]:
+        """Execute work items in parallel across available servers."""
 ```
+
+The dispatcher:
+1. Maintains a queue of work items (model + test case pairs)
+2. Finds idle servers that can run each work item
+3. Executes items in parallel across all available servers
+4. Supports cooperative cancellation via `state.should_stop()`
 
 ### ui.py - Gradio UI Definition
 
