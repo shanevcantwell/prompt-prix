@@ -512,7 +512,7 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
 
         app.load(
-            fn=lambda: [gr.update()] * 3,
+            fn=None,
             inputs=[],
             outputs=[servers_input, battery_temp, compare_temp],
             js="""
@@ -520,9 +520,9 @@ def create_app() -> gr.Blocks:
                 const servers = localStorage.getItem('promptprix_servers');
                 const temp = localStorage.getItem('promptprix_temperature');
                 return [
-                    servers ? servers : undefined,
-                    temp ? parseFloat(temp) : undefined,
-                    temp ? parseFloat(temp) : undefined
+                    servers ? servers : null,
+                    temp ? parseFloat(temp) : null,
+                    temp ? parseFloat(temp) : null
                 ];
             }
             """
