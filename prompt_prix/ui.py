@@ -48,35 +48,6 @@ def create_app() -> gr.Blocks:
         gr.Markdown("# prompt-prix")
         gr.Markdown("Find your optimal open-weights model.")
 
-        # ─────────────────────────────────────────────────────────────
-        # SHARED: SERVER CONFIGURATION
-        # ─────────────────────────────────────────────────────────────
-
-        with gr.Accordion("🖥️ Servers", open=False):
-            with gr.Row():
-                servers_input = gr.Textbox(
-                    label="LM Studio Servers (one per line)",
-                    value="\n".join(get_default_servers()),
-                    lines=3,
-                    placeholder="http://192.168.1.10:1234\nhttp://192.168.1.11:1234",
-                    elem_id="servers",
-                    scale=2
-                )
-                with gr.Column(scale=1):
-                    with gr.Row():
-                        fetch_models_btn = gr.Button("🔄 Fetch Models", variant="secondary")
-                        only_loaded_checkbox = gr.Checkbox(
-                            label="Only Loaded",
-                            value=False,
-                            info="Filter to models currently loaded in LM Studio"
-                        )
-                    server_status = gr.Textbox(
-                        label="Status",
-                        value="Click Fetch to discover models",
-                        interactive=False,
-                        lines=2
-                    )
-
         available_models = gr.State([])
 
         # ─────────────────────────────────────────────────────────────
@@ -111,21 +82,32 @@ def create_app() -> gr.Blocks:
                         )
 
                         with gr.Row():
-                            battery_models = gr.CheckboxGroup(
-                                label="Models to Test",
-                                choices=[],
-                                value=[],
-                                elem_id="battery-models",
-                                scale=3
-                            )
                             battery_fetch_btn = gr.Button(
                                 "🔄 Fetch",
                                 variant="secondary",
-                                size="sm",
-                                scale=1
+                                size="sm"
+                            )
+                            only_loaded_checkbox = gr.Checkbox(
+                                label="Only Loaded",
+                                value=False,
+                                info="Filter to models currently in memory"
                             )
 
+                        battery_models = gr.CheckboxGroup(
+                            label="Models to Test",
+                            choices=[],
+                            value=[],
+                            elem_id="battery-models"
+                        )
+
                     with gr.Column(scale=1):
+                        servers_input = gr.Textbox(
+                            label="LM Studio Servers (one per line)",
+                            value="\n".join(get_default_servers()),
+                            lines=2,
+                            placeholder="http://localhost:1234",
+                            elem_id="servers"
+                        )
                         battery_temp = gr.Slider(
                             label="Temperature",
                             minimum=0.0,
@@ -150,7 +132,13 @@ def create_app() -> gr.Blocks:
                         battery_system_prompt = gr.Textbox(
                             label="System Prompt Override (optional)",
                             placeholder="Leave empty to use test-defined prompts",
-                            lines=3
+                            lines=2
+                        )
+                        judge_model = gr.Dropdown(
+                            label="Judge Model",
+                            choices=[],
+                            value=None,
+                            info="Model for LLM-as-judge evaluation"
                         )
 
                         gr.Markdown("---")
@@ -341,33 +329,27 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
 
         async def on_fetch_models(servers_text, only_loaded):
-            """Fetch models and update both tabs' checkboxes."""
+            """Fetch models and update both tabs' checkboxes and judge dropdown."""
             status, models_update = await fetch_available_models(servers_text, only_loaded)
             choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
             return (
-                status,
                 choices,
+                gr.update(choices=choices),
                 gr.update(choices=choices),
                 gr.update(choices=choices),
                 gr.update(choices=choices),
             )
 
-        fetch_models_btn.click(
-            fn=on_fetch_models,
-            inputs=[servers_input, only_loaded_checkbox],
-            outputs=[server_status, available_models, battery_models, compare_models, detail_model]
-        )
-
         battery_fetch_btn.click(
             fn=on_fetch_models,
             inputs=[servers_input, only_loaded_checkbox],
-            outputs=[server_status, available_models, battery_models, compare_models, detail_model]
+            outputs=[available_models, battery_models, compare_models, detail_model, judge_model]
         )
 
         compare_fetch_btn.click(
             fn=on_fetch_models,
             inputs=[servers_input, only_loaded_checkbox],
-            outputs=[server_status, available_models, battery_models, compare_models, detail_model]
+            outputs=[available_models, battery_models, compare_models, detail_model, judge_model]
         )
 
         # ─────────────────────────────────────────────────────────────
