@@ -19,6 +19,9 @@ session: Optional[ComparisonSession] = None
 # Battery state - persists after run for detail retrieval
 battery_run: Optional["BatteryRun"] = None
 
+# Source filename for export naming
+battery_source_file: Optional[str] = None
+
 # Cancellation flag - checked by long-running handlers
 stop_requested: bool = False
 

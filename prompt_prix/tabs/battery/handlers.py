@@ -5,11 +5,22 @@ Handles benchmark test suite execution, exports, and result display.
 """
 
 import json
+import os
+import tempfile
+from pathlib import Path
 
 import gradio as gr
 
 from prompt_prix import state
 from prompt_prix.handlers import _init_pool_and_validate
+
+
+def _get_export_basename() -> str:
+    """Get base name for export files from source filename."""
+    if state.battery_source_file:
+        stem = Path(state.battery_source_file).stem
+        return f"{stem}_results"
+    return "battery_results"
 
 
 def validate_file(file_obj) -> str:
@@ -190,10 +201,10 @@ async def quick_prompt_handler(
     yield "\n".join(output_lines)
 
 
-def export_json() -> tuple[str, dict]:
-    """Export battery results as JSON."""
+def export_json() -> tuple[str, str | None]:
+    """Export battery results as JSON file."""
     if not state.battery_run:
-        return "❌ No battery results to export", gr.update(visible=True, value="")
+        return "❌ No battery results to export", None
 
     export_data = {
         "tests": state.battery_run.tests,
@@ -214,14 +225,21 @@ def export_json() -> tuple[str, dict]:
                     "error": result.error
                 })
 
-    json_str = json.dumps(export_data, indent=2)
-    return f"✅ Exported {len(export_data['results'])} results", gr.update(visible=True, value=json_str)
+    # Write to temp file with meaningful name
+    basename = _get_export_basename()
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, f"{basename}.json")
+
+    with open(filepath, "w") as f:
+        json.dump(export_data, f, indent=2)
+
+    return f"✅ Exported {len(export_data['results'])} results", filepath
 
 
-def export_csv() -> tuple[str, dict]:
-    """Export battery results as CSV."""
+def export_csv() -> tuple[str, str | None]:
+    """Export battery results as CSV file."""
     if not state.battery_run:
-        return "❌ No battery results to export", gr.update(visible=True, value="")
+        return "❌ No battery results to export", None
 
     lines = ["test_id,model_id,status,latency_ms,response"]
 
@@ -235,8 +253,15 @@ def export_csv() -> tuple[str, dict]:
                 latency = f"{result.latency_ms:.0f}" if result.latency_ms else ""
                 lines.append(f'"{test_id}","{model_id}","{result.status.value}",{latency},"{response}"')
 
-    csv_str = "\n".join(lines)
-    return f"✅ Exported {len(lines) - 1} results", gr.update(visible=True, value=csv_str)
+    # Write to temp file with meaningful name
+    basename = _get_export_basename()
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, f"{basename}.csv")
+
+    with open(filepath, "w") as f:
+        f.write("\n".join(lines))
+
+    return f"✅ Exported {len(lines) - 1} results", filepath
 
 
 def get_cell_detail(model: str, test: str) -> str:

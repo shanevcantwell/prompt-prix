@@ -221,10 +221,8 @@ def create_app() -> gr.Blocks:
                     battery_export_json_btn = gr.Button("Export JSON")
                     battery_export_csv_btn = gr.Button("Export CSV")
 
-                battery_export_preview = gr.Textbox(
-                    label="Export Preview",
-                    lines=10,
-                    interactive=False,
+                battery_export_file = gr.File(
+                    label="Download",
                     visible=False
                 )
 
@@ -375,12 +373,16 @@ def create_app() -> gr.Blocks:
             state.battery_run = None
 
             if file_obj is None:
+                state.battery_source_file = None
                 return (
                     "Upload a benchmark file",
                     gr.update(interactive=False),
                     gr.update(choices=[]),
                     []  # Clear grid
                 )
+
+            # Store source filename for export naming
+            state.battery_source_file = file_obj
 
             validation_result = battery_handlers.validate_file(file_obj)
             is_valid = validation_result.startswith("✅")
@@ -434,13 +436,21 @@ def create_app() -> gr.Blocks:
         battery_export_json_btn.click(
             fn=battery_handlers.export_json,
             inputs=[],
-            outputs=[battery_status, battery_export_preview]
+            outputs=[battery_status, battery_export_file]
+        ).then(
+            fn=lambda f: gr.update(visible=f is not None),
+            inputs=[battery_export_file],
+            outputs=[battery_export_file]
         )
 
         battery_export_csv_btn.click(
             fn=battery_handlers.export_csv,
             inputs=[],
-            outputs=[battery_status, battery_export_preview]
+            outputs=[battery_status, battery_export_file]
+        ).then(
+            fn=lambda f: gr.update(visible=f is not None),
+            inputs=[battery_export_file],
+            outputs=[battery_export_file]
         )
 
         # ─────────────────────────────────────────────────────────────
