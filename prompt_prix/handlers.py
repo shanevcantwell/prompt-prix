@@ -771,3 +771,27 @@ def battery_get_cell_detail(model: str, test: str) -> str:
     # Completed
     latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
     return f"**Status:** ✓ Completed\n\n**Latency:** {latency}\n\n---\n\n{result.response}"
+
+
+def battery_refresh_grid(display_mode_str: str) -> list:
+    """
+    Refresh the battery grid with the selected display mode.
+
+    Args:
+        display_mode_str: "Symbols (✓/❌)" or "Latency (seconds)"
+
+    Returns:
+        Updated grid data for gr.Dataframe
+    """
+    from prompt_prix.battery import GridDisplayMode
+
+    if not state.battery_run:
+        return []
+
+    # Map UI string to enum
+    if "Latency" in display_mode_str:
+        mode = GridDisplayMode.LATENCY
+    else:
+        mode = GridDisplayMode.SYMBOLS
+
+    return state.battery_run.to_grid(mode)

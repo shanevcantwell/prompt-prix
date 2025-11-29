@@ -112,6 +112,12 @@ class TestStatus(str, Enum):
     ERROR = "error"
 
 
+class GridDisplayMode(str, Enum):
+    """Display mode for battery results grid."""
+    SYMBOLS = "symbols"  # ✓, ❌, ⏳, —
+    LATENCY = "latency"  # Response time in ms with color
+
+
 class TestResult(BaseModel):
     """
     Result for one (test_id, model_id) cell in the battery grid.
@@ -135,6 +141,26 @@ class TestResult(BaseModel):
             TestStatus.ERROR: "❌"
         }
         return symbols.get(self.status, "?")
+
+    @property
+    def latency_display(self) -> str:
+        """Formatted latency for grid display."""
+        if self.status == TestStatus.PENDING:
+            return "—"
+        elif self.status == TestStatus.RUNNING:
+            return "⏳"
+        elif self.latency_ms is not None:
+            # Format as seconds with 1 decimal for readability
+            seconds = self.latency_ms / 1000
+            return f"{seconds:.1f}s"
+        else:
+            return "—"
+
+    def get_display(self, mode: "GridDisplayMode") -> str:
+        """Get display string for the specified mode."""
+        if mode == GridDisplayMode.LATENCY:
+            return self.latency_display
+        return self.status_symbol
 
 
 class BatteryRun(BaseModel):
@@ -162,14 +188,19 @@ class BatteryRun(BaseModel):
         key = self.get_key(result.test_id, result.model_id)
         self.results[key] = result
 
-    def to_grid(self) -> list[list[str]]:
+    def to_grid(
+        self, display_mode: GridDisplayMode = GridDisplayMode.SYMBOLS
+    ) -> list[list[str]]:
         """
         Convert to gr.Dataframe format.
+
+        Args:
+            display_mode: How to display results (symbols or latency)
 
         Returns:
             List of rows where:
             - First row is headers: ["Test", model1, model2, ...]
-            - Data rows are: [test_name, status1, status2, ...]
+            - Data rows are: [test_name, value1, value2, ...]
         """
         # Header row
         grid = [["Test"] + self.models]
@@ -180,7 +211,7 @@ class BatteryRun(BaseModel):
             for model_id in self.models:
                 result = self.get_result(test_id, model_id)
                 if result:
-                    row.append(result.status_symbol)
+                    row.append(result.get_display(display_mode))
                 else:
                     row.append("—")  # No result yet
             grid.append(row)

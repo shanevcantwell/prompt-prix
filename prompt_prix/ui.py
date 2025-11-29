@@ -27,6 +27,7 @@ from prompt_prix.handlers import (
     battery_quick_prompt_handler,
     battery_export_json,
     battery_export_csv,
+    battery_refresh_grid,
     handle_stop
 )
 from prompt_prix.parsers import get_default_system_prompt
@@ -203,10 +204,21 @@ def create_app() -> gr.Blocks:
                 # ─────────────────────────────────────────────────────
                 # HERO: Results Grid
                 # ─────────────────────────────────────────────────────
-                
+
                 gr.Markdown("### Results")
-                gr.Markdown("*Rows: Models | Columns: Tests | Cells: ✓ completed, ❌ error, ⏳ running, — pending*")
-                
+                with gr.Row():
+                    battery_display_mode = gr.Radio(
+                        label="Display",
+                        choices=["Symbols (✓/❌)", "Latency (seconds)"],
+                        value="Symbols (✓/❌)",
+                        interactive=True,
+                        scale=2
+                    )
+                    gr.Markdown(
+                        "*Rows: Tests | Columns: Models*",
+                        scale=3
+                    )
+
                 battery_grid = gr.Dataframe(
                     label="Model × Test Results",
                     headers=["Model"],
@@ -470,6 +482,13 @@ def create_app() -> gr.Blocks:
             fn=handle_stop,
             inputs=[],
             outputs=[battery_status]
+        )
+
+        # Display mode toggle - refresh grid with selected mode
+        battery_display_mode.change(
+            fn=battery_refresh_grid,
+            inputs=[battery_display_mode],
+            outputs=[battery_grid]
         )
 
         # Detail view

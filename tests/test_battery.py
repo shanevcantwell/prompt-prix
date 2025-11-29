@@ -363,6 +363,25 @@ class TestBatteryRun:
         assert grid[1] == ["t1", "✓", "❌"]      # t1 results
         assert grid[2] == ["t2", "—", "—"]      # t2 pending
 
+    def test_to_grid_latency_mode(self):
+        """Test grid with latency display mode."""
+        from prompt_prix.battery import GridDisplayMode
+
+        run = BatteryRun(tests=["t1", "t2"], models=["m1", "m2"])
+        run.set_result(TestResult(
+            test_id="t1", model_id="m1",
+            status=TestStatus.COMPLETED, latency_ms=1500.0
+        ))
+        run.set_result(TestResult(
+            test_id="t1", model_id="m2",
+            status=TestStatus.ERROR, latency_ms=2500.0
+        ))
+
+        grid = run.to_grid(GridDisplayMode.LATENCY)
+        assert grid[0] == ["Test", "m1", "m2"]  # Header
+        assert grid[1] == ["t1", "1.5s", "2.5s"]  # t1 latencies
+        assert grid[2] == ["t2", "—", "—"]       # t2 pending
+
     def test_progress_tracking(self):
         """Test progress calculation."""
         run = BatteryRun(tests=["t1", "t2"], models=["m1"])
