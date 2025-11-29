@@ -37,14 +37,22 @@ Output: Side-by-side visual comparison
 
 ```
 prompt_prix/
-├── config.py        # Pydantic models, constants, env loading
+├── main.py          # Entry point, Gradio launch
+├── ui.py            # Gradio UI components and event bindings
+├── ui_helpers.py    # CSS, JS constants
+├── handlers.py      # Async event handlers (bridging UI to core)
 ├── core.py          # ServerPool, ComparisonSession, streaming
-├── handlers.py      # Gradio event handlers (async)
-├── ui.py            # Gradio component definitions
-├── parsers.py       # Text parsing utilities
+├── config.py        # Pydantic models, constants, .env loading
+├── parsers.py       # Input parsing utilities
 ├── export.py        # Markdown/JSON report generation
 ├── state.py         # Global mutable state
-└── main.py          # Entry point
+├── battery.py       # BatteryRunner, BatteryRun state
+├── adapters/
+│   ├── base.py      # LLMAdapter protocol
+│   └── lmstudio.py  # LMStudioAdapter implementation
+└── benchmarks/
+    ├── base.py      # TestCase model
+    └── custom.py    # CustomJSONLoader (JSON/JSONL/BFCL)
 ```
 
 ### Module Responsibilities
@@ -56,6 +64,9 @@ prompt_prix/
 | `handlers.py` | Async handlers bridging UI to core logic |
 | `ui.py` | Gradio components and event bindings |
 | `state.py` | Mutable state shared across handlers |
+| `battery.py` | BatteryRunner orchestrator, BatteryRun/TestResult state |
+| `adapters/` | Provider abstraction (LLMAdapter protocol) |
+| `benchmarks/` | Test case loading (JSON, JSONL, BFCL formats) |
 
 ---
 
@@ -83,6 +94,20 @@ Efficient multi-GPU utilization:
 2. Find idle server that has queued model
 3. Execute and stream response
 4. Release server for next model
+
+### BatteryRunner (Battery Mode)
+Orchestrates benchmark execution:
+```python
+runner = BatteryRunner(adapter, tests, models, temperature, max_tokens, timeout)
+async for state in runner.run():
+    yield state.to_grid()  # Model × Test results grid
+```
+
+### CustomJSONLoader
+Loads test cases from multiple formats:
+- JSON with `prompts` array
+- JSONL (one test per line, auto-detected)
+- BFCL format (auto-normalized: `question[]` → `user`, `function` → `tools`)
 
 ---
 
@@ -164,9 +189,10 @@ BEYOND_COMPARE_PATH=/usr/bin/bcompare  # Optional
 ## Integration Points
 
 ### Upstream: Benchmark Sources
-- BFCL: JSON with function schemas
-- Inspect AI: Export prompts as JSON
-- Custom: OpenAI-compatible message format
+- **BFCL**: JSONL with `question[]` and `function[]` fields (auto-normalized)
+- **Inspect AI**: Export prompts as JSON
+- **Custom JSON**: `{"prompts": [{id, user, system?, tools?}]}`
+- **Custom JSONL**: One test per line `{id, user, system?, tools?}`
 
 ### API Layer: OpenAI-Compatible
 All servers must expose:

@@ -11,7 +11,7 @@ prompt-prix is a Gradio-based tool for benchmarking and comparing responses from
 **Battery Mode (Primary)**
 - Run benchmark test suites across multiple models
 - Model x Test results grid with real-time updates
-- JSON test suite format with system prompts per test
+- JSON and JSONL test formats (including BFCL compatibility)
 - Export results to JSON or CSV
 
 **Compare Mode (Secondary)**
@@ -97,8 +97,9 @@ Open `http://localhost:7860` in your browser.
 4. **Continue Conversation**: Send follow-up prompts for multi-turn
 5. **Export**: Save as Markdown or JSON
 
-### Test Suite Format
+### Test Suite Formats
 
+**JSON format:**
 ```json
 {
   "prompts": [
@@ -110,10 +111,22 @@ Open `http://localhost:7860` in your browser.
     },
     {
       "id": "test-2",
-      "user": "What is 2+2?"
+      "user": "What is 2+2?",
+      "tools": [{"type": "function", "function": {...}}]
     }
   ]
 }
+```
+
+**JSONL format** (one test per line):
+```jsonl
+{"id": "test-1", "user": "Hello", "system": "Be helpful"}
+{"id": "test-2", "user": "What is 2+2?"}
+```
+
+**BFCL format** (auto-detected and normalized):
+```jsonl
+{"id": "...", "question": [{"role": "user", "content": "..."}], "function": [...]}
 ```
 
 ## Development
@@ -136,24 +149,28 @@ pytest --cov=prompt_prix --cov-report=html
 prompt-prix/
 ├── prompt_prix/
 │   ├── main.py          # Entry point, Gradio launch
-│   ├── ui.py            # Gradio UI definition (Battery-first)
+│   ├── ui.py            # Gradio UI components and event bindings
 │   ├── ui_helpers.py    # CSS, JS constants
-│   ├── handlers.py      # Event handlers for UI
-│   ├── core.py          # ServerPool, ComparisonSession
-│   ├── adapters.py      # LMStudioAdapter (provider abstraction)
-│   ├── battery.py       # BatteryRunner, test execution
-│   ├── benchmarks/      # Test loaders (CustomJSONLoader)
-│   ├── config.py        # Configuration, .env loading
+│   ├── handlers.py      # Async event handlers
+│   ├── core.py          # ServerPool, ComparisonSession, streaming
+│   ├── config.py        # Pydantic models, constants, .env loading
 │   ├── parsers.py       # Input parsing utilities
-│   ├── export.py        # Report generation
-│   └── state.py         # Global mutable state
+│   ├── export.py        # Markdown/JSON report generation
+│   ├── state.py         # Global mutable state
+│   ├── battery.py       # BatteryRunner, BatteryRun state
+│   ├── adapters/
+│   │   ├── base.py      # LLMAdapter protocol
+│   │   └── lmstudio.py  # LMStudioAdapter implementation
+│   └── benchmarks/
+│       ├── base.py      # TestCase model
+│       └── custom.py    # CustomJSONLoader (JSON/JSONL/BFCL)
 └── tests/
-    ├── conftest.py
-    ├── test_battery.py
-    ├── test_config.py
-    ├── test_core.py
-    ├── test_export.py
-    └── test_main.py
+    ├── conftest.py      # Shared fixtures
+    ├── test_battery.py  # Battery runner tests
+    ├── test_config.py   # Pydantic model tests
+    ├── test_core.py     # ServerPool, streaming tests
+    ├── test_export.py   # Report generation tests
+    └── test_main.py     # Handler tests
 ```
 
 ## License
