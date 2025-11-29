@@ -6,7 +6,7 @@ prompt-prix is a visual tool for running benchmark test suites across multiple L
 
 ## The Problem
 
-You have a 24GB GPU. Should you run `qwen2.5-72b-instruct-q4_k_m` or `llama-3.1-70b-instruct-q5_k_s` for tool calling? BFCL gives you leaderboard scores for full-precision models. That doesn't answer your question.
+You have a 24GB GPU. Should you run `qwen2.5-72b-instruct-q4_k_m` or `llama-3.1-70b-instruct-q5_k_s` for tool calling? BFCL gives you leaderboard scores for full-precision models. That doesn't answer your question. This is a different kind of problem. But the battery of tests is still relevant.
 
 ## The Solution
 
