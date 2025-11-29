@@ -63,7 +63,13 @@ def create_app() -> gr.Blocks:
                     scale=2
                 )
                 with gr.Column(scale=1):
-                    fetch_models_btn = gr.Button("🔄 Fetch Models", variant="secondary")
+                    with gr.Row():
+                        fetch_models_btn = gr.Button("🔄 Fetch Models", variant="secondary")
+                        only_loaded_checkbox = gr.Checkbox(
+                            label="Only Loaded",
+                            value=False,
+                            info="Filter to models currently loaded in LM Studio"
+                        )
                     server_status = gr.Textbox(
                         label="Status",
                         value="Click Fetch to discover models",
@@ -334,9 +340,9 @@ def create_app() -> gr.Blocks:
         # EVENT BINDINGS: Shared
         # ─────────────────────────────────────────────────────────────
 
-        async def on_fetch_models(servers_text):
+        async def on_fetch_models(servers_text, only_loaded):
             """Fetch models and update both tabs' checkboxes."""
-            status, models_update = await fetch_available_models(servers_text)
+            status, models_update = await fetch_available_models(servers_text, only_loaded)
             choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
             return (
                 status,
@@ -348,19 +354,19 @@ def create_app() -> gr.Blocks:
 
         fetch_models_btn.click(
             fn=on_fetch_models,
-            inputs=[servers_input],
+            inputs=[servers_input, only_loaded_checkbox],
             outputs=[server_status, available_models, battery_models, compare_models, detail_model]
         )
 
         battery_fetch_btn.click(
             fn=on_fetch_models,
-            inputs=[servers_input],
+            inputs=[servers_input, only_loaded_checkbox],
             outputs=[server_status, available_models, battery_models, compare_models, detail_model]
         )
 
         compare_fetch_btn.click(
             fn=on_fetch_models,
-            inputs=[servers_input],
+            inputs=[servers_input, only_loaded_checkbox],
             outputs=[server_status, available_models, battery_models, compare_models, detail_model]
         )
 

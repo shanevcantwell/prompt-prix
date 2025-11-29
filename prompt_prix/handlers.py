@@ -4,6 +4,7 @@ Shared event handlers and helpers for prompt-prix.
 Tab-specific handlers are in prompt_prix.tabs.{battery,compare}.handlers
 """
 
+import logging
 from typing import Optional
 
 import gradio as gr
@@ -11,6 +12,8 @@ import gradio as gr
 from prompt_prix import state
 from prompt_prix.core import ServerPool
 from prompt_prix.parsers import parse_servers_input
+
+logger = logging.getLogger(__name__)
 
 
 async def _init_pool_and_validate(
@@ -45,9 +48,48 @@ def handle_stop():
     return "🛑 Stop requested..."
 
 
-async def fetch_available_models(servers_text: str) -> tuple[str, dict]:
+def _get_loaded_models() -> set[str]:
+    """
+    Get currently loaded models from LM Studio using the lmstudio SDK.
+
+    Returns set of model identifiers that are currently loaded in memory.
+    """
+    try:
+        import lmstudio as lms
+        loaded = lms.list_loaded_models("llm")
+        # Extract model identifiers from loaded model objects
+        loaded_ids = set()
+        for model in loaded:
+            # The model object has a .model_key or similar attribute
+            if hasattr(model, 'model_key'):
+                loaded_ids.add(model.model_key)
+            elif hasattr(model, 'path'):
+                loaded_ids.add(model.path)
+            elif hasattr(model, 'identifier'):
+                loaded_ids.add(model.identifier)
+            else:
+                # Fallback: try string representation
+                loaded_ids.add(str(model))
+        return loaded_ids
+    except ImportError:
+        logger.warning("lmstudio SDK not installed - cannot filter by loaded models")
+        return set()
+    except Exception as e:
+        logger.warning(f"Failed to get loaded models: {e}")
+        return set()
+
+
+async def fetch_available_models(
+    servers_text: str,
+    only_loaded: bool = False
+) -> tuple[str, dict]:
     """
     Query all configured servers and return available models.
+
+    Args:
+        servers_text: Newline-separated server URLs
+        only_loaded: If True, filter to only models currently loaded in LM Studio
+
     Returns (status_message, gr.update for CheckboxGroup choices).
     """
     servers = parse_servers_input(servers_text)
@@ -70,10 +112,25 @@ async def fetch_available_models(servers_text: str) -> tuple[str, dict]:
     for models in models_by_server.values():
         all_models.update(models)
 
+    # Filter by loaded models if requested
+    if only_loaded:
+        loaded_models = _get_loaded_models()
+        if loaded_models:
+            all_models = all_models & loaded_models
+            if not all_models:
+                return "⚠️ No loaded models match available models", gr.update(choices=[])
+        else:
+            # Couldn't get loaded models - show warning but continue
+            return "⚠️ Could not detect loaded models (is lmstudio SDK installed?)", gr.update(choices=sorted(all_models))
+
     sorted_models = sorted(all_models)
 
-    status_parts = [f"✅ Found {len(all_models)} model(s):"]
+    status_parts = [f"✅ Found {len(sorted_models)} model(s)"]
+    if only_loaded:
+        status_parts[0] += " (loaded only)"
+
     for url, models in models_by_server.items():
-        status_parts.append(f"  {url}: {len(models)} model(s)")
+        count = len([m for m in models if m in all_models]) if only_loaded else len(models)
+        status_parts.append(f"  {url}: {count} model(s)")
 
     return " | ".join(status_parts), gr.update(choices=sorted_models)
