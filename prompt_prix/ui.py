@@ -23,7 +23,8 @@ from prompt_prix.handlers import (
     battery_validate_file,
     battery_run_handler,
     battery_get_cell_detail,
-    battery_get_test_ids
+    battery_get_test_ids,
+    battery_quick_prompt_handler
 )
 from prompt_prix.parsers import get_default_system_prompt
 
@@ -216,7 +217,25 @@ def create_app() -> gr.Blocks:
                             placeholder="Leave empty to use test-defined prompts",
                             lines=3
                         )
-                
+
+                        # Quick prompt for ad-hoc testing
+                        gr.Markdown("---")
+                        gr.Markdown("**Quick Prompt**")
+                        quick_prompt = gr.Textbox(
+                            label="Manual Prompt",
+                            placeholder="Enter a prompt to test against selected models",
+                            lines=2
+                        )
+                        quick_prompt_btn = gr.Button(
+                            "⚡ Run Prompt",
+                            variant="secondary",
+                            size="sm"
+                        )
+                        quick_prompt_output = gr.Markdown(
+                            value="*Results will appear here*",
+                            label="Quick Prompt Results"
+                        )
+
                 with gr.Row():
                     battery_run_btn = gr.Button(
                         "▶️ Run Battery",
@@ -444,6 +463,21 @@ def create_app() -> gr.Blocks:
                 battery_system_prompt
             ],
             outputs=[battery_status, battery_grid]
+        )
+
+        # Quick prompt
+        quick_prompt_btn.click(
+            fn=battery_quick_prompt_handler,
+            inputs=[
+                quick_prompt,
+                battery_models,
+                servers_input,
+                battery_temp,
+                battery_timeout,
+                battery_max_tokens,
+                battery_system_prompt
+            ],
+            outputs=[quick_prompt_output]
         )
 
         # Detail view

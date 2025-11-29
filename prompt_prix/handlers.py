@@ -570,6 +570,95 @@ async def battery_run_handler(
     yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
 
 
+async def battery_quick_prompt_handler(
+    prompt: str,
+    models_selected: list[str],
+    servers_text: str,
+    temperature: float,
+    timeout: int,
+    max_tokens: int,
+    system_prompt: str
+):
+    """
+    Run a single prompt against selected models for quick ad-hoc testing.
+
+    Yields markdown-formatted results as each model completes.
+    """
+    if not prompt or not prompt.strip():
+        yield "*Enter a prompt to test*"
+        return
+
+    if not models_selected:
+        yield "❌ No models selected"
+        return
+
+    servers = parse_servers_input(servers_text)
+    if not servers:
+        yield "❌ No servers configured"
+        return
+
+    from prompt_prix.core import ServerPool, stream_completion
+
+    pool = ServerPool(servers)
+    await pool.refresh_all_manifests()
+
+    # Verify models are available
+    available = pool.get_all_available_models()
+    missing = [m for m in models_selected if m not in available]
+    if missing:
+        yield f"❌ Models not available: {', '.join(missing)}"
+        return
+
+    # Build messages
+    messages = []
+    if system_prompt and system_prompt.strip():
+        messages.append({"role": "system", "content": system_prompt.strip()})
+    messages.append({"role": "user", "content": prompt.strip()})
+
+    results = {}
+    output_lines = [f"**Prompt:** {prompt.strip()}\n\n---\n"]
+
+    for model_id in models_selected:
+        # Find available server for this model
+        server_url = pool.find_available_server(model_id)
+        if not server_url:
+            results[model_id] = f"❌ No server available"
+            output_lines.append(f"### {model_id}\n{results[model_id]}\n\n")
+            yield "\n".join(output_lines)
+            continue
+
+        output_lines.append(f"### {model_id}\n⏳ *Generating...*\n\n")
+        yield "\n".join(output_lines)
+
+        try:
+            await pool.acquire_server(server_url)
+            response = ""
+            async for chunk in stream_completion(
+                server_url=server_url,
+                model_id=model_id,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout
+            ):
+                response += chunk
+
+            results[model_id] = response
+            # Update the last entry
+            output_lines[-1] = f"### {model_id}\n{response}\n\n"
+            yield "\n".join(output_lines)
+
+        except Exception as e:
+            results[model_id] = f"❌ Error: {e}"
+            output_lines[-1] = f"### {model_id}\n{results[model_id]}\n\n"
+            yield "\n".join(output_lines)
+        finally:
+            pool.release_server(server_url)
+
+    output_lines.append("---\n✅ **Complete**")
+    yield "\n".join(output_lines)
+
+
 def battery_get_cell_detail(model: str, test: str) -> str:
     """
     Get response detail for a (model, test) cell.
