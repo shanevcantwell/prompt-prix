@@ -115,6 +115,8 @@ class CustomJSONLoader:
 
             try:
                 data = json.loads(line)
+                # Map BFCL format to TestCase format
+                data = CustomJSONLoader._normalize_bfcl(data)
                 test_cases.append(TestCase(**data))
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSON on line {i + 1}: {e}") from e
@@ -125,6 +127,56 @@ class CustomJSONLoader:
             raise ValueError("JSONL file contains no valid test cases")
 
         return test_cases
+
+    @staticmethod
+    def _normalize_bfcl(data: dict) -> dict:
+        """
+        Normalize BFCL format to TestCase format.
+
+        BFCL uses:
+        - question: [{role: system, content: ...}, {role: user, content: ...}]
+        - function: tool definitions
+        - metadata.category/severity
+
+        We map to:
+        - system: string
+        - user: string
+        - tools: list
+        - category/severity: strings
+        """
+        # Already has 'user' field - return as-is
+        if "user" in data:
+            return data
+
+        result = dict(data)
+
+        # Extract system/user from 'question' array
+        if "question" in data and isinstance(data["question"], list):
+            for msg in data["question"]:
+                if msg.get("role") == "system":
+                    result["system"] = msg.get("content", "")
+                elif msg.get("role") == "user":
+                    result["user"] = msg.get("content", "")
+            del result["question"]
+
+        # Map 'function' to 'tools'
+        if "function" in data:
+            result["tools"] = data["function"]
+            del result["function"]
+
+        # Flatten metadata
+        if "metadata" in data and isinstance(data["metadata"], dict):
+            if "category" in data["metadata"]:
+                result["category"] = data["metadata"]["category"]
+            if "severity" in data["metadata"]:
+                result["severity"] = data["metadata"]["severity"]
+            del result["metadata"]
+
+        # Remove fields TestCase doesn't accept
+        for field in ["ground_truth", "ground_truth_exclude"]:
+            result.pop(field, None)
+
+        return result
 
     @staticmethod
     def validate(file_path: Union[str, Path]) -> tuple[bool, str]:
