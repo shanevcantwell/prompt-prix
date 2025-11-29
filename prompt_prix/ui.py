@@ -27,85 +27,13 @@ from prompt_prix.handlers import (
     battery_quick_prompt_handler
 )
 from prompt_prix.parsers import get_default_system_prompt
-
-
-# ─────────────────────────────────────────────────────────────────────
-# CSS
-# ─────────────────────────────────────────────────────────────────────
-
-CUSTOM_CSS = """
-/* Battery grid styling */
-#battery-grid table {
-    font-family: monospace;
-    font-size: 14px;
-}
-#battery-grid td {
-    text-align: center;
-    min-width: 80px;
-}
-
-/* Status colors for Compare tab */
-#model-tabs button.tab-pending {
-    background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%) !important;
-    border-left: 4px solid #ef4444 !important;
-}
-#model-tabs button.tab-streaming {
-    background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%) !important;
-    border-left: 4px solid #f59e0b !important;
-    animation: pulse 1.5s ease-in-out infinite;
-}
-#model-tabs button.tab-completed {
-    background: linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%) !important;
-    border-left: 4px solid #10b981 !important;
-}
-@keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.7; }
-}
-
-/* Hero grid prominence */
-#battery-grid {
-    min-height: 300px;
-}
-
-/* Compact config panels */
-.config-row {
-    gap: 1rem;
-}
-"""
-
-# JavaScript for Compare tab colors
-TAB_STATUS_JS = """
-function updateTabColors(tabStates) {
-    if (!tabStates) return tabStates;
-    const tabContainer = document.getElementById('model-tabs');
-    if (!tabContainer) return tabStates;
-    const buttons = tabContainer.querySelectorAll('button[role="tab"]');
-    tabStates.forEach((status, index) => {
-        if (index < buttons.length) {
-            const btn = buttons[index];
-            if (status === 'pending') {
-                btn.style.background = 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)';
-                btn.style.borderLeft = '4px solid #ef4444';
-                btn.style.animation = '';
-            } else if (status === 'streaming') {
-                btn.style.background = 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)';
-                btn.style.borderLeft = '4px solid #f59e0b';
-                btn.style.animation = 'pulse 1.5s ease-in-out infinite';
-            } else if (status === 'completed') {
-                btn.style.background = 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)';
-                btn.style.borderLeft = '4px solid #10b981';
-                btn.style.animation = '';
-            } else {
-                btn.style.background = '';
-                btn.style.borderLeft = '';
-                btn.style.animation = '';
-            }
-        }
-    });
-    return tabStates;
-}
-"""
+from prompt_prix.ui_helpers import (
+    CUSTOM_CSS,
+    TAB_STATUS_JS,
+    PERSISTENCE_LOAD_JS,
+    SAVE_SERVERS_JS,
+    SAVE_TEMPERATURE_JS,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -115,11 +43,17 @@ function updateTabColors(tabStates) {
 def create_app() -> gr.Blocks:
     """Create the Gradio application."""
 
-    with gr.Blocks(
-        title="prompt-prix",
-        theme=gr.themes.Soft(),
-        css=CUSTOM_CSS
-    ) as app:
+    # Gradio 5.x: theme/css on Blocks(); Gradio 6.x: on launch()
+    import inspect
+    blocks_params = inspect.signature(gr.Blocks).parameters
+    blocks_kwargs = {"title": "prompt-prix"}
+
+    if "theme" in blocks_params:
+        # Gradio 5.x style
+        blocks_kwargs["theme"] = gr.themes.Soft()
+        blocks_kwargs["css"] = CUSTOM_CSS
+
+    with gr.Blocks(**blocks_kwargs) as app:
         
         gr.Markdown("# prompt-prix")
         gr.Markdown("Find your optimal open-weights model.")
@@ -542,24 +476,37 @@ def create_app() -> gr.Blocks:
         )
 
         # ─────────────────────────────────────────────────────────────
-        # PERSISTENCE
+        # PERSISTENCE: Load from localStorage, save on change
         # ─────────────────────────────────────────────────────────────
 
+        # Load saved settings (returns undefined to preserve .env defaults if empty)
         app.load(
             fn=None,
             inputs=[],
             outputs=[servers_input, battery_temp, compare_temp],
-            js="""
-            () => {
-                const servers = localStorage.getItem('promptprix_servers');
-                const temp = localStorage.getItem('promptprix_temperature');
-                return [
-                    servers ? servers : null,
-                    temp ? parseFloat(temp) : null,
-                    temp ? parseFloat(temp) : null
-                ];
-            }
-            """
+            js=PERSISTENCE_LOAD_JS
+        )
+
+        # Save servers to localStorage on change (debounced by Gradio for textboxes)
+        servers_input.change(
+            fn=None,
+            inputs=[servers_input],
+            outputs=[servers_input],
+            js=SAVE_SERVERS_JS
+        )
+
+        # Save temperature to localStorage on change (syncs both sliders)
+        battery_temp.change(
+            fn=None,
+            inputs=[battery_temp],
+            outputs=[battery_temp],
+            js=SAVE_TEMPERATURE_JS
+        )
+        compare_temp.change(
+            fn=None,
+            inputs=[compare_temp],
+            outputs=[compare_temp],
+            js=SAVE_TEMPERATURE_JS
         )
 
     return app

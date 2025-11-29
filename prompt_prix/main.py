@@ -2,10 +2,12 @@
 Gradio application entry point for prompt-prix.
 """
 
+import gradio as gr
 from dotenv import load_dotenv
 
 from prompt_prix.config import get_gradio_port
 from prompt_prix.ui import create_app
+from prompt_prix.ui_helpers import CUSTOM_CSS
 
 # Re-export for backwards compatibility with tests
 from prompt_prix.parsers import (
@@ -37,11 +39,24 @@ def run():
     """Entry point for the application."""
     app = create_app()
     port = get_gradio_port()
-    app.launch(
-        server_name="0.0.0.0",  # Allow external connections
-        server_port=port,
-        share=False
-    )
+
+    # Gradio 6.x moved theme/css from Blocks() to launch()
+    # Gradio 5.x had them on Blocks() - detect and adapt
+    import inspect
+    launch_params = inspect.signature(gr.Blocks.launch).parameters
+
+    launch_kwargs = {
+        "server_name": "0.0.0.0",  # Allow external connections
+        "server_port": port,
+        "share": False,
+    }
+
+    # Add theme/css only if launch() accepts them (Gradio 6+)
+    if "theme" in launch_params:
+        launch_kwargs["theme"] = gr.themes.Soft()
+        launch_kwargs["css"] = CUSTOM_CSS
+
+    app.launch(**launch_kwargs)
 
 
 if __name__ == "__main__":
