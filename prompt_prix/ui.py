@@ -371,8 +371,16 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
 
         def on_battery_file_change(file_obj):
+            # Clear previous battery run state when file changes
+            state.battery_run = None
+
             if file_obj is None:
-                return "Upload a benchmark file", gr.update(interactive=False), gr.update(choices=[])
+                return (
+                    "Upload a benchmark file",
+                    gr.update(interactive=False),
+                    gr.update(choices=[]),
+                    []  # Clear grid
+                )
 
             validation_result = battery_handlers.validate_file(file_obj)
             is_valid = validation_result.startswith("✅")
@@ -381,13 +389,14 @@ def create_app() -> gr.Blocks:
             return (
                 validation_result,
                 gr.update(interactive=is_valid),
-                gr.update(choices=test_choices)
+                gr.update(choices=test_choices),
+                []  # Clear grid for new file
             )
 
         battery_file.change(
             fn=on_battery_file_change,
             inputs=[battery_file],
-            outputs=[battery_validation, battery_run_btn, detail_test]
+            outputs=[battery_validation, battery_run_btn, detail_test, battery_grid]
         )
 
         battery_run_btn.click(
