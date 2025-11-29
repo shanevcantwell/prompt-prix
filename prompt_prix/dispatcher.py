@@ -6,10 +6,13 @@ Efficiently distributes work items to available servers.
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from typing import AsyncGenerator, Callable, Coroutine, Protocol, TypeVar
 
 from prompt_prix.core import ServerPool
+
+logger = logging.getLogger(__name__)
 
 
 class WorkItem(Protocol):
@@ -130,9 +133,14 @@ class WorkStealingDispatcher:
 
         Ensures server is released even if execute_fn raises.
         """
+        logger.debug(f"Acquired server {server_url} for model {item.model_id}")
         try:
             await execute_fn(item, server_url)
+        except Exception as e:
+            logger.warning(f"Task failed on {server_url}: {e}")
+            raise
         finally:
+            logger.debug(f"Releasing server {server_url}")
             self.pool.release_server(server_url)
 
 

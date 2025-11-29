@@ -54,6 +54,7 @@ def is_retryable_error(exception: BaseException) -> bool:
     retryable_patterns = [
         "failed to load model",
         "model loading",
+        "operation canceled",  # LM Studio aborted model load
         "connection",
         "timeout",
         "server busy",
