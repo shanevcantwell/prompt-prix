@@ -38,10 +38,6 @@ ENV/
 *.local.yaml
 config.local.yaml
 
-# Generated reports (keep docs/)
-/prompt-prix_*.md
-prompt-prix_*.json
-
 # Testing
 .pytest_cache/
 .coverage
@@ -54,7 +50,7 @@ Thumbs.db
 
 # Local-only config and scripts
 prompt-prix.code-workspace
-run.shdata/
+run.sh
 
-# Test runs
-data/*
+# Test data
+data/
