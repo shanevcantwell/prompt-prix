@@ -381,9 +381,9 @@ def create_app() -> gr.Blocks:
         # EVENT BINDINGS: Shared
         # ─────────────────────────────────────────────────────────────
 
-        def on_fetch_models(servers_text):
+        async def on_fetch_models(servers_text):
             """Fetch models and update both tabs' checkboxes."""
-            status, models_update = fetch_available_models(servers_text)
+            status, models_update = await fetch_available_models(servers_text)
             choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
             return (
                 status,
