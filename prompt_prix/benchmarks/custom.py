@@ -1,7 +1,11 @@
 """
-CustomJSONLoader - loads test cases from tool_competence_tests.json format.
+CustomJSONLoader - loads test cases from JSON or JSONL format.
 
-Fail-fast validation per CLAUDE.md: Invalid JSON is rejected immediately.
+Supports two formats:
+- JSON: {"prompts": [{...}, {...}]}
+- JSONL: One test case per line (auto-detected)
+
+Fail-fast validation per CLAUDE.md: Invalid data is rejected immediately.
 """
 
 import json
@@ -13,9 +17,9 @@ from .base import TestCase
 
 class CustomJSONLoader:
     """
-    Load test cases from custom JSON format.
+    Load test cases from JSON or JSONL format.
 
-    Expected format:
+    JSON format:
     {
         "test_suite": "...",
         "version": "...",
@@ -24,15 +28,19 @@ class CustomJSONLoader:
             ...
         ]
     }
+
+    JSONL format (one test per line):
+    {"id": "test-1", "user": "...", ...}
+    {"id": "test-2", "user": "...", ...}
     """
 
     @staticmethod
     def load(file_path: Union[str, Path]) -> list[TestCase]:
         """
-        Load test cases from JSON file.
+        Load test cases from JSON or JSONL file.
 
         Args:
-            file_path: Path to JSON file
+            file_path: Path to JSON/JSONL file
 
         Returns:
             List of TestCase objects
@@ -48,7 +56,27 @@ class CustomJSONLoader:
             raise FileNotFoundError(f"Benchmark file not found: {path}")
 
         with open(path, encoding="utf-8") as f:
-            data = json.load(f)
+            content = f.read()
+
+        # Detect format: JSONL if file starts with { and has multiple lines
+        # or has .jsonl extension
+        is_jsonl = path.suffix.lower() == ".jsonl"
+        if not is_jsonl:
+            # Auto-detect: if first non-whitespace char is { and there are
+            # multiple JSON objects (one per line), treat as JSONL
+            stripped = content.strip()
+            if stripped.startswith("{") and "\n{" in stripped:
+                is_jsonl = True
+
+        if is_jsonl:
+            return CustomJSONLoader._load_jsonl(content, path)
+        else:
+            return CustomJSONLoader._load_json(content, path)
+
+    @staticmethod
+    def _load_json(content: str, path: Path) -> list[TestCase]:
+        """Load from JSON format with prompts array."""
+        data = json.loads(content)
 
         # Fail-fast validation
         if not isinstance(data, dict):
@@ -71,6 +99,30 @@ class CustomJSONLoader:
                 test_cases.append(TestCase(**prompt))
             except Exception as e:
                 raise ValueError(f"Invalid test case at index {i}: {e}") from e
+
+        return test_cases
+
+    @staticmethod
+    def _load_jsonl(content: str, path: Path) -> list[TestCase]:
+        """Load from JSONL format (one test case per line)."""
+        test_cases = []
+        lines = content.strip().split("\n")
+
+        for i, line in enumerate(lines):
+            line = line.strip()
+            if not line:  # Skip empty lines
+                continue
+
+            try:
+                data = json.loads(line)
+                test_cases.append(TestCase(**data))
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON on line {i + 1}: {e}") from e
+            except Exception as e:
+                raise ValueError(f"Invalid test case on line {i + 1}: {e}") from e
+
+        if len(test_cases) == 0:
+            raise ValueError("JSONL file contains no valid test cases")
 
         return test_cases
 

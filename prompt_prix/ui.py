@@ -108,8 +108,8 @@ def create_app() -> gr.Blocks:
                     # Left column: Test suite + Models
                     with gr.Column(scale=1):
                         battery_file = gr.File(
-                            label="Test Suite (JSON)",
-                            file_types=[".json"],
+                            label="Test Suite (JSON/JSONL)",
+                            file_types=[".json", ".jsonl"],
                             type="filepath"
                         )
                         battery_validation = gr.Textbox(

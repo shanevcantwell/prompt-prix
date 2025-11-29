@@ -241,6 +241,36 @@ class TestCustomJSONLoader:
         assert valid is False
         assert "❌" in message
 
+    def test_load_jsonl_file(self, tmp_path):
+        """Test loading JSONL format (one test per line)."""
+        file_path = tmp_path / "tests.jsonl"
+        jsonl_content = '{"id": "test_1", "user": "Hello"}\n{"id": "test_2", "user": "World"}\n'
+        file_path.write_text(jsonl_content)
+
+        cases = CustomJSONLoader.load(file_path)
+        assert len(cases) == 2
+        assert cases[0].id == "test_1"
+        assert cases[1].id == "test_2"
+
+    def test_load_jsonl_autodetect(self, tmp_path):
+        """Test auto-detecting JSONL format from .json file."""
+        file_path = tmp_path / "tests.json"
+        # Multiple JSON objects on separate lines = auto-detect as JSONL
+        jsonl_content = '{"id": "test_1", "user": "Hello"}\n{"id": "test_2", "user": "World"}'
+        file_path.write_text(jsonl_content)
+
+        cases = CustomJSONLoader.load(file_path)
+        assert len(cases) == 2
+
+    def test_load_jsonl_with_empty_lines(self, tmp_path):
+        """Test JSONL with empty lines skipped."""
+        file_path = tmp_path / "tests.jsonl"
+        jsonl_content = '{"id": "test_1", "user": "Hello"}\n\n{"id": "test_2", "user": "World"}\n'
+        file_path.write_text(jsonl_content)
+
+        cases = CustomJSONLoader.load(file_path)
+        assert len(cases) == 2
+
 
 # ─────────────────────────────────────────────────────────────────────
 # TEST RESULT TESTS
