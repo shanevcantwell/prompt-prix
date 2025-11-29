@@ -670,3 +670,220 @@ class TestFetchAvailableModels:
         # Returns gr.update dict with empty choices
         assert "choices" in models_update
         assert models_update["choices"] == []
+
+
+class TestOnlyLoadedFilter:
+    """Tests for Only Loaded models filter functionality."""
+
+    def _create_mock_lmstudio(self, models_list):
+        """Create a mock lmstudio module with list_loaded_models."""
+        mock_lms = MagicMock()
+        mock_lms.list_loaded_models.return_value = models_list
+        return mock_lms
+
+    def test_get_loaded_models_with_model_key(self):
+        """Test _get_loaded_models extracts model_key attribute."""
+        from prompt_prix.handlers import _get_loaded_models
+
+        # Create mock model objects with model_key attribute
+        mock_model = MagicMock()
+        mock_model.model_key = "test-model-1"
+
+        mock_lms = self._create_mock_lmstudio([mock_model])
+
+        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
+            result = _get_loaded_models()
+
+        assert "test-model-1" in result
+        mock_lms.list_loaded_models.assert_called_once_with("llm")
+
+    def test_get_loaded_models_with_path(self):
+        """Test _get_loaded_models falls back to path attribute."""
+        from prompt_prix.handlers import _get_loaded_models
+
+        # Create mock model without model_key but with path
+        mock_model = MagicMock(spec=["path"])
+        mock_model.path = "models/test-model-2"
+
+        mock_lms = self._create_mock_lmstudio([mock_model])
+
+        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
+            result = _get_loaded_models()
+
+        assert "models/test-model-2" in result
+
+    def test_get_loaded_models_with_identifier(self):
+        """Test _get_loaded_models falls back to identifier attribute."""
+        from prompt_prix.handlers import _get_loaded_models
+
+        # Create mock model without model_key or path but with identifier
+        mock_model = MagicMock(spec=["identifier"])
+        mock_model.identifier = "test-model-id"
+
+        mock_lms = self._create_mock_lmstudio([mock_model])
+
+        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
+            result = _get_loaded_models()
+
+        assert "test-model-id" in result
+
+    def test_get_loaded_models_import_error(self):
+        """Test _get_loaded_models returns empty set when lmstudio not installed."""
+        from prompt_prix.handlers import _get_loaded_models
+        import sys
+
+        # Remove lmstudio from modules if it exists
+        lmstudio_backup = sys.modules.get("lmstudio")
+        sys.modules["lmstudio"] = None  # Simulate ImportError
+
+        try:
+            result = _get_loaded_models()
+            # Should return empty set on import error
+            assert result == set()
+        finally:
+            # Restore
+            if lmstudio_backup:
+                sys.modules["lmstudio"] = lmstudio_backup
+            elif "lmstudio" in sys.modules:
+                del sys.modules["lmstudio"]
+
+    def test_get_loaded_models_sdk_exception(self):
+        """Test _get_loaded_models returns empty set on SDK exception."""
+        from prompt_prix.handlers import _get_loaded_models
+
+        mock_lms = MagicMock()
+        mock_lms.list_loaded_models.side_effect = RuntimeError("SDK error")
+
+        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
+            result = _get_loaded_models()
+
+        assert result == set()
+
+    def test_get_loaded_models_multiple_models(self):
+        """Test _get_loaded_models handles multiple loaded models."""
+        from prompt_prix.handlers import _get_loaded_models
+
+        mock_model_1 = MagicMock()
+        mock_model_1.model_key = "model-a"
+        mock_model_2 = MagicMock()
+        mock_model_2.model_key = "model-b"
+        mock_model_3 = MagicMock()
+        mock_model_3.model_key = "model-c"
+
+        mock_lms = self._create_mock_lmstudio([mock_model_1, mock_model_2, mock_model_3])
+
+        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
+            result = _get_loaded_models()
+
+        assert len(result) == 3
+        assert "model-a" in result
+        assert "model-b" in result
+        assert "model-c" in result
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_only_loaded_filters_models(self):
+        """Test fetch with only_loaded=True filters to loaded models only."""
+        from prompt_prix.handlers import fetch_available_models
+
+        # Server has models A, B, C available
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a"},
+                    {"id": "model-b"},
+                    {"id": "model-c"}
+                ]
+            })
+        )
+
+        # Only model-a and model-c are loaded
+        mock_model_a = MagicMock()
+        mock_model_a.model_key = "model-a"
+        mock_model_c = MagicMock()
+        mock_model_c.model_key = "model-c"
+
+        mock_lms = self._create_mock_lmstudio([mock_model_a, mock_model_c])
+
+        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
+            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+
+        assert "✅" in status
+        assert "(loaded only)" in status
+        choices = models_update["choices"]
+        assert "model-a" in choices
+        assert "model-c" in choices
+        assert "model-b" not in choices  # Not loaded, should be filtered out
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_only_loaded_no_match(self):
+        """Test fetch with only_loaded=True when no loaded models match."""
+        from prompt_prix.handlers import fetch_available_models
+
+        # Server has models A, B available
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a"},
+                    {"id": "model-b"}
+                ]
+            })
+        )
+
+        # Only model-x is loaded (not on server)
+        mock_model_x = MagicMock()
+        mock_model_x.model_key = "model-x"
+
+        mock_lms = self._create_mock_lmstudio([mock_model_x])
+
+        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
+            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+
+        assert "⚠️" in status
+        assert "No loaded models match" in status
+        assert models_update["choices"] == []
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_only_loaded_sdk_unavailable(self):
+        """Test fetch with only_loaded=True when SDK not available."""
+        from prompt_prix.handlers import fetch_available_models
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+
+        with patch("prompt_prix.handlers._get_loaded_models", return_value=set()):
+            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+
+        assert "⚠️" in status
+        assert "Could not detect loaded models" in status
+        # Should still return all models as fallback
+        assert len(models_update["choices"]) > 0
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_without_only_loaded_returns_all(self):
+        """Test fetch with only_loaded=False returns all available models."""
+        from prompt_prix.handlers import fetch_available_models
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a"},
+                    {"id": "model-b"},
+                    {"id": "model-c"}
+                ]
+            })
+        )
+
+        # Even with lmstudio available, should not call it when only_loaded=False
+        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=False)
+
+        assert "✅" in status
+        assert "(loaded only)" not in status
+        choices = models_update["choices"]
+        assert "model-a" in choices
+        assert "model-b" in choices
+        assert "model-c" in choices
