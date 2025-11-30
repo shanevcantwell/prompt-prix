@@ -66,6 +66,9 @@ async def run_handler(
 
     Yields (status, grid_data) tuples for streaming UI updates.
     """
+    # Clear any previous stop request so we can run again
+    state.clear_stop()
+
     # Fail-fast validation
     if file_obj is None:
         yield "❌ No benchmark file uploaded", []
