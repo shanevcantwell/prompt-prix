@@ -29,6 +29,7 @@ from prompt_prix.ui_helpers import (
 # Import tab-specific handlers
 from prompt_prix.tabs.battery import handlers as battery_handlers
 from prompt_prix.tabs.compare import handlers as compare_handlers
+from prompt_prix.tabs.stability import handlers as stability_handlers
 
 
 def create_app() -> gr.Blocks:
@@ -91,6 +92,11 @@ def create_app() -> gr.Blocks:
                                 label="Only Loaded",
                                 value=False,
                                 info="Filter to models currently in memory"
+                            )
+                            gemini_checkbox = gr.Checkbox(
+                                label="Gemini",
+                                value=False,
+                                info="Include Gemini Web UI (requires session)"
                             )
 
                         battery_models = gr.CheckboxGroup(
@@ -324,16 +330,128 @@ def create_app() -> gr.Blocks:
                     visible=False
                 )
 
+            # ─────────────────────────────────────────────────────────
+            # TAB 3: STABILITY (Regeneration Analysis)
+            # ─────────────────────────────────────────────────────────
+
+            with gr.Tab("📊 Stability", id="stability-tab"):
+
+                gr.Markdown("""
+                Analyze regeneration stability. Run the same prompt multiple times
+                against a model to observe output variance across regenerations.
+                """)
+
+                with gr.Row():
+                    with gr.Column(scale=1):
+                        stability_model = gr.Dropdown(
+                            label="Model",
+                            choices=[],
+                            value=None,
+                            info="Select model to test"
+                        )
+                        stability_regen_count = gr.Slider(
+                            label="Regeneration Count",
+                            minimum=2,
+                            maximum=20,
+                            step=1,
+                            value=5,
+                            info="Number of times to regenerate"
+                        )
+                        stability_prompt = gr.Textbox(
+                            label="Prompt",
+                            placeholder="Enter the prompt to regenerate...",
+                            lines=4
+                        )
+
+                        with gr.Row():
+                            stability_run_btn = gr.Button(
+                                "▶️ Run Regenerations",
+                                variant="primary"
+                            )
+                            stability_stop_btn = gr.Button(
+                                "⏹️ Stop",
+                                variant="stop"
+                            )
+
+                    with gr.Column(scale=1):
+                        stability_temp = gr.Slider(
+                            label="Temperature",
+                            minimum=0.0,
+                            maximum=2.0,
+                            step=0.1,
+                            value=DEFAULT_TEMPERATURE
+                        )
+                        stability_timeout = gr.Slider(
+                            label="Timeout (seconds)",
+                            minimum=30,
+                            maximum=600,
+                            step=30,
+                            value=DEFAULT_TIMEOUT_SECONDS
+                        )
+                        stability_max_tokens = gr.Slider(
+                            label="Max Tokens",
+                            minimum=256,
+                            maximum=8192,
+                            step=256,
+                            value=DEFAULT_MAX_TOKENS
+                        )
+                        stability_system_prompt = gr.Textbox(
+                            label="System Prompt (optional)",
+                            placeholder="System instructions",
+                            lines=2
+                        )
+                        stability_capture_thinking = gr.Checkbox(
+                            label="Capture Thinking Blocks",
+                            value=True,
+                            info="Extract reasoning traces (Gemini only)"
+                        )
+
+                stability_status = gr.Textbox(
+                    label="Status",
+                    value="Select a model and enter a prompt",
+                    interactive=False
+                )
+
+                gr.Markdown("### Regenerations")
+
+                # Tabbed interface for each regeneration
+                regen_outputs = []
+                with gr.Tabs(elem_id="regen-tabs"):
+                    for i in range(20):  # Max regenerations
+                        with gr.Tab(f"Regen {i + 1}", visible=(i < 5)):
+                            output = gr.Markdown(
+                                value="*Waiting...*",
+                                label=f"Regeneration {i + 1}"
+                            )
+                            regen_outputs.append(output)
+
+                with gr.Row():
+                    stability_export_json_btn = gr.Button("Export JSON")
+                    stability_export_md_btn = gr.Button("Export Markdown")
+
+                stability_export_file = gr.File(
+                    label="Download",
+                    visible=False
+                )
+
         # ─────────────────────────────────────────────────────────────
         # EVENT BINDINGS: Shared
         # ─────────────────────────────────────────────────────────────
 
-        async def on_fetch_models(servers_text, only_loaded):
-            """Fetch models and update both tabs' checkboxes and judge dropdown."""
+        async def on_fetch_models(servers_text, only_loaded, include_gemini):
+            """Fetch models and update all tabs' model selectors."""
             status, models_update = await fetch_available_models(servers_text, only_loaded)
             choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
+
+            # Add Gemini if checkbox is checked
+            if include_gemini:
+                gemini_model = "gemini-2.0-flash-thinking (Web UI)"
+                if gemini_model not in choices:
+                    choices = [gemini_model] + list(choices)
+
             return (
                 choices,
+                gr.update(choices=choices),
                 gr.update(choices=choices),
                 gr.update(choices=choices),
                 gr.update(choices=choices),
@@ -342,14 +460,14 @@ def create_app() -> gr.Blocks:
 
         battery_fetch_btn.click(
             fn=on_fetch_models,
-            inputs=[servers_input, only_loaded_checkbox],
-            outputs=[available_models, battery_models, compare_models, detail_model, judge_model]
+            inputs=[servers_input, only_loaded_checkbox, gemini_checkbox],
+            outputs=[available_models, battery_models, compare_models, detail_model, judge_model, stability_model]
         )
 
         compare_fetch_btn.click(
             fn=on_fetch_models,
-            inputs=[servers_input, only_loaded_checkbox],
-            outputs=[available_models, battery_models, compare_models, detail_model, judge_model]
+            inputs=[servers_input, only_loaded_checkbox, gemini_checkbox],
+            outputs=[available_models, battery_models, compare_models, detail_model, judge_model, stability_model]
         )
 
         # ─────────────────────────────────────────────────────────────
@@ -485,6 +603,34 @@ def create_app() -> gr.Blocks:
             inputs=[],
             outputs=[compare_status, compare_export_preview]
         ).then(fn=lambda: gr.update(visible=True), outputs=[compare_export_preview])
+
+        # ─────────────────────────────────────────────────────────────
+        # EVENT BINDINGS: Stability Tab
+        # ─────────────────────────────────────────────────────────────
+
+        stability_run_btn.click(
+            fn=stability_handlers.run_regenerations,
+            inputs=[
+                stability_model, stability_prompt, stability_regen_count,
+                servers_input, stability_temp, stability_timeout,
+                stability_max_tokens, stability_system_prompt, stability_capture_thinking
+            ],
+            outputs=[stability_status] + regen_outputs
+        )
+
+        stability_stop_btn.click(fn=handle_stop, inputs=[], outputs=[stability_status])
+
+        stability_export_json_btn.click(
+            fn=stability_handlers.export_json,
+            inputs=[],
+            outputs=[stability_status, stability_export_file]
+        )
+
+        stability_export_md_btn.click(
+            fn=stability_handlers.export_markdown,
+            inputs=[],
+            outputs=[stability_status, stability_export_file]
+        )
 
         # ─────────────────────────────────────────────────────────────
         # PERSISTENCE
