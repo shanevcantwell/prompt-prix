@@ -40,18 +40,24 @@ class GeminiWebUIAdapter:
 
     Extracts thinking blocks via DOM scraping.
     Supports both initial prompts and regeneration.
+
+    Session Management:
+        First run: Browser opens visible, user logs into Google/Gemini,
+                   session is saved to ~/.prompt-prix/gemini_state/
+        Subsequent runs: Session restored automatically, runs headless
     """
 
     GEMINI_URL = "https://gemini.google.com/app"
 
-    def __init__(self, cookies_path: Optional[str] = None, headless: bool = True):
+    def __init__(self, state_dir: Optional[str] = None, headless: Optional[bool] = None):
         """
         Initialize the adapter.
 
         Args:
-            cookies_path: Path to cookies JSON file for session auth.
-                         Defaults to ~/.prompt-prix/gemini_cookies.json
-            headless: Run browser in headless mode (default True)
+            state_dir: Directory for browser state persistence.
+                      Defaults to ~/.prompt-prix/gemini_state/
+            headless: Run browser in headless mode.
+                     None = auto (headless if session exists, visible if not)
         """
         if not PLAYWRIGHT_AVAILABLE:
             raise ImportError(
@@ -59,51 +65,99 @@ class GeminiWebUIAdapter:
                 "Install with: pip install playwright && playwright install chromium"
             )
 
-        self.cookies_path = cookies_path or self._default_cookies_path()
-        self.headless = headless
+        self.state_dir = Path(state_dir) if state_dir else self._default_state_dir()
+        self._headless_override = headless
         self.playwright: Optional[Playwright] = None
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
         self._initialized = False
 
-    def _default_cookies_path(self) -> str:
-        """Get default cookies path."""
-        home = Path.home()
-        return str(home / ".prompt-prix" / "gemini_cookies.json")
+    def _default_state_dir(self) -> Path:
+        """Get default state directory."""
+        return Path.home() / ".prompt-prix" / "gemini_state"
+
+    @property
+    def state_file(self) -> Path:
+        """Path to the browser state file."""
+        return self.state_dir / "state.json"
+
+    def has_session(self) -> bool:
+        """Check if a saved session exists."""
+        return self.state_file.exists()
+
+    @property
+    def headless(self) -> bool:
+        """Determine if browser should run headless."""
+        if self._headless_override is not None:
+            return self._headless_override
+        # Auto: headless if we have a session, visible if we need login
+        return self.has_session()
 
     async def _ensure_initialized(self):
         """Initialize browser if not already done."""
         if self._initialized:
             return
 
-        logger.info("Initializing Playwright browser for Gemini...")
+        # Ensure state directory exists
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+
+        has_existing_session = self.has_session()
+        headless = self.headless
+
+        if not has_existing_session:
+            logger.info(
+                "No Gemini session found. Opening browser for login...\n"
+                "Please log into your Google account when the browser opens."
+            )
+
+        logger.info(f"Initializing Playwright browser (headless={headless})...")
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
-            headless=self.headless,
+            headless=headless,
             args=["--disable-blink-features=AutomationControlled"],
         )
 
-        # Create context and restore cookies if available
-        context = await self.browser.new_context()
-
-        if os.path.exists(self.cookies_path):
-            import json
-            with open(self.cookies_path, 'r') as f:
-                cookies = json.load(f)
-            await context.add_cookies(cookies)
-            logger.info(f"Restored session from {self.cookies_path}")
-        else:
-            logger.warning(
-                f"No cookies file at {self.cookies_path}. "
-                "You may need to log in manually."
+        # Use persistent context to save/restore session state
+        if has_existing_session:
+            context = await self.browser.new_context(
+                storage_state=str(self.state_file)
             )
+            logger.info(f"Restored session from {self.state_file}")
+        else:
+            context = await self.browser.new_context()
 
         self.page = await context.new_page()
         await self.page.goto(self.GEMINI_URL)
         await self.page.wait_for_load_state("networkidle")
 
+        # If no session, wait for user to log in
+        if not has_existing_session:
+            await self._wait_for_login()
+            # Save session for future use
+            await context.storage_state(path=str(self.state_file))
+            logger.info(f"Session saved to {self.state_file}")
+
         self._initialized = True
         logger.info("Gemini browser initialized")
+
+    async def _wait_for_login(self):
+        """Wait for user to complete Google login."""
+        logger.info("Waiting for login... (look for the textarea input)")
+
+        # Wait for the Gemini input textarea to appear (indicates successful login)
+        # This could take a while as user needs to log in
+        try:
+            await self.page.wait_for_selector(
+                "textarea",
+                timeout=300000  # 5 minutes to log in
+            )
+            logger.info("Login detected! Textarea found.")
+            # Give a moment for the page to fully stabilize
+            await asyncio.sleep(2)
+        except Exception as e:
+            raise RuntimeError(
+                f"Login timeout. Please log into Gemini within 5 minutes. Error: {e}"
+            )
 
     async def send_prompt(
         self,
@@ -309,13 +363,38 @@ class GeminiWebUIAdapter:
 
         return response_text.strip()
 
-    async def close(self):
-        """Close browser and cleanup resources."""
+    async def close(self, save_session: bool = True):
+        """
+        Close browser and cleanup resources.
+
+        Args:
+            save_session: If True, save current session state before closing
+        """
+        if self.page and save_session:
+            try:
+                context = self.page.context
+                await context.storage_state(path=str(self.state_file))
+                logger.info(f"Session saved to {self.state_file}")
+            except Exception as e:
+                logger.warning(f"Failed to save session: {e}")
+
         if self.browser:
             await self.browser.close()
         if self.playwright:
             await self.playwright.stop()
         self._initialized = False
+
+    def clear_session(self):
+        """
+        Clear saved session to force re-login on next use.
+
+        Call this if your session expires or you need to switch accounts.
+        """
+        if self.state_file.exists():
+            self.state_file.unlink()
+            logger.info(f"Cleared session at {self.state_file}")
+        else:
+            logger.info("No session to clear")
 
     def __del__(self):
         """Cleanup on deletion."""
