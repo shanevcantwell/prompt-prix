@@ -31,6 +31,7 @@ gemini = [
 
 [project.scripts]
 prompt-prix = "prompt_prix.main:run"
+prompt-prix-gemini = "prompt_prix.main:gemini_setup"
 
 [tool.setuptools.packages.find]
 where = ["."]
