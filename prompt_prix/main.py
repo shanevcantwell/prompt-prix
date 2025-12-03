@@ -67,58 +67,133 @@ def run():
 
 def gemini_setup():
     """
-    Set up Gemini Web UI session.
+    Manage Gemini Web UI session for prompt-prix.
 
-    Opens a browser window for you to log into Google/Gemini.
-    Session is saved for future headless use.
-
-    Usage:
-        prompt-prix-gemini          # Login to Gemini
-        prompt-prix-gemini --clear  # Clear saved session
-        prompt-prix-gemini --check  # Check if session exists
+    This tool handles browser session persistence for the Gemini adapter.
+    Sessions are stored at ~/.prompt-prix/gemini_state/state.json
     """
+    HELP = """
+prompt-prix-gemini - Manage Gemini Web UI session
+
+USAGE:
+    prompt-prix-gemini [--on | --off | --status | --help]
+
+COMMANDS:
+    (no args)   Same as --on: start login flow if no session exists
+    --on        Open browser, log into Google, save session for headless use
+    --off       Clear saved session (forces re-login next time)
+    --status    Check if a valid session exists
+    --help      Show this help message
+
+WORKFLOW:
+    1. First time:  prompt-prix-gemini --on
+                    → Browser opens, you log into Google
+                    → Session saved to ~/.prompt-prix/gemini_state/
+
+    2. Normal use:  prompt-prix
+                    → Check "Gemini" box, click Fetch
+                    → Gemini runs headless using saved session
+
+    3. Session expired or need to switch accounts:
+                    prompt-prix-gemini --off
+                    prompt-prix-gemini --on
+
+PREREQUISITES:
+    pip install prompt-prix[gemini]
+    playwright install chromium
+"""
+
     try:
         from prompt_prix.adapters.gemini_webui import GeminiWebUIAdapter, PLAYWRIGHT_AVAILABLE
     except ImportError:
         print("Error: Playwright not installed.")
-        print("Install with: pip install prompt-prix[gemini] && playwright install chromium")
+        print()
+        print("Install with:")
+        print("    pip install prompt-prix[gemini]")
+        print("    playwright install chromium")
         sys.exit(1)
 
     if not PLAYWRIGHT_AVAILABLE:
         print("Error: Playwright not installed.")
-        print("Install with: pip install playwright && playwright install chromium")
+        print()
+        print("Install with:")
+        print("    pip install playwright")
+        print("    playwright install chromium")
         sys.exit(1)
 
-    # Parse simple args
     args = sys.argv[1:]
 
-    if "--clear" in args:
-        adapter = GeminiWebUIAdapter()
-        adapter.clear_session()
-        print(f"Session cleared from {adapter.state_file}")
+    # --help
+    if "--help" in args or "-h" in args:
+        print(HELP)
         return
 
-    if "--check" in args:
+    # --off (clear session)
+    if "--off" in args or "--clear" in args or "--reset" in args:
         adapter = GeminiWebUIAdapter()
         if adapter.has_session():
-            print(f"✅ Session exists at {adapter.state_file}")
+            adapter.clear_session()
+            print(f"✅ Session cleared: {adapter.state_file}")
         else:
-            print(f"❌ No session found. Run 'prompt-prix-gemini' to log in.")
+            print("ℹ️  No session to clear")
         return
 
-    # Default: login flow
+    # --status (check session)
+    if "--status" in args or "--check" in args:
+        adapter = GeminiWebUIAdapter()
+        if adapter.has_session():
+            print(f"✅ Session ON: {adapter.state_file}")
+        else:
+            print("❌ Session OFF: No saved session")
+            print("   Run: prompt-prix-gemini --on")
+        return
+
+    # --on or default: login flow
     async def do_login():
-        print("Starting Gemini login flow...")
-        print("A browser window will open. Please log into your Google account.")
+        adapter = GeminiWebUIAdapter()
+
+        if adapter.has_session():
+            print(f"ℹ️  Session already exists: {adapter.state_file}")
+            print("   Use --off to clear it first, or --status to check")
+            return
+
+        print("=" * 60)
+        print("GEMINI LOGIN")
+        print("=" * 60)
+        print()
+        print("A browser window will open to gemini.google.com")
+        print()
+        print("STEPS:")
+        print("  1. Log into your Google account in the browser")
+        print("  2. Wait for the Gemini chat page to fully load")
+        print("  3. This script will detect login and save the session")
+        print()
+        print("TIMEOUT: 5 minutes")
+        print()
+        print("Opening browser...")
         print()
 
-        adapter = GeminiWebUIAdapter(headless=False)  # Force visible for login
+        # Force visible for login
+        adapter._headless_override = False
 
         try:
             await adapter._ensure_initialized()
             print()
-            print(f"✅ Session saved to {adapter.state_file}")
-            print("You can now use Gemini in prompt-prix!")
+            print("=" * 60)
+            print(f"✅ SESSION SAVED: {adapter.state_file}")
+            print("=" * 60)
+            print()
+            print("You can now use Gemini in prompt-prix:")
+            print("  1. Run: prompt-prix")
+            print("  2. Check the 'Gemini' checkbox")
+            print("  3. Click 'Fetch' to load models")
+            print()
+        except Exception as e:
+            print()
+            print(f"❌ Login failed: {e}")
+            print()
+            print("Try again with: prompt-prix-gemini --on")
+            sys.exit(1)
         finally:
             await adapter.close()
 

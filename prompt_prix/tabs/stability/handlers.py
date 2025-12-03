@@ -128,14 +128,18 @@ async def run_regenerations(
     # LM Studio model - use standard completion
     from prompt_prix.core import stream_completion
 
+    # Show initial status
+    outputs = ["*Waiting...*"] * 20
+    yield (f"Initializing for {model_id}...",) + tuple(outputs)
+
     pool, error = await _init_pool_and_validate(servers_text, [model_id])
     if error:
         yield (error,) + tuple(["*Error*"] * 20)
         return
 
-    outputs = ["*Waiting...*"] * 20
+    yield (f"Starting {regen_count} regenerations...",) + tuple(outputs)
 
-    for i in range(regen_count):
+    for i in range(int(regen_count)):
         if state.should_stop():
             stability_run.completed_at = datetime.now().isoformat()
             yield (f"Stopped at regeneration {i}/{regen_count}",) + tuple(outputs)

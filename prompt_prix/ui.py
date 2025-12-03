@@ -343,6 +343,18 @@ def create_app() -> gr.Blocks:
 
                 with gr.Row():
                     with gr.Column(scale=1):
+                        with gr.Row():
+                            stability_fetch_btn = gr.Button(
+                                "🔄 Fetch",
+                                variant="secondary",
+                                size="sm"
+                            )
+                            stability_gemini_checkbox = gr.Checkbox(
+                                label="Gemini",
+                                value=False,
+                                info="Include Gemini Web UI"
+                            )
+
                         stability_model = gr.Dropdown(
                             label="Model",
                             choices=[],
@@ -468,6 +480,24 @@ def create_app() -> gr.Blocks:
             fn=on_fetch_models,
             inputs=[servers_input, only_loaded_checkbox, gemini_checkbox],
             outputs=[available_models, battery_models, compare_models, detail_model, judge_model, stability_model]
+        )
+
+        async def on_stability_fetch(servers_text, include_gemini):
+            """Fetch models for Stability tab."""
+            status, models_update = await fetch_available_models(servers_text, only_loaded=False)
+            choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
+
+            if include_gemini:
+                gemini_model = "gemini-2.0-flash-thinking (Web UI)"
+                if gemini_model not in choices:
+                    choices = [gemini_model] + list(choices)
+
+            return gr.update(choices=choices)
+
+        stability_fetch_btn.click(
+            fn=on_stability_fetch,
+            inputs=[servers_input, stability_gemini_checkbox],
+            outputs=[stability_model]
         )
 
         # ─────────────────────────────────────────────────────────────
