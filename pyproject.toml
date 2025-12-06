@@ -40,7 +40,10 @@ include = ["prompt_prix*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-v"
+addopts = "-v -m 'not integration'"
+markers = [
+    "integration: marks tests that require external services (deselect with '-m \"not integration\"')",
+]
 
 [tool.coverage.run]
 source = ["prompt_prix"]
