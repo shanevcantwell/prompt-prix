@@ -78,6 +78,7 @@ def is_gemini_model(model_id: str) -> bool:
 
 
 async def run_regenerations(
+    use_gemini: bool,
     model_id: str,
     prompt: str,
     regen_count: int,
@@ -98,13 +99,18 @@ async def run_regenerations(
     # Clear stop flag
     state.clear_stop()
 
-    # Validation
-    if not model_id:
-        yield ("Select a model",) + tuple(["*Waiting...*"] * 20)
-        return
-
+    # Validation - prompt is always required
     if not prompt or not prompt.strip():
         yield ("Enter a prompt",) + tuple(["*Waiting...*"] * 20)
+        return
+
+    # Gemini checkbox bypasses model dropdown
+    if use_gemini:
+        model_id = "gemini-2.0-flash-thinking (Web UI)"
+
+    # Model required if not using Gemini
+    if not model_id:
+        yield ("Select a model",) + tuple(["*Waiting...*"] * 20)
         return
 
     # Initialize run state
@@ -118,7 +124,7 @@ async def run_regenerations(
     )
 
     # Check if this is a Gemini model (requires special adapter)
-    if is_gemini_model(model_id):
+    if use_gemini or is_gemini_model(model_id):
         async for result in _run_gemini_regenerations(
             prompt, regen_count, temperature, max_tokens, system_prompt, capture_thinking
         ):
@@ -211,74 +217,106 @@ async def _run_gemini_regenerations(
     system_prompt: str,
     capture_thinking: bool
 ) -> AsyncGenerator[tuple, None]:
-    """Run regenerations using Gemini Web UI adapter."""
+    """
+    Run regenerations using Gemini adapter.
+
+    Tries visual adapter (Fara-7B) first, falls back to DOM adapter.
+    Visual adapter is more resilient to UI changes.
+    """
     global stability_run
 
     outputs = ["*Waiting...*"] * 20
 
-    try:
-        from prompt_prix.adapters.gemini_webui import GeminiWebUIAdapter
-    except ImportError as e:
-        yield (f"Gemini adapter not available: {e}",) + tuple(outputs)
-        return
+    # Try visual adapter first (uses Fara-7B for element location)
+    adapter = None
+    adapter_type = None
 
     try:
-        adapter = GeminiWebUIAdapter()
+        from prompt_prix.adapters.gemini_visual import GeminiVisualAdapter
+        adapter = GeminiVisualAdapter()
+        adapter_type = "visual (Fara-7B)"
+        yield (f"Using {adapter_type} adapter...",) + tuple(outputs)
+    except ImportError:
+        # Fara not available, fall back to DOM adapter
+        pass
     except Exception as e:
-        yield (f"Failed to initialize Gemini adapter: {e}",) + tuple(outputs)
-        return
+        # Visual adapter failed to init, try DOM
+        yield (f"Visual adapter unavailable ({e}), trying DOM...",) + tuple(outputs)
 
-    for i in range(regen_count):
-        if state.should_stop():
-            stability_run.completed_at = datetime.now().isoformat()
-            yield (f"Stopped at regeneration {i}/{regen_count}",) + tuple(outputs)
+    # Fall back to DOM adapter
+    if adapter is None:
+        try:
+            from prompt_prix.adapters.gemini_webui import GeminiWebUIAdapter
+            adapter = GeminiWebUIAdapter()
+            adapter_type = "DOM"
+            yield (f"Using {adapter_type} adapter...",) + tuple(outputs)
+        except ImportError as e:
+            yield (f"No Gemini adapter available: {e}",) + tuple(outputs)
+            return
+        except Exception as e:
+            yield (f"Failed to initialize Gemini adapter: {e}",) + tuple(outputs)
             return
 
-        outputs[i] = "*Generating via Gemini Web UI...*"
-        yield (f"Running regeneration {i + 1}/{regen_count}...",) + tuple(outputs)
+    try:
+        for i in range(regen_count):
+            if state.should_stop():
+                stability_run.completed_at = datetime.now().isoformat()
+                yield (f"Stopped at regeneration {i}/{regen_count}",) + tuple(outputs)
+                return
 
-        start_time = time.time()
+            outputs[i] = f"*Generating via {adapter_type}...*"
+            yield (f"Running regeneration {i + 1}/{regen_count}...",) + tuple(outputs)
 
-        try:
-            # For regeneration, we need to either:
-            # 1. Start a new conversation each time (independent samples)
-            # 2. Use the regenerate button in the same conversation (dependent samples)
-            # The ADR suggests regenerate button is what we want to study
-            if i == 0:
-                result = await adapter.send_prompt(prompt, system_prompt)
-            else:
-                result = await adapter.regenerate()
+            start_time = time.time()
 
-            latency_ms = (time.time() - start_time) * 1000
+            try:
+                # For regeneration, we need to either:
+                # 1. Start a new conversation each time (independent samples)
+                # 2. Use the regenerate button in the same conversation (dependent samples)
+                # The ADR suggests regenerate button is what we want to study
+                if i == 0:
+                    result = await adapter.send_prompt(prompt, system_prompt)
+                else:
+                    result = await adapter.regenerate()
 
-            response = result.get("response", "")
-            thinking = result.get("thinking_blocks") if capture_thinking else None
+                latency_ms = (time.time() - start_time) * 1000
 
-            regen = Regeneration(
-                index=i + 1,
-                response=response,
-                thinking_blocks=thinking,
-                latency_ms=latency_ms,
-                timestamp=datetime.now().isoformat(),
-            )
-            stability_run.regenerations.append(regen)
+                response = result.get("response", "")
+                thinking = result.get("thinking_blocks") if capture_thinking else None
 
-            # Format output with thinking if present
-            output_parts = [f"**Latency:** {latency_ms:.0f}ms"]
-            if thinking:
-                output_parts.append(f"**Thinking Blocks:** {len(thinking)}")
-            output_parts.append("---")
-            output_parts.append(response)
-            outputs[i] = "\n\n".join(output_parts)
+                regen = Regeneration(
+                    index=i + 1,
+                    response=response,
+                    thinking_blocks=thinking,
+                    latency_ms=latency_ms,
+                    timestamp=datetime.now().isoformat(),
+                )
+                stability_run.regenerations.append(regen)
 
-            yield (f"Completed regeneration {i + 1}/{regen_count}",) + tuple(outputs)
+                # Format output with thinking if present
+                output_parts = [f"**Latency:** {latency_ms:.0f}ms"]
+                if thinking:
+                    output_parts.append(f"**Thinking Blocks:** {len(thinking)}")
+                output_parts.append("---")
+                output_parts.append(response)
+                outputs[i] = "\n\n".join(output_parts)
 
-        except Exception as e:
-            outputs[i] = f"*Error: {e}*"
-            yield (f"Error in regeneration {i + 1}: {e}",) + tuple(outputs)
+                yield (f"Completed regeneration {i + 1}/{regen_count}",) + tuple(outputs)
 
-    stability_run.completed_at = datetime.now().isoformat()
-    yield (f"Completed {regen_count} regenerations",) + tuple(outputs)
+            except Exception as e:
+                outputs[i] = f"*Error: {e}*"
+                yield (f"Error in regeneration {i + 1}: {e}",) + tuple(outputs)
+
+        stability_run.completed_at = datetime.now().isoformat()
+        yield (f"Completed {regen_count} regenerations",) + tuple(outputs)
+
+    finally:
+        # Always close the adapter to release browser resources
+        if adapter and hasattr(adapter, 'close'):
+            try:
+                await adapter.close()
+            except Exception:
+                pass
 
 
 def export_json():
