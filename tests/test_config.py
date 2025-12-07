@@ -32,6 +32,63 @@ class TestMessage:
         assert msg.role == "system"
         assert msg.content == "You are helpful."
 
+    def test_message_multimodal_content(self):
+        """Test creating a message with multimodal content (text + image)."""
+        from prompt_prix.config import Message
+
+        content = [
+            {"type": "text", "text": "What's in this image?"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc123"}}
+        ]
+        msg = Message(role="user", content=content)
+        assert msg.role == "user"
+        assert isinstance(msg.content, list)
+        assert len(msg.content) == 2
+
+    def test_message_get_text_from_string(self):
+        """Test get_text returns content for string messages."""
+        from prompt_prix.config import Message
+
+        msg = Message(role="user", content="Hello!")
+        assert msg.get_text() == "Hello!"
+
+    def test_message_get_text_from_multimodal(self):
+        """Test get_text extracts text from multimodal content."""
+        from prompt_prix.config import Message
+
+        content = [
+            {"type": "text", "text": "Describe this image"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,xyz"}}
+        ]
+        msg = Message(role="user", content=content)
+        assert msg.get_text() == "Describe this image"
+
+    def test_message_has_image_false_for_string(self):
+        """Test has_image returns False for string content."""
+        from prompt_prix.config import Message
+
+        msg = Message(role="user", content="No image here")
+        assert msg.has_image() is False
+
+    def test_message_has_image_true_for_multimodal(self):
+        """Test has_image returns True when image_url present."""
+        from prompt_prix.config import Message
+
+        content = [
+            {"type": "text", "text": "Look at this"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}}
+        ]
+        msg = Message(role="user", content=content)
+        assert msg.has_image() is True
+
+    def test_message_has_image_false_for_text_only_list(self):
+        """Test has_image returns False for list without image."""
+        from prompt_prix.config import Message
+
+        content = [{"type": "text", "text": "Just text"}]
+        msg = Message(role="user", content=content)
+        assert msg.has_image() is False
+
 
 class TestServerConfig:
     """Tests for ServerConfig model."""
@@ -125,6 +182,35 @@ class TestModelContext:
         assert context.messages[0].role == "user"
         assert context.messages[0].content == "Hello!"
 
+    def test_model_context_add_user_message_with_image(self, tmp_path):
+        """Test adding user message with image attachment."""
+        from prompt_prix.config import ModelContext
+
+        # Create a minimal valid PNG file
+        png_file = tmp_path / "test.png"
+        # Minimal 1x1 red PNG
+        png_bytes = bytes([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,  # PNG signature
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,  # IHDR chunk
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,  # 1x1
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+            0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,  # IDAT chunk
+            0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
+            0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
+            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,  # IEND chunk
+            0x44, 0xAE, 0x42, 0x60, 0x82
+        ])
+        png_file.write_bytes(png_bytes)
+
+        context = ModelContext(model_id="test-model")
+        context.add_user_message("What's in this image?", image_path=str(png_file))
+
+        assert len(context.messages) == 1
+        assert context.messages[0].role == "user"
+        assert isinstance(context.messages[0].content, list)
+        assert context.messages[0].has_image() is True
+        assert context.messages[0].get_text() == "What's in this image?"
+
     def test_model_context_add_assistant_message(self):
         """Test adding assistant message to context."""
         from prompt_prix.config import ModelContext
@@ -175,6 +261,114 @@ class TestModelContext:
         display = context.to_display_format()
 
         assert "**ERROR:** Connection timeout" in display
+
+    def test_model_context_to_display_format_with_image(self, tmp_path):
+        """Test display format shows image indicator."""
+        from prompt_prix.config import ModelContext
+
+        # Create a minimal PNG file
+        png_file = tmp_path / "test.png"
+        png_bytes = bytes([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+            0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
+            0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
+            0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
+            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+            0x44, 0xAE, 0x42, 0x60, 0x82
+        ])
+        png_file.write_bytes(png_bytes)
+
+        context = ModelContext(model_id="test-model")
+        context.add_user_message("Describe this", image_path=str(png_file))
+        context.add_assistant_message("I see an image.")
+
+        display = context.to_display_format()
+
+        assert "🖼️" in display
+        assert "Describe this" in display
+
+
+class TestMultimodalHelpers:
+    """Tests for multimodal content helper functions."""
+
+    def test_build_multimodal_content_text_only(self):
+        """Test build_multimodal_content returns string when no image."""
+        from prompt_prix.config import build_multimodal_content
+
+        result = build_multimodal_content("Hello world")
+        assert result == "Hello world"
+
+    def test_build_multimodal_content_with_image(self, tmp_path):
+        """Test build_multimodal_content returns list with image."""
+        from prompt_prix.config import build_multimodal_content
+
+        # Create a minimal PNG file
+        png_file = tmp_path / "test.png"
+        png_bytes = bytes([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+            0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
+            0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
+            0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
+            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+            0x44, 0xAE, 0x42, 0x60, 0x82
+        ])
+        png_file.write_bytes(png_bytes)
+
+        result = build_multimodal_content("What is this?", str(png_file))
+
+        assert isinstance(result, list)
+        assert len(result) == 2
+        assert result[0]["type"] == "text"
+        assert result[0]["text"] == "What is this?"
+        assert result[1]["type"] == "image_url"
+        assert "data:image/png;base64," in result[1]["image_url"]["url"]
+
+    def test_encode_image_to_data_url(self, tmp_path):
+        """Test encode_image_to_data_url creates valid data URL."""
+        from prompt_prix.config import encode_image_to_data_url
+
+        # Create a minimal PNG file
+        png_file = tmp_path / "test.png"
+        png_bytes = bytes([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53,
+            0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41,
+            0x54, 0x08, 0xD7, 0x63, 0xF8, 0xFF, 0xFF, 0x3F,
+            0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59,
+            0xE7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
+            0x44, 0xAE, 0x42, 0x60, 0x82
+        ])
+        png_file.write_bytes(png_bytes)
+
+        result = encode_image_to_data_url(str(png_file))
+
+        assert result.startswith("data:image/png;base64,")
+        # Verify it's valid base64
+        import base64
+        b64_part = result.split(",")[1]
+        decoded = base64.b64decode(b64_part)
+        assert decoded == png_bytes
+
+    def test_encode_image_to_data_url_jpeg(self, tmp_path):
+        """Test encode_image_to_data_url handles JPEG files."""
+        from prompt_prix.config import encode_image_to_data_url
+
+        # Create a minimal JPEG file (just header for mime detection)
+        jpg_file = tmp_path / "test.jpg"
+        jpg_bytes = bytes([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46])
+        jpg_file.write_bytes(jpg_bytes)
+
+        result = encode_image_to_data_url(str(jpg_file))
+
+        assert result.startswith("data:image/jpeg;base64,")
 
 
 class TestSessionState:

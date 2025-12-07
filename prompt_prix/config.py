@@ -4,7 +4,7 @@ Configuration constants and Pydantic models for prompt-prix.
 
 import os
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Union
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -182,9 +182,62 @@ class ModelConfig(BaseModel):
 
 
 class Message(BaseModel):
-    """A single message in a conversation."""
+    """A single message in a conversation.
+
+    Content can be:
+    - str: Plain text message
+    - list: Multimodal content (text + images) in OpenAI format
+    """
     role: str  # "user", "assistant", or "system"
-    content: str
+    content: Union[str, list]  # str or list of content parts
+
+    def get_text(self) -> str:
+        """Extract text content from message (for display)."""
+        if isinstance(self.content, str):
+            return self.content
+        # Multimodal: find text parts
+        for part in self.content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                return part.get("text", "")
+        return ""
+
+    def has_image(self) -> bool:
+        """Check if message contains an image."""
+        if isinstance(self.content, str):
+            return False
+        return any(
+            isinstance(p, dict) and p.get("type") == "image_url"
+            for p in self.content
+        )
+
+
+def encode_image_to_data_url(image_path: str) -> str:
+    """Encode an image file to a data URL for OpenAI vision API."""
+    import base64
+    import mimetypes
+
+    mime_type, _ = mimetypes.guess_type(image_path)
+    if not mime_type:
+        mime_type = "image/png"
+
+    with open(image_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode("utf-8")
+
+    return f"data:{mime_type};base64,{image_data}"
+
+
+def build_multimodal_content(text: str, image_path: Optional[str] = None) -> Union[str, list]:
+    """Build message content, optionally with an image.
+
+    Returns str if no image, list of content parts if image present.
+    """
+    if not image_path:
+        return text
+
+    return [
+        {"type": "text", "text": text},
+        {"type": "image_url", "image_url": {"url": encode_image_to_data_url(image_path)}}
+    ]
 
 
 class ModelContext(BaseModel):
@@ -193,8 +246,10 @@ class ModelContext(BaseModel):
     messages: list[Message] = []
     error: Optional[str] = None  # Set if model encountered an error
 
-    def add_user_message(self, content: str) -> None:
-        self.messages.append(Message(role="user", content=content))
+    def add_user_message(self, content: str, image_path: Optional[str] = None) -> None:
+        """Add a user message, optionally with an image attachment."""
+        msg_content = build_multimodal_content(content, image_path)
+        self.messages.append(Message(role="user", content=msg_content))
 
     def add_assistant_message(self, content: str) -> None:
         self.messages.append(Message(role="assistant", content=content))
@@ -209,10 +264,14 @@ class ModelContext(BaseModel):
         """Convert to human-readable format for UI display (markdown)."""
         lines = [f"### {self.model_id}"]
         for msg in self.messages:
+            text = msg.get_text()
             if msg.role == "user":
-                lines.append(f"**User:** {msg.content}")
+                prefix = "**User:**"
+                if msg.has_image():
+                    prefix = "**User:** 🖼️"
+                lines.append(f"{prefix} {text}")
             elif msg.role == "assistant":
-                lines.append(f"**Assistant:** {msg.content}")
+                lines.append(f"**Assistant:** {text}")
         if self.error:
             lines.append(f"\n⚠️ **ERROR:** {self.error}")
         return "\n\n".join(lines)
