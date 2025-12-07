@@ -40,6 +40,8 @@ prompt-prix complements these tools by providing a visual layer for side-by-side
 3. **Work-Stealing** - Efficient multi-GPU utilization across servers
 4. **Session Persistence** - Save and restore UI state
 5. **Export** - Generate Markdown/JSON reports for analysis
+6. **Image Attachment** - Send images to vision models in Compare tab
+7. **Reproducible Outputs** - Optional seed parameter for deterministic results
 
 ## Documentation Index
 

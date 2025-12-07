@@ -109,14 +109,34 @@ prompt_prix/
 |-------|---------|
 | `ServerConfig` | Single LM Studio server state (URL, available_models, is_busy) |
 | `ModelConfig` | Model identity and display name |
-| `Message` | Single message in a conversation (role, content) |
+| `Message` | Single message in a conversation (role, content - supports multimodal) |
 | `ModelContext` | Complete conversation history for one model |
 | `SessionState` | Full session: models, contexts, system_prompt, halted status |
+
+**Message Multimodal Support**:
+The `Message` model supports both text and multimodal content:
+```python
+# Text-only message
+Message(role="user", content="Hello")
+
+# Multimodal message (text + image)
+Message(role="user", content=[
+    {"type": "text", "text": "What's in this image?"},
+    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
+])
+
+# Helper methods
+msg.get_text()   # Extract text content
+msg.has_image()  # Check if message contains an image
+```
 
 **Key Functions**:
 - `load_servers_from_env()` - Read LM_STUDIO_SERVER_N environment variables
 - `get_default_servers()` - Return env servers or placeholder defaults
 - `get_gradio_port()` - Read GRADIO_PORT or default to 7860
+- `get_fara_config()` - Read FARA_SERVER_URL and FARA_MODEL_ID for vision adapter
+- `encode_image_to_data_url(path)` - Convert image file to base64 data URL
+- `build_multimodal_content(text, image_path)` - Build OpenAI-format multimodal content
 
 ### core.py - Server Pool & Session Management
 
@@ -156,9 +176,13 @@ class ComparisonSession:
 ```python
 async def stream_completion(
     server_url, model_id, messages, temperature, max_tokens,
-    timeout_seconds, tools=None
+    timeout_seconds, tools=None, seed=None
 ) -> AsyncGenerator[str, None]:
-    """Yields text chunks as they arrive via SSE."""
+    """Yields text chunks as they arrive via SSE.
+
+    Args:
+        seed: Optional int for reproducible outputs (passed to model API)
+    """
 
 async def get_completion(...) -> str:
     """Non-streaming version, returns full response."""
@@ -196,10 +220,14 @@ async def get_completion(...) -> str:
 | Handler | Trigger | Returns |
 |---------|---------|---------|
 | `initialize_session(servers, models, system_prompt, ...)` | Auto-init on send | `(status, *model_tabs)` |
-| `send_single_prompt(prompt, tools_json)` | "Send to All" button | Generator yielding `(status, tab_states, *model_outputs)` |
+| `send_single_prompt(prompt, tools_json, image_path, seed)` | "Send to All" button | Generator yielding `(status, tab_states, *model_outputs)` |
 | `export_markdown()` | "Export Markdown" button | `(status, preview)` |
 | `export_json()` | "Export JSON" button | `(status, preview)` |
 | `launch_beyond_compare(model_a, model_b)` | "Open in Beyond Compare" button | `status` |
+
+**Compare Tab Features**:
+- **Image Attachment**: Upload images for vision models (encoded as base64 data URLs)
+- **Seed Parameter**: Set a seed for reproducible outputs across models
 
 ### dispatcher.py - Work-Stealing Dispatcher
 
@@ -238,7 +266,9 @@ The dispatcher:
 | `temperature_slider` | Slider | Model temperature (0-2) |
 | `timeout_slider` | Slider | Request timeout (30-600s) |
 | `max_tokens_slider` | Slider | Max tokens (256-8192) |
+| `seed_input` | Number | Optional seed for reproducible outputs |
 | `prompt_input` | Textbox | User prompt entry |
+| `image_input` | Image | Optional image attachment for vision models |
 | `tools_input` | Code (JSON) | Tools for function calling |
 | `model_outputs[0..9]` | Markdown | Model response tabs |
 | `tab_states` | JSON (hidden) | Tab status for color updates |
