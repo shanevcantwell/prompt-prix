@@ -65,8 +65,15 @@ async def initialize_session(
     return (f"✅ Session initialized with {len(models)} models",) + _empty_tabs()
 
 
-async def send_single_prompt(prompt: str, tools_json: str = ""):
-    """Send a single prompt to all models with streaming output."""
+async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str = None, seed: int = None):
+    """Send a single prompt to all models with streaming output.
+
+    Args:
+        prompt: The user's text prompt
+        tools_json: Optional JSON string defining function tools
+        image_path: Optional path to an image file for vision models
+        seed: Optional seed for reproducible outputs
+    """
     session = state.session
 
     if session is None:
@@ -134,14 +141,15 @@ async def send_single_prompt(prompt: str, tools_json: str = ""):
                         else:
                             contexts.append(f"{existing}\n\n**Assistant:** ...")
                     else:
-                        contexts.append(f"### {model_id}\n\n**User:** {prompt.strip()}\n\n**Assistant:** ...")
+                        user_prefix = "**User:** 🖼️" if image_path else "**User:**"
+                        contexts.append(f"### {model_id}\n\n{user_prefix} {prompt.strip()}\n\n**Assistant:** ...")
             else:
                 contexts.append("")
         return contexts
 
     # Add user messages to all contexts upfront
     for model_id in session.state.models:
-        session.state.contexts[model_id].add_user_message(prompt.strip())
+        session.state.contexts[model_id].add_user_message(prompt.strip(), image_path=image_path)
 
     await session.server_pool.refresh_all_manifests()
 
@@ -172,7 +180,8 @@ async def send_single_prompt(prompt: str, tools_json: str = ""):
                 temperature=session.state.temperature,
                 max_tokens=session.state.max_tokens,
                 timeout_seconds=session.state.timeout_seconds,
-                tools=tools
+                tools=tools,
+                seed=seed
             ):
                 full_response += chunk
                 streaming_responses[model_id] = full_response

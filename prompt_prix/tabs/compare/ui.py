@@ -55,6 +55,14 @@ def render_tab():
                     step=256,
                     value=DEFAULT_MAX_TOKENS
                 )
+                compare_seed = gr.Number(
+                    label="Seed (optional)",
+                    value=None,
+                    precision=0,
+                    minimum=0,
+                    maximum=2147483647,
+                    info="Set for reproducible outputs"
+                )
                 compare_system_prompt = gr.Textbox(
                     label="System Prompt (optional)",
                     value=get_default_system_prompt(),
@@ -77,6 +85,11 @@ def render_tab():
                     label="User Message",
                     placeholder="Enter your prompt here...",
                     lines=2
+                )
+                compare_image = gr.Image(
+                    label="Attach Image (optional)",
+                    type="filepath",
+                    height=150
                 )
                 compare_send_btn = gr.Button(
                     "⚡ Send to All",
@@ -115,9 +128,11 @@ def render_tab():
         temp=compare_temp,
         timeout=compare_timeout,
         max_tokens=compare_max_tokens,
+        seed=compare_seed,
         system_prompt=compare_system_prompt,
         tools=compare_tools,
         prompt=compare_prompt,
+        image=compare_image,
         send_btn=compare_send_btn,
         status=compare_status,
         tab_states=tab_states,
