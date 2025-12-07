@@ -143,7 +143,8 @@ async def stream_completion(
     max_tokens: int,
     timeout_seconds: int,
     tools: Optional[list[dict]] = None,
-    seed: Optional[int] = None
+    seed: Optional[int] = None,
+    repeat_penalty: Optional[float] = None
 ) -> AsyncGenerator[str, None]:
     """
     Stream a completion from an LM Studio server.
@@ -161,6 +162,8 @@ async def stream_completion(
         payload["tools"] = _normalize_tools_for_openai(tools)
     if seed is not None:
         payload["seed"] = int(seed)
+    if repeat_penalty is not None and repeat_penalty != 1.0:
+        payload["repeat_penalty"] = float(repeat_penalty)
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         async with client.stream(

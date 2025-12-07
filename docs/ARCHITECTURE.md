@@ -176,12 +176,13 @@ class ComparisonSession:
 ```python
 async def stream_completion(
     server_url, model_id, messages, temperature, max_tokens,
-    timeout_seconds, tools=None, seed=None
+    timeout_seconds, tools=None, seed=None, repeat_penalty=None
 ) -> AsyncGenerator[str, None]:
     """Yields text chunks as they arrive via SSE.
 
     Args:
         seed: Optional int for reproducible outputs (passed to model API)
+        repeat_penalty: Optional float to penalize repeated tokens (1.0 = off)
     """
 
 async def get_completion(...) -> str:
@@ -220,7 +221,7 @@ async def get_completion(...) -> str:
 | Handler | Trigger | Returns |
 |---------|---------|---------|
 | `initialize_session(servers, models, system_prompt, ...)` | Auto-init on send | `(status, *model_tabs)` |
-| `send_single_prompt(prompt, tools_json, image_path, seed)` | "Send to All" button | Generator yielding `(status, tab_states, *model_outputs)` |
+| `send_single_prompt(prompt, tools_json, image_path, seed, repeat_penalty)` | "Send to All" button | Generator yielding `(status, tab_states, *model_outputs)` |
 | `export_markdown()` | "Export Markdown" button | `(status, preview)` |
 | `export_json()` | "Export JSON" button | `(status, preview)` |
 | `launch_beyond_compare(model_a, model_b)` | "Open in Beyond Compare" button | `status` |
@@ -228,6 +229,7 @@ async def get_completion(...) -> str:
 **Compare Tab Features**:
 - **Image Attachment**: Upload images for vision models (encoded as base64 data URLs)
 - **Seed Parameter**: Set a seed for reproducible outputs across models
+- **Repeat Penalty**: Configurable penalty (1.0-2.0) to reduce repetitive token generation
 
 ### dispatcher.py - Work-Stealing Dispatcher
 
@@ -267,6 +269,7 @@ The dispatcher:
 | `timeout_slider` | Slider | Request timeout (30-600s) |
 | `max_tokens_slider` | Slider | Max tokens (256-8192) |
 | `seed_input` | Number | Optional seed for reproducible outputs |
+| `repeat_penalty_slider` | Slider | Repeat penalty (1.0-2.0, default 1.1) |
 | `prompt_input` | Textbox | User prompt entry |
 | `image_input` | Image | Optional image attachment for vision models |
 | `tools_input` | Code (JSON) | Tools for function calling |

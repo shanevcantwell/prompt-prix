@@ -79,7 +79,7 @@ def clear_session() -> tuple:
     ) + _empty_tabs()
 
 
-async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str = None, seed: int = None):
+async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str = None, seed: int = None, repeat_penalty: float = None):
     """Send a single prompt to all models with streaming output.
 
     Args:
@@ -87,6 +87,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
         tools_json: Optional JSON string defining function tools
         image_path: Optional path to an image file for vision models
         seed: Optional seed for reproducible outputs
+        repeat_penalty: Optional repeat penalty (1.0 = off)
     """
     session = state.session
 
@@ -195,7 +196,8 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
                 max_tokens=session.state.max_tokens,
                 timeout_seconds=session.state.timeout_seconds,
                 tools=tools,
-                seed=seed
+                seed=seed,
+                repeat_penalty=repeat_penalty
             ):
                 full_response += chunk
                 streaming_responses[model_id] = full_response

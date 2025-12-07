@@ -42,6 +42,7 @@ prompt-prix complements these tools by providing a visual layer for side-by-side
 5. **Export** - Generate Markdown/JSON reports for analysis
 6. **Image Attachment** - Send images to vision models in Compare tab
 7. **Reproducible Outputs** - Optional seed parameter for deterministic results
+8. **Repeat Penalty** - Configurable penalty to reduce repetitive outputs
 
 ## Documentation Index
 

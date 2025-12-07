@@ -63,6 +63,14 @@ def render_tab():
                     maximum=2147483647,
                     info="Set for reproducible outputs"
                 )
+                compare_repeat_penalty = gr.Slider(
+                    label="Repeat Penalty",
+                    minimum=1.0,
+                    maximum=2.0,
+                    step=0.05,
+                    value=1.1,
+                    info="Penalize repeated tokens (1.0 = off)"
+                )
                 compare_system_prompt = gr.Textbox(
                     label="System Prompt (optional)",
                     value=get_default_system_prompt(),
@@ -136,6 +144,7 @@ def render_tab():
         timeout=compare_timeout,
         max_tokens=compare_max_tokens,
         seed=compare_seed,
+        repeat_penalty=compare_repeat_penalty,
         system_prompt=compare_system_prompt,
         tools=compare_tools,
         prompt=compare_prompt,

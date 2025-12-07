@@ -262,6 +262,72 @@ class TestStreamCompletion:
         assert captured_request is not None
         assert "seed" not in captured_request
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_stream_completion_with_repeat_penalty(self):
+        """Test streaming completion includes repeat_penalty in payload when provided."""
+        from prompt_prix.core import stream_completion
+        import json
+
+        captured_request = None
+
+        def capture_request(request):
+            nonlocal captured_request
+            captured_request = json.loads(request.content)
+            streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
+            return httpx.Response(200, text=streaming_content)
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=capture_request)
+
+        chunks = []
+        async for chunk in stream_completion(
+            server_url=MOCK_SERVER_1,
+            model_id=MOCK_MODEL_1,
+            messages=[{"role": "user", "content": "Hello"}],
+            temperature=0.7,
+            max_tokens=100,
+            timeout_seconds=30,
+            repeat_penalty=1.2
+        ):
+            chunks.append(chunk)
+
+        # Verify repeat_penalty was included in request
+        assert captured_request is not None
+        assert captured_request.get("repeat_penalty") == 1.2
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_stream_completion_without_repeat_penalty(self):
+        """Test streaming completion excludes repeat_penalty when set to 1.0."""
+        from prompt_prix.core import stream_completion
+        import json
+
+        captured_request = None
+
+        def capture_request(request):
+            nonlocal captured_request
+            captured_request = json.loads(request.content)
+            streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
+            return httpx.Response(200, text=streaming_content)
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=capture_request)
+
+        chunks = []
+        async for chunk in stream_completion(
+            server_url=MOCK_SERVER_1,
+            model_id=MOCK_MODEL_1,
+            messages=[{"role": "user", "content": "Hello"}],
+            temperature=0.7,
+            max_tokens=100,
+            timeout_seconds=30,
+            repeat_penalty=1.0  # Default, should not be sent
+        ):
+            chunks.append(chunk)
+
+        # Verify repeat_penalty was NOT included in request (1.0 is treated as off)
+        assert captured_request is not None
+        assert "repeat_penalty" not in captured_request
+
 
 class TestGetCompletion:
     """Tests for get_completion function."""
