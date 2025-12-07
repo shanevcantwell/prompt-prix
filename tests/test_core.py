@@ -197,6 +197,71 @@ class TestStreamCompletion:
             ):
                 pass
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_stream_completion_with_seed(self):
+        """Test streaming completion includes seed in payload when provided."""
+        from prompt_prix.core import stream_completion
+        import json
+
+        captured_request = None
+
+        def capture_request(request):
+            nonlocal captured_request
+            captured_request = json.loads(request.content)
+            streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
+            return httpx.Response(200, text=streaming_content)
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=capture_request)
+
+        chunks = []
+        async for chunk in stream_completion(
+            server_url=MOCK_SERVER_1,
+            model_id=MOCK_MODEL_1,
+            messages=[{"role": "user", "content": "Hello"}],
+            temperature=0.7,
+            max_tokens=100,
+            timeout_seconds=30,
+            seed=42
+        ):
+            chunks.append(chunk)
+
+        # Verify seed was included in request
+        assert captured_request is not None
+        assert captured_request.get("seed") == 42
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_stream_completion_without_seed(self):
+        """Test streaming completion excludes seed when not provided."""
+        from prompt_prix.core import stream_completion
+        import json
+
+        captured_request = None
+
+        def capture_request(request):
+            nonlocal captured_request
+            captured_request = json.loads(request.content)
+            streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
+            return httpx.Response(200, text=streaming_content)
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=capture_request)
+
+        chunks = []
+        async for chunk in stream_completion(
+            server_url=MOCK_SERVER_1,
+            model_id=MOCK_MODEL_1,
+            messages=[{"role": "user", "content": "Hello"}],
+            temperature=0.7,
+            max_tokens=100,
+            timeout_seconds=30
+        ):
+            chunks.append(chunk)
+
+        # Verify seed was NOT included in request
+        assert captured_request is not None
+        assert "seed" not in captured_request
+
 
 class TestGetCompletion:
     """Tests for get_completion function."""

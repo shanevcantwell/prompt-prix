@@ -142,7 +142,8 @@ async def stream_completion(
     temperature: float,
     max_tokens: int,
     timeout_seconds: int,
-    tools: Optional[list[dict]] = None
+    tools: Optional[list[dict]] = None,
+    seed: Optional[int] = None
 ) -> AsyncGenerator[str, None]:
     """
     Stream a completion from an LM Studio server.
@@ -158,6 +159,8 @@ async def stream_completion(
     }
     if tools:
         payload["tools"] = _normalize_tools_for_openai(tools)
+    if seed is not None:
+        payload["seed"] = int(seed)
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         async with client.stream(
