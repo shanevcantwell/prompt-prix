@@ -228,7 +228,7 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
 
         async def compare_send_with_auto_init(
-            prompt, tools, servers_text, models_selected,
+            prompt, tools, image, seed, servers_text, models_selected,
             system_prompt, temperature, timeout, max_tokens
         ):
             if (state.session is None or
@@ -241,13 +241,13 @@ def create_app() -> gr.Blocks:
                     yield (init_status, []) + tuple(init_outputs)
                     return
 
-            async for result in compare_handlers.send_single_prompt(prompt, tools):
+            async for result in compare_handlers.send_single_prompt(prompt, tools, image, seed):
                 yield result
 
         compare.send_btn.click(
             fn=compare_send_with_auto_init,
             inputs=[
-                compare.prompt, compare.tools, battery.servers_input, compare.models,
+                compare.prompt, compare.tools, compare.image, compare.seed, battery.servers_input, compare.models,
                 compare.system_prompt, compare.temp, compare.timeout, compare.max_tokens
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
@@ -256,7 +256,7 @@ def create_app() -> gr.Blocks:
         compare.prompt.submit(
             fn=compare_send_with_auto_init,
             inputs=[
-                compare.prompt, compare.tools, battery.servers_input, compare.models,
+                compare.prompt, compare.tools, compare.image, compare.seed, battery.servers_input, compare.models,
                 compare.system_prompt, compare.temp, compare.timeout, compare.max_tokens
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
