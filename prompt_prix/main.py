@@ -27,6 +27,7 @@ from prompt_prix.handlers import fetch_available_models
 from prompt_prix.tabs.compare.handlers import (
     initialize_session,
     send_single_prompt,
+    clear_session,
     export_markdown,
     export_json,
     launch_beyond_compare

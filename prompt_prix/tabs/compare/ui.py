@@ -91,10 +91,17 @@ def render_tab():
                     type="filepath",
                     height=150
                 )
-                compare_send_btn = gr.Button(
-                    "⚡ Send to All",
-                    variant="primary"
-                )
+                with gr.Row():
+                    compare_send_btn = gr.Button(
+                        "⚡ Send to All",
+                        variant="primary",
+                        scale=2
+                    )
+                    compare_clear_btn = gr.Button(
+                        "🗑️ Clear",
+                        variant="secondary",
+                        scale=1
+                    )
 
         compare_status = gr.Textbox(
             label="Status",
@@ -134,6 +141,7 @@ def render_tab():
         prompt=compare_prompt,
         image=compare_image,
         send_btn=compare_send_btn,
+        clear_btn=compare_clear_btn,
         status=compare_status,
         tab_states=tab_states,
         model_outputs=model_outputs,

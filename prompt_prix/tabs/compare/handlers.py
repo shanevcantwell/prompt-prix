@@ -65,6 +65,20 @@ async def initialize_session(
     return (f"✅ Session initialized with {len(models)} models",) + _empty_tabs()
 
 
+def clear_session() -> tuple:
+    """Clear the current session and all conversation contexts.
+
+    Preserves UI settings (models, temperature, etc.) but clears conversation history.
+    Returns tuple of (status_message, tab_states, *model_tab_contents).
+    """
+    state.session = None
+
+    return (
+        "🗑️ Conversation cleared. Ready for new prompts.",
+        [],  # tab_states
+    ) + _empty_tabs()
+
+
 async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str = None, seed: int = None):
     """Send a single prompt to all models with streaming output.
 

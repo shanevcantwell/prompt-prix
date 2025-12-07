@@ -321,6 +321,55 @@ class TestSendSinglePrompt:
         assert "Empty" in result[0] or "❌" in result[0]
 
 
+class TestClearSession:
+    """Tests for clear_session function."""
+
+    def test_clear_session_with_active_session(self):
+        """Test clearing an active session."""
+        from prompt_prix import main
+        from prompt_prix.core import ServerPool, ComparisonSession
+
+        # Setup session
+        pool = ServerPool([MOCK_SERVER_1])
+        main.state.server_pool = pool
+        main.state.session = ComparisonSession(
+            models=[MOCK_MODEL_1],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
+
+        # Clear session
+        result = main.clear_session()
+
+        # Should return success status
+        assert "cleared" in result[0].lower() or "🗑️" in result[0]
+
+        # Session should be None
+        assert main.state.session is None
+
+        # Result should have empty tab states and outputs
+        assert result[1] == []  # tab_states
+        assert len(result) == 12  # status + tab_states + 10 model outputs
+        assert all(output == "" for output in result[2:])
+
+    def test_clear_session_without_session(self):
+        """Test clearing when no session exists."""
+        from prompt_prix import main
+
+        # Ensure no session
+        main.state.session = None
+
+        # Clear session (should not error)
+        result = main.clear_session()
+
+        # Should still return success status
+        assert "cleared" in result[0].lower() or "🗑️" in result[0]
+        assert main.state.session is None
+
+
 class TestExportFunctions:
     """Tests for export_markdown and export_json functions."""
 

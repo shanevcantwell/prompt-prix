@@ -262,6 +262,12 @@ def create_app() -> gr.Blocks:
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
         )
 
+        compare.clear_btn.click(
+            fn=compare_handlers.clear_session,
+            inputs=[],
+            outputs=[compare.status, compare.tab_states] + compare.model_outputs
+        )
+
         compare.tab_states.change(fn=None, inputs=[compare.tab_states], outputs=[compare.tab_states], js=TAB_STATUS_JS)
 
         compare.export_md_btn.click(
