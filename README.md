@@ -99,35 +99,101 @@ Open `http://localhost:7860` in your browser.
 
 ### Test Suite Formats
 
-**JSON format:**
+Three formats are supported for battery test files.
+
+#### TestCase Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `id` | string | **Yes** | - | Unique test identifier |
+| `user` | string | **Yes** | - | User message content |
+| `name` | string | No | `""` | Human-readable display name |
+| `category` | string | No | `""` | Test category for grouping |
+| `severity` | string | No | `"warning"` | `"critical"` or `"warning"` |
+| `system` | string | No | `"You are a helpful assistant."` | System prompt |
+| `tools` | array | No | `null` | OpenAI-format tool definitions |
+| `tool_choice` | string | No | `null` | `"required"`, `"auto"`, or `"none"` |
+| `expected` | object | No | `null` | Expected output (for grading) |
+| `pass_criteria` | string | No | `null` | Human description of pass condition |
+| `fail_criteria` | string | No | `null` | Human description of fail condition |
+
+#### JSON format (recommended)
+
+Wrapper object with `prompts` array:
+
 ```json
 {
+  "test_suite": "my_tests_v1",
+  "version": "1.0",
   "prompts": [
     {
-      "id": "test-1",
-      "name": "Basic greeting",
+      "id": "test_basic",
+      "name": "Basic Test",
+      "category": "sanity",
+      "severity": "critical",
       "system": "You are a helpful assistant.",
-      "user": "Say hello!"
+      "user": "What is 2 + 2?",
+      "pass_criteria": "Returns 4"
     },
     {
-      "id": "test-2",
-      "user": "What is 2+2?",
-      "tools": [{"type": "function", "function": {...}}]
+      "id": "test_tool_call",
+      "name": "Tool Call Test",
+      "category": "tools",
+      "system": "Use the weather tool to answer.",
+      "user": "What's the weather in Tokyo?",
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {"type": "string"}
+              },
+              "required": ["city"]
+            }
+          }
+        }
+      ],
+      "tool_choice": "required"
     }
   ]
 }
 ```
 
-**JSONL format** (one test per line):
+#### JSONL format
+
+One test case per line (auto-detected by `.jsonl` extension):
+
 ```jsonl
-{"id": "test-1", "user": "Hello", "system": "Be helpful"}
-{"id": "test-2", "user": "What is 2+2?"}
+{"id": "test_1", "user": "What is 2 + 2?", "category": "math"}
+{"id": "test_2", "user": "What is 3 + 3?", "category": "math"}
 ```
 
-**BFCL format** (auto-detected and normalized):
+#### BFCL format
+
+[Berkeley Function Calling Leaderboard](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) format is auto-normalized:
+
+| BFCL Field | Maps To |
+|------------|---------|
+| `question` (array of messages) | `system` + `user` (extracted) |
+| `function` | `tools` |
+| `metadata.category` | `category` |
+| `metadata.severity` | `severity` |
+
 ```jsonl
-{"id": "...", "question": [{"role": "user", "content": "..."}], "function": [...]}
+{"id": "bfcl_test", "question": [{"role": "system", "content": "You are helpful."}, {"role": "user", "content": "Delete report.pdf"}], "function": [{"name": "delete_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}], "metadata": {"category": "file_ops"}}
 ```
+
+#### Validation
+
+Files are validated on load with fail-fast behavior:
+- `id` and `user` fields are required and cannot be empty
+- `prompts` array must exist and be non-empty (JSON format)
+- Invalid JSON or missing fields raise errors with line/index info
+
+See [examples/tool_competence_tests.json](examples/tool_competence_tests.json) for a complete example.
 
 ## Development
 

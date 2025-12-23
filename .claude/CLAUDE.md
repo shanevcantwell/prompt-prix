@@ -144,6 +144,107 @@ Analyze regeneration stability for a single model.
 
 ---
 
+## Battery File Formats
+
+The Battery tab loads test cases from JSON or JSONL files. Three formats are supported.
+
+### TestCase Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `id` | string | **Yes** | - | Unique test identifier |
+| `user` | string | **Yes** | - | User message content |
+| `name` | string | No | `""` | Human-readable display name |
+| `category` | string | No | `""` | Test category for grouping |
+| `severity` | string | No | `"warning"` | `"critical"` or `"warning"` |
+| `system` | string | No | `"You are a helpful assistant."` | System prompt |
+| `tools` | array | No | `null` | OpenAI-format tool definitions |
+| `tool_choice` | string | No | `null` | `"required"`, `"auto"`, or `"none"` |
+| `expected` | object | No | `null` | Expected output (for grading) |
+| `pass_criteria` | string | No | `null` | Human description of pass condition |
+| `fail_criteria` | string | No | `null` | Human description of fail condition |
+
+### Format 1: JSON (Recommended)
+
+Wrapper object with `prompts` array:
+
+```json
+{
+  "test_suite": "my_tests_v1",
+  "version": "1.0",
+  "prompts": [
+    {
+      "id": "test_basic",
+      "name": "Basic Test",
+      "category": "sanity",
+      "severity": "critical",
+      "system": "You are a helpful assistant.",
+      "user": "What is 2 + 2?",
+      "pass_criteria": "Returns 4"
+    },
+    {
+      "id": "test_tool_call",
+      "name": "Tool Call Test",
+      "category": "tools",
+      "system": "Use the weather tool to answer.",
+      "user": "What's the weather in Tokyo?",
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "get_weather",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {"type": "string"}
+              },
+              "required": ["city"]
+            }
+          }
+        }
+      ],
+      "tool_choice": "required"
+    }
+  ]
+}
+```
+
+### Format 2: JSONL
+
+One test case per line (auto-detected by `.jsonl` extension or multiple `{` lines):
+
+```jsonl
+{"id": "test_1", "user": "What is 2 + 2?", "category": "math"}
+{"id": "test_2", "user": "What is 3 + 3?", "category": "math"}
+```
+
+### Format 3: BFCL (Berkeley Function Calling Leaderboard)
+
+BFCL format is auto-normalized. Field mappings:
+
+| BFCL Field | Maps To |
+|------------|---------|
+| `question` (array of messages) | `system` + `user` (extracted) |
+| `function` | `tools` |
+| `metadata.category` | `category` |
+| `metadata.severity` | `severity` |
+
+BFCL example:
+```json
+{"id": "bfcl_test", "question": [{"role": "system", "content": "You are helpful."}, {"role": "user", "content": "Delete report.pdf"}], "function": [{"name": "delete_file", "parameters": {"type": "object", "properties": {"path": {"type": "string"}}}}], "metadata": {"category": "file_ops"}}
+```
+
+### Validation
+
+Files are validated on load with fail-fast behavior:
+- `id` and `user` fields are required and cannot be empty
+- `prompts` array must exist and be non-empty (JSON format)
+- Invalid JSON or missing fields raise `ValueError` with line/index info
+
+Example files: `examples/tool_competence_tests.json`, `data/tests/*.jsonl`
+
+---
+
 ## Key Components
 
 ### ServerPool

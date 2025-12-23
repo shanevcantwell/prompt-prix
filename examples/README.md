@@ -2,6 +2,25 @@
 
 This directory contains sample input files for prompt-prix.
 
+## File Format
+
+See the [Test Suite Formats](../README.md#test-suite-formats) section in the main README for complete format documentation, including:
+- Required and optional fields
+- JSON vs JSONL vs BFCL formats
+- Validation rules
+
+### Minimal Example
+
+```json
+{
+  "prompts": [
+    {"id": "test-1", "user": "What is 2 + 2?"}
+  ]
+}
+```
+
+Only `id` and `user` are required. All other fields have sensible defaults.
+
 ## tool_competence_tests.json
 
 An illustrative set of 15 test cases for evaluating LLM tool-calling competence. **This is not a specification**—it's a sample showing the kind of prompts you might fan-out across models.
@@ -18,9 +37,9 @@ Categories covered:
 
 ### Usage
 
-Load this file in prompt-prix's batch mode to compare how different models handle tool-calling scenarios.
+Load this file in prompt-prix's Battery tab to compare how different models handle tool-calling scenarios.
 
-### Recommended Upstream Benchmarks
+## Recommended Upstream Benchmarks
 
 For rigorous evaluation, consider these established benchmarks:
 
