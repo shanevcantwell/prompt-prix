@@ -12,6 +12,23 @@
 
 ---
 
+## Working Model: Co-Architects
+
+This is a pair programming relationship, not a code generation service. The value is in the conversation that precedes implementation.
+
+**What good looks like:**
+- Understanding *why* before proposing *how*
+- Exploring tradeoffs out loud: "Option A gives us X but costs Y"
+- Asking "what problem are we actually solving?" when requirements seem underspecified
+- Reading existing code to understand patterns before writing new code
+- Treating the codebase as a long-term asset we're stewarding together
+
+**The goal is working software that remains maintainable** - not code that appears to work, not impressive-looking output, not maximum tokens of plausible implementation. Every line of code is measured investment of the user's time; make that investment count.
+
+When in doubt: discuss the approach first. The user's time is better spent on architectural clarity than debugging hastily-generated code.
+
+---
+
 ## Core Concept: Fan-Out Pattern
 
 prompt-prix is NOT an eval framework. It's a visual comparison layer.
@@ -320,28 +337,84 @@ prompt-prix-gemini --status  # Check session status
 
 ## Testing
 
+### Philosophy: Integration Tests for Model-Dependent Code
+
+For functionality that depends on LLM behavior (adapters, visual verification, tool use), **integration tests are the meaningful tests**. Unit tests with mocked LLM responses don't validate anything useful—they just test that your mock returns what you told it to return.
+
+Use unit tests for:
+- Data parsing (JSON/JSONL loaders)
+- Configuration validation
+- Pure utility functions
+- State management logic
+
+Use integration tests for:
+- Adapter implementations (LMStudio, Gemini, Fara)
+- Visual UI verification (FaraService)
+- ReAct tool loops
+- End-to-end prompt execution
+
+### Running Tests
+
 ```bash
 # Run unit tests (default, skips integration)
 pytest
 
-# Run integration tests (require external services)
+# Run integration tests (the ones that matter for model code)
 pytest -m integration
 
-# Run specific test class
+# Run specific integration test class
 pytest tests/test_gemini_adapter.py::TestGeminiVisualAdapter -m integration -v
 
-# Coverage
+# Coverage (note: integration tests provide meaningful coverage)
 pytest --cov=prompt_prix
 ```
 
 ### Test Markers
-- `@pytest.mark.integration` - Requires LM Studio, Gemini session, etc.
-- Default pytest config skips integration tests
+- `@pytest.mark.integration` - Requires external services (LM Studio, Gemini, etc.)
+- Default pytest config skips integration tests for CI convenience
 
 ### Integration Test Prerequisites
-1. LM Studio running with Fara-7B loaded
-2. Gemini session active (`prompt-prix-gemini --on`)
-3. `.env` configured with correct server URLs
+
+Before running integration tests, ensure your local environment is ready:
+
+1. **LM Studio running** with required models loaded:
+   - Primary models for comparison tests
+   - `microsoft_fara-7b` for visual adapter tests
+
+2. **Gemini session active** (if testing Gemini adapters):
+   ```bash
+   prompt-prix-gemini --on   # Opens browser, login manually
+   prompt-prix-gemini --status  # Verify session is active
+   ```
+
+3. **`.env` configured** with correct server URLs:
+   ```bash
+   LM_STUDIO_SERVER_1=http://localhost:1234
+   FARA_SERVER_URL=http://localhost:1234
+   FARA_MODEL_ID=microsoft_fara-7b
+   ```
+
+### Writing New Integration Tests
+
+When adding model-dependent functionality:
+1. Write the integration test first (TDD for real behavior)
+2. Mark with `@pytest.mark.integration`
+3. Document prerequisites in test docstring
+4. Consider adding a "smoke test" that runs quickly for basic verification
+
+### Adapting Code from Other Projects
+
+When bringing code from other projects (e.g., langgraph-agentic-scaffold):
+
+1. **Check dependencies first** - Does it import packages not in pyproject.toml?
+2. **Adapt, don't copy** - Rewrite to use prompt-prix's infrastructure:
+   - Use `httpx` not `langchain` for HTTP
+   - Use `pydantic` models that match existing patterns
+   - Use existing adapters (`LMStudioAdapter`, etc.) not foreign abstractions
+3. **Tests must run** - If tests fail due to missing imports, the code isn't ready
+4. **No orphan files** - Don't commit code that can't be imported or tested
+
+Code that "looks right" but breaks `pytest` is worse than no code - it creates false confidence and cleanup debt.
 
 ---
 
