@@ -24,9 +24,7 @@ Run existing benchmarks against *your* candidate models, on *your* hardware, and
 
 ## Status
 
-🚧 **Active Development**
-
-The working codebase is on the [`development/testing`](https://github.com/shanevcantwell/prompt-prix/tree/development/testing) branch.
+🚧 **Alpha Release Dec 30, 2025**
 
 ## Ecosystem Position
 
