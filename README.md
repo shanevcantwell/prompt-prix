@@ -20,7 +20,7 @@ Run existing benchmarks against *your* candidate models, on *your* hardware, and
 - **Visual comparison**: Real-time streaming with Model × Test result grid
 - **Benchmark-native**: Consumes BFCL and Inspect AI test formats directly
 
-<img width="1024" height="506" alt="image" src="https://github.com/user-attachments/assets/5a5d028d-8ec3-49e7-a742-4ff0fe40f9b6" />
+<img width="1024" height="506" alt="image" src="https://github.com/user-attachments/assets/1bc2b4df-90fb-4212-8789-338b84e77ed4" />
 
 ## Status
 
