@@ -4,7 +4,7 @@ This directory contains sample input files for prompt-prix.
 
 ## File Format
 
-See the [Test Suite Formats](../README.md#test-suite-formats) section in the main README for complete format documentation, including:
+See the [Battery File Formats](../.claude/CLAUDE.md#battery-file-formats) section for complete format documentation, including:
 - Required and optional fields
 - JSON vs JSONL vs BFCL formats
 - Validation rules

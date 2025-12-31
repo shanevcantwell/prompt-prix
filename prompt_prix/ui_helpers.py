@@ -91,14 +91,18 @@ function updateTabColors(tabStates) {
 
 # Load settings from localStorage on app startup.
 # Returns undefined for missing keys to preserve Python defaults.
-# If localStorage is empty, saves the current (Python-initialized) values.
+# Guards against race condition where user edits before load completes.
 PERSISTENCE_LOAD_JS = """
 () => {
+    // Skip load if user has already started editing (race condition guard)
+    if (window._promptprix_user_edited) {
+        return [undefined, undefined, undefined];
+    }
+
     const servers = localStorage.getItem('promptprix_servers');
     const temp = localStorage.getItem('promptprix_temperature');
 
     // Return undefined to preserve Python defaults when localStorage is empty.
-    // The save handlers will snapshot current values on first interaction.
     return [
         servers || undefined,
         temp ? parseFloat(temp) : undefined,
@@ -107,10 +111,11 @@ PERSISTENCE_LOAD_JS = """
 }
 """
 
-# Save servers to localStorage (debounced via Gradio's blur event would be ideal,
-# but we use change for now - Gradio debounces internally for textboxes)
+# Save servers to localStorage on change.
+# Sets flag to prevent race condition with async load event.
 SAVE_SERVERS_JS = """
 (servers) => {
+    window._promptprix_user_edited = true;  // Guard against load race
     if (servers && servers.trim()) {
         localStorage.setItem('promptprix_servers', servers);
     }
