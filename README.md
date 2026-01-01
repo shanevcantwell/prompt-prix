@@ -16,7 +16,7 @@ You have a 24GB GPU. Should you run `qwen2.5-72b-instruct-q4_k_m` or `llama-3.1-
 Run existing benchmarks against *your* candidate models, on *your* hardware, and see results side-by-side.
 
 - **Fan-out dispatch**: Same test case → N models in parallel
-- **Work-stealing scheduler**: Efficient multi-GPU utilization across heterogeneous workstations
+- **Work-stealing scheduler**: Efficient multi-GPU utilization
 - **Visual comparison**: Real-time streaming with Model × Test result grid
 - **Benchmark-native**: Consumes BFCL and Inspect AI test formats directly
 
@@ -49,7 +49,6 @@ MIT
 
 ## Links
 
-- [Development branch](https://github.com/shanevcantwell/prompt-prix/tree/development/testing) — working code
 - [BFCL](https://github.com/ShishirPatil/gorilla) — upstream benchmark source
 - [Inspect AI](https://inspect.ai-safety-institute.org.uk/) — UK AISI evaluation framework
 
