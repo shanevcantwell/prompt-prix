@@ -474,6 +474,47 @@ git clean -fdx  # without explicit confirmation
 
 ---
 
+## Bug Fix Workflow (Post-Release)
+
+For bugs discovered after release, follow this sequence:
+
+1. **File the bug** - Create GitHub issue with description, error message, root cause analysis
+   ```bash
+   gh issue create --title "Bug title" --body "Description..."
+   ```
+
+2. **Write tests first** - Add tests that:
+   - Demonstrate the current (bad) behavior
+   - Define the expected (good) behavior
+   - Cover edge cases and error handling
+
+3. **Implement the fix** - Make minimal changes to fix the issue
+
+4. **Run tests** - Verify all tests pass including new ones
+   ```bash
+   pytest -v --tb=short
+   ```
+
+5. **Commit with bug reference** - Use "Fix #N" to auto-close
+   ```bash
+   git commit -m "Fix #3: Brief description of fix"
+   ```
+
+6. **Close the bug** - Add hotfix note for release tracking
+   ```bash
+   gh issue close 3 --comment "Fixed in <commit>. Hotfix candidate for v0.1.1."
+   ```
+
+7. **Push** - Don't update the release tag yet; hotfixes batch into point releases
+
+This workflow ensures:
+- Issues are tracked and searchable
+- Tests prevent regression
+- Commits are traceable to issues
+- Release planning has visibility into pending hotfixes
+
+---
+
 ## Development Workflow
 
 1. Edit code in `prompt_prix/`
