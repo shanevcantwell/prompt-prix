@@ -947,8 +947,8 @@ class TestLoadedModelsViaHttp:
         """Test HTTP-based approach filters models by state=loaded."""
         from prompt_prix.handlers import _get_loaded_models_via_http
 
-        # Server returns models with state field
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+        # Server returns models with state field (LM Studio native API)
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [
                     {"id": "model-a", "state": "loaded"},
@@ -970,12 +970,12 @@ class TestLoadedModelsViaHttp:
         """Test HTTP-based approach aggregates from multiple servers."""
         from prompt_prix.handlers import _get_loaded_models_via_http
 
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [{"id": "model-a", "state": "loaded"}]
             })
         )
-        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
+        respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [{"id": "model-b", "state": "loaded"}]
             })
@@ -993,7 +993,7 @@ class TestLoadedModelsViaHttp:
         from prompt_prix.handlers import _get_loaded_models_via_http
 
         # Server returns models without state field (older LM Studio version)
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [
                     {"id": "model-a"},
@@ -1013,7 +1013,7 @@ class TestLoadedModelsViaHttp:
         """Test HTTP-based approach handles server errors gracefully."""
         from prompt_prix.handlers import _get_loaded_models_via_http
 
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
             return_value=httpx.Response(500, json={"error": "Internal error"})
         )
 
@@ -1027,7 +1027,7 @@ class TestLoadedModelsViaHttp:
         """Test HTTP-based approach handles connection errors gracefully."""
         from prompt_prix.handlers import _get_loaded_models_via_http
 
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(side_effect=httpx.ConnectError("Connection refused"))
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(side_effect=httpx.ConnectError("Connection refused"))
 
         result = await _get_loaded_models_via_http([MOCK_SERVER_1])
 
@@ -1039,8 +1039,18 @@ class TestLoadedModelsViaHttp:
         """Test fetch_available_models uses HTTP approach for only_loaded."""
         from prompt_prix.handlers import fetch_available_models
 
-        # Server has models A, B, C available, but only A and C are loaded
+        # OpenAI-compat endpoint for ServerPool.refresh_all_manifests()
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a"},
+                    {"id": "model-b"},
+                    {"id": "model-c"},
+                ]
+            })
+        )
+        # LM Studio native API for loaded state
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [
                     {"id": "model-a", "state": "loaded"},

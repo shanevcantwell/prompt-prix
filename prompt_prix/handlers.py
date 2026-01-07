@@ -101,14 +101,18 @@ async def _get_loaded_models_via_http(servers: list[str]) -> set[str]:
     async with httpx.AsyncClient(timeout=5.0) as client:
         for server_url in servers:
             try:
-                url = f"{server_url.rstrip('/')}/v1/models"
+                # Use LM Studio's native REST API (not OpenAI-compat) for state info
+                url = f"{server_url.rstrip('/')}/api/v0/models"
                 resp = await client.get(url)
                 if resp.status_code == 200:
                     data = resp.json()
                     for model in data.get("data", []):
+                        model_id = model.get("id")
+                        state = model.get("state")
+                        # Debug: log what we're seeing
+                        logger.debug(f"Model {model_id}: state={state}, keys={list(model.keys())}")
                         # LM Studio REST API returns "state": "loaded" or "not-loaded"
-                        if model.get("state") == "loaded":
-                            model_id = model.get("id")
+                        if state == "loaded":
                             if model_id:
                                 loaded_ids.add(model_id)
             except Exception as e:
