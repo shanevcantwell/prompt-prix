@@ -936,3 +936,125 @@ class TestOnlyLoadedFilter:
         assert "model-a" in choices
         assert "model-b" in choices
         assert "model-c" in choices
+
+
+class TestLoadedModelsViaHttp:
+    """Tests for HTTP-based loaded models detection (Docker-compatible)."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_filters_by_state(self):
+        """Test HTTP-based approach filters models by state=loaded."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        # Server returns models with state field
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a", "state": "loaded"},
+                    {"id": "model-b", "state": "not-loaded"},
+                    {"id": "model-c", "state": "loaded"},
+                ]
+            })
+        )
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
+
+        assert "model-a" in result
+        assert "model-c" in result
+        assert "model-b" not in result  # Not loaded
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_multiple_servers(self):
+        """Test HTTP-based approach aggregates from multiple servers."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [{"id": "model-a", "state": "loaded"}]
+            })
+        )
+        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [{"id": "model-b", "state": "loaded"}]
+            })
+        )
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1, MOCK_SERVER_2])
+
+        assert "model-a" in result
+        assert "model-b" in result
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_handles_missing_state(self):
+        """Test HTTP-based approach handles responses without state field."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        # Server returns models without state field (older LM Studio version)
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a"},
+                    {"id": "model-b"},
+                ]
+            })
+        )
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
+
+        # Should return empty set since no models have state=loaded
+        assert result == set()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_handles_server_error(self):
+        """Test HTTP-based approach handles server errors gracefully."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(500, json={"error": "Internal error"})
+        )
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
+
+        assert result == set()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_handles_connection_error(self):
+        """Test HTTP-based approach handles connection errors gracefully."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
+
+        assert result == set()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_fetch_only_loaded_uses_http_first(self):
+        """Test fetch_available_models uses HTTP approach for only_loaded."""
+        from prompt_prix.handlers import fetch_available_models
+
+        # Server has models A, B, C available, but only A and C are loaded
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a", "state": "loaded"},
+                    {"id": "model-b", "state": "not-loaded"},
+                    {"id": "model-c", "state": "loaded"},
+                ]
+            })
+        )
+
+        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+
+        assert "✅" in status
+        assert "(loaded only)" in status
+        choices = models_update["choices"]
+        assert "model-a" in choices
+        assert "model-c" in choices
+        assert "model-b" not in choices

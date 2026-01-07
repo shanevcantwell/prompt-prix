@@ -53,6 +53,9 @@ def _get_loaded_models() -> set[str]:
     Get currently loaded models from LM Studio using the lmstudio SDK.
 
     Returns set of model identifiers that are currently loaded in memory.
+
+    Note: This uses SDK auto-discovery which fails in Docker.
+    Use _get_loaded_models_via_http() instead when server URLs are available.
     """
     try:
         import lmstudio as lms
@@ -77,6 +80,40 @@ def _get_loaded_models() -> set[str]:
     except Exception as e:
         logger.warning(f"Failed to get loaded models: {e}")
         return set()
+
+
+async def _get_loaded_models_via_http(servers: list[str]) -> set[str]:
+    """
+    Query servers directly for loaded models via HTTP.
+
+    This is the Docker-compatible alternative to _get_loaded_models().
+    Uses the LM Studio REST API which returns model state (loaded/not-loaded).
+
+    Args:
+        servers: List of server URLs (e.g., ["http://localhost:1234"])
+
+    Returns:
+        Set of model IDs that are currently loaded in memory.
+    """
+    import httpx
+
+    loaded_ids = set()
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for server_url in servers:
+            try:
+                url = f"{server_url.rstrip('/')}/v1/models"
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    for model in data.get("data", []):
+                        # LM Studio REST API returns "state": "loaded" or "not-loaded"
+                        if model.get("state") == "loaded":
+                            model_id = model.get("id")
+                            if model_id:
+                                loaded_ids.add(model_id)
+            except Exception as e:
+                logger.debug(f"Could not query {server_url} for loaded models: {e}")
+    return loaded_ids
 
 
 async def fetch_available_models(
@@ -114,14 +151,19 @@ async def fetch_available_models(
 
     # Filter by loaded models if requested
     if only_loaded:
-        loaded_models = _get_loaded_models()
+        # Try HTTP-based approach first (works in Docker)
+        loaded_models = await _get_loaded_models_via_http(servers)
+        if not loaded_models:
+            # Fall back to SDK approach (works locally when SDK can auto-discover)
+            loaded_models = _get_loaded_models()
+
         if loaded_models:
             all_models = all_models & loaded_models
             if not all_models:
                 return "⚠️ No loaded models match available models", gr.update(choices=[])
         else:
-            # Couldn't get loaded models - show warning but continue
-            return "⚠️ Could not detect loaded models (is lmstudio SDK installed?)", gr.update(choices=sorted(all_models))
+            # Couldn't get loaded models via either method
+            return "⚠️ Could not detect loaded models (server may not report load state)", gr.update(choices=sorted(all_models))
 
     sorted_models = sorted(all_models)
 
