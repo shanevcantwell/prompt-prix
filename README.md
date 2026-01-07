@@ -9,7 +9,7 @@ prompt-prix is a visual tool for running benchmark test suites across multiple L
 
 ## The Problem
 
-You have a 24GB GPU. Should you run `qwen2.5-72b-instruct-q4_k_m` or `llama-3.1-70b-instruct-q5_k_s` for tool calling? BFCL gives you leaderboard scores for full-precision models. That doesn't answer your question. This is a different kind of metric.
+You have a 24GB GPU. Should you run `gpt-oss-20b` or `lfm2.5-1.2b-instruct` for tool calling? BFCL gives you leaderboard scores for full-precision models. That doesn't answer your question. This is a different kind of metric.
 
 ## The Solution
 
@@ -25,6 +25,29 @@ Run existing benchmarks against *your* candidate models, on *your* hardware, and
 ## Status
 
 🚧 **Alpha Release Dec 30, 2025**
+
+## Quick Start
+
+```bash
+# Clone and install
+git clone https://github.com/shanevcantwell/prompt-prix.git
+cd prompt-prix
+pip install -e .
+
+# Configure LM Studio servers
+cp .env.example .env
+# Edit .env: LM_STUDIO_SERVER_1=http://localhost:1234
+
+# Run
+prompt-prix
+```
+
+Opens at `http://localhost:7860`. Requires [LM Studio](https://lmstudio.ai/) running with models loaded.
+
+**Or with Docker:**
+```bash
+docker compose up
+```
 
 ## Ecosystem Position
 
