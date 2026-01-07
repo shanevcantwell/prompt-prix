@@ -44,8 +44,12 @@ load_dotenv()
 
 def run():
     """Entry point for the application."""
+    print("prompt-prix starting...")
+
     app = create_app()
     port = get_gradio_port()
+
+    print(f"Launching on http://0.0.0.0:{port}")
 
     # Gradio 6.x moved theme/css from Blocks() to launch()
     # Gradio 5.x had them on Blocks() - detect and adapt
