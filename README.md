@@ -20,13 +20,11 @@ Run existing benchmarks against *your* candidate models, on *your* hardware, and
 - **Visual comparison**: Real-time streaming with Model × Test result grid
 - **Benchmark-native**: Consumes BFCL and Inspect AI test formats directly
 
-<img width="2904" height="3048" alt="image" src="https://github.com/user-attachments/assets/caee2dee-d220-4e2a-80e8-631dc8eccd31" />
+<img width="1024" height="506" alt="image" src="https://github.com/user-attachments/assets/1bc2b4df-90fb-4212-8789-338b84e77ed4" />
 
 ## Status
 
-🚧 **Active Development**
-
-The working codebase is on the [`development/testing`](https://github.com/shanevcantwell/prompt-prix/tree/development/testing) branch.
+🚧 **Alpha Release Dec 30, 2025**
 
 ## Ecosystem Position
 
