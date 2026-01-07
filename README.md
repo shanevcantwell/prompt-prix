@@ -42,7 +42,7 @@ cp .env.example .env
 prompt-prix
 ```
 
-Opens at `http://localhost:7860`. Requires [LM Studio](https://lmstudio.ai/) running with models loaded.
+Opens at `http://localhost:7860` (or `GRADIO_PORT` from .env). Requires [LM Studio](https://lmstudio.ai/) running with models loaded.
 
 **Or with Docker:**
 ```bash
