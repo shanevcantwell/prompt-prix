@@ -601,6 +601,7 @@ class TestBatteryExport:
     def test_export_csv_with_results(self):
         """Test CSV export creates file with results."""
         import os
+        import csv
         from prompt_prix import state
         from prompt_prix.tabs.battery.handlers import export_csv
 
@@ -622,13 +623,19 @@ class TestBatteryExport:
         assert filepath is not None
         assert filepath.endswith(".csv")
 
-        with open(filepath) as f:
-            content = f.read()
+        # Read CSV properly using csv module
+        with open(filepath, newline='', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            rows = list(reader)
 
-        assert "test_id,model_id,status,latency_ms,response" in content
-        assert "t1" in content
-        assert "m1" in content
-        assert "500" in content
+        # Check header
+        assert rows[0] == ["test_id", "model_id", "status", "latency_ms", "response"]
+        # Check data row
+        assert rows[1][0] == "t1"
+        assert rows[1][1] == "m1"
+        assert rows[1][2] == "completed"
+        assert rows[1][3] == "500"
+        assert "Hello\nWorld" in rows[1][4]  # Newlines preserved in response
 
         state.battery_run = None
 

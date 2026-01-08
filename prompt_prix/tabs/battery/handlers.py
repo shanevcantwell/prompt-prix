@@ -266,31 +266,43 @@ def export_json():
 
 
 def export_csv():
-    """Export battery results as CSV file."""
+    """Export battery results as CSV file.
+
+    Note: Uses csv module with proper quoting for reliable cross-platform behavior.
+    """
+    import csv
+
     if not state.battery_run:
         return "❌ No battery results to export", gr.update(visible=False, value=None)
-
-    lines = ["test_id,model_id,status,latency_ms,response"]
-
-    for test_id in state.battery_run.tests:
-        for model_id in state.battery_run.models:
-            result = state.battery_run.get_result(test_id, model_id)
-            if result:
-                response = result.response or ""
-                response = response.replace('"', '""')
-                response = response.replace('\n', '\\n')
-                latency = f"{result.latency_ms:.0f}" if result.latency_ms else ""
-                lines.append(f'"{test_id}","{model_id}","{result.status.value}",{latency},"{response}"')
 
     # Write to temp file with meaningful name
     basename = _get_export_basename()
     temp_dir = tempfile.gettempdir()
     filepath = os.path.join(temp_dir, f"{basename}.csv")
 
-    with open(filepath, "w") as f:
-        f.write("\n".join(lines))
+    # Use csv module with proper quoting and newline handling
+    # newline='' is required for csv module on Windows to avoid double line endings
+    with open(filepath, "w", newline='', encoding='utf-8') as f:
+        writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+        writer.writerow(["test_id", "model_id", "status", "latency_ms", "response"])
 
-    return f"✅ Exported {len(lines) - 1} results", gr.update(visible=True, value=filepath)
+        row_count = 0
+        for test_id in state.battery_run.tests:
+            for model_id in state.battery_run.models:
+                result = state.battery_run.get_result(test_id, model_id)
+                if result:
+                    response = result.response or ""
+                    latency = f"{result.latency_ms:.0f}" if result.latency_ms else ""
+                    writer.writerow([
+                        test_id,
+                        model_id,
+                        result.status.value,
+                        latency,
+                        response
+                    ])
+                    row_count += 1
+
+    return f"✅ Exported {row_count} results", gr.update(visible=True, value=filepath)
 
 
 def get_cell_detail(model: str, test: str) -> str:
