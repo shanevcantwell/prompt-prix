@@ -278,11 +278,15 @@ class ModelContext(BaseModel):
 
 
 class SessionState(BaseModel):
-    """Complete state for a comparison session."""
+    """Complete state for a comparison session.
+
+    Note: temperature is Optional and defaults to None. When None, temperature
+    is omitted from API requests so LM Studio uses per-model defaults.
+    """
     models: list[str]
     contexts: dict[str, ModelContext] = {}
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
-    temperature: float = DEFAULT_TEMPERATURE
+    temperature: Optional[float] = None  # None = use per-model defaults
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS
     max_tokens: int = DEFAULT_MAX_TOKENS
     halted: bool = False

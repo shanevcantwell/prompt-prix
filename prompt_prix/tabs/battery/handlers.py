@@ -57,7 +57,6 @@ async def run_handler(
     file_obj,
     models_selected: list[str],
     servers_text: str,
-    temperature: float,
     timeout: int,
     max_tokens: int,
     system_prompt: str
@@ -66,6 +65,8 @@ async def run_handler(
     Run battery tests across selected models.
 
     Yields (status, grid_data) tuples for streaming UI updates.
+
+    Note: Temperature is not passed; LM Studio uses per-model defaults.
     """
     # Clear any previous stop request so we can run again
     state.clear_stop()
@@ -110,12 +111,11 @@ async def run_handler(
 
     adapter = LMStudioAdapter(pool)
 
-    # Create and run battery
+    # Create and run battery (temperature omitted - use per-model defaults)
     runner = BatteryRunner(
         adapter=adapter,
         tests=tests,
         models=stripped_models,
-        temperature=temperature,
         max_tokens=max_tokens,
         timeout_seconds=timeout
     )
@@ -137,12 +137,14 @@ async def quick_prompt_handler(
     prompt: str,
     models_selected: list[str],
     servers_text: str,
-    temperature: float,
     timeout: int,
     max_tokens: int,
     system_prompt: str
 ):
-    """Run a single prompt against selected models for quick ad-hoc testing."""
+    """Run a single prompt against selected models for quick ad-hoc testing.
+
+    Note: Temperature is not passed; LM Studio uses per-model defaults.
+    """
     state.clear_stop()
 
     if not prompt or not prompt.strip():
@@ -204,7 +206,6 @@ async def quick_prompt_handler(
                 server_url=server_url,
                 model_id=model_id,
                 messages=messages,
-                temperature=temperature,
                 max_tokens=max_tokens,
                 timeout_seconds=timeout
             ):

@@ -403,11 +403,13 @@ class TestSessionState:
         assert state.max_tokens == 1024
 
     def test_session_state_defaults(self):
-        """Test SessionState uses default values."""
+        """Test SessionState uses default values.
+
+        Note: temperature defaults to None (use per-model defaults in LM Studio).
+        """
         from prompt_prix.config import (
             SessionState,
             DEFAULT_SYSTEM_PROMPT,
-            DEFAULT_TEMPERATURE,
             DEFAULT_TIMEOUT_SECONDS,
             DEFAULT_MAX_TOKENS
         )
@@ -415,7 +417,7 @@ class TestSessionState:
         state = SessionState(models=["model-a"])
 
         assert state.system_prompt == DEFAULT_SYSTEM_PROMPT
-        assert state.temperature == DEFAULT_TEMPERATURE
+        assert state.temperature is None  # Use per-model defaults
         assert state.timeout_seconds == DEFAULT_TIMEOUT_SECONDS
         assert state.max_tokens == DEFAULT_MAX_TOKENS
 

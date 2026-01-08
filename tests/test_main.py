@@ -179,7 +179,6 @@ class TestInitializeSession:
             servers_text=servers_text,
             models_selected=models_selected,
             system_prompt_text="You are a test assistant.",
-            temperature=0.7,
             timeout=300,
             max_tokens=2048
         )
@@ -196,7 +195,6 @@ class TestInitializeSession:
             servers_text="",
             models_selected=[MOCK_MODEL_1],
             system_prompt_text="",
-            temperature=0.7,
             timeout=300,
             max_tokens=2048
         )
@@ -212,7 +210,6 @@ class TestInitializeSession:
             servers_text=MOCK_SERVER_1,
             models_selected=[],
             system_prompt_text="",
-            temperature=0.7,
             timeout=300,
             max_tokens=2048
         )
@@ -234,7 +231,6 @@ class TestInitializeSession:
             servers_text=MOCK_SERVER_1,
             models_selected=["nonexistent-model"],
             system_prompt_text="",
-            temperature=0.7,
             timeout=300,
             max_tokens=2048
         )

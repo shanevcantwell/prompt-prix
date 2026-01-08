@@ -96,18 +96,13 @@ PERSISTENCE_LOAD_JS = """
 () => {
     // Skip load if user has already started editing (race condition guard)
     if (window._promptprix_user_edited) {
-        return [undefined, undefined];
+        return undefined;
     }
 
     const servers = localStorage.getItem('promptprix_servers');
-    const temp = localStorage.getItem('promptprix_temperature');
 
     // Return undefined to preserve Python defaults when localStorage is empty.
-    // v2: Only servers and single shared temperature slider
-    return [
-        servers || undefined,
-        temp ? parseFloat(temp) : undefined
-    ];
+    return servers || undefined;
 }
 """
 
@@ -120,29 +115,5 @@ SAVE_SERVERS_JS = """
         localStorage.setItem('promptprix_servers', servers);
     }
     return servers;
-}
-"""
-
-# Save temperature to localStorage
-SAVE_TEMPERATURE_JS = """
-(temp) => {
-    if (temp !== null && temp !== undefined) {
-        localStorage.setItem('promptprix_temperature', temp.toString());
-    }
-    return temp;
-}
-"""
-
-# Snapshot current values to localStorage if not already saved.
-# Called on first interaction to capture .env defaults.
-SNAPSHOT_IF_EMPTY_JS = """
-(servers, temp) => {
-    if (!localStorage.getItem('promptprix_servers') && servers && servers.trim()) {
-        localStorage.setItem('promptprix_servers', servers);
-    }
-    if (!localStorage.getItem('promptprix_temperature') && temp !== null && temp !== undefined) {
-        localStorage.setItem('promptprix_temperature', temp.toString());
-    }
-    return [servers, temp];
 }
 """

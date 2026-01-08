@@ -441,6 +441,75 @@ class TestStreamCompletion:
         assert captured_request is not None
         assert "repeat_penalty" not in captured_request
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_stream_completion_omits_temperature_when_none(self):
+        """Test streaming completion excludes temperature when not provided.
+
+        Bug #17: Global temperature overrides LM Studio's per-model settings.
+        When temperature is None, it should be omitted from the API payload
+        so LM Studio uses the model's configured temperature.
+        """
+        from prompt_prix.core import stream_completion
+        import json
+
+        captured_request = None
+
+        def capture_request(request):
+            nonlocal captured_request
+            captured_request = json.loads(request.content)
+            streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
+            return httpx.Response(200, text=streaming_content)
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=capture_request)
+
+        chunks = []
+        async for chunk in stream_completion(
+            server_url=MOCK_SERVER_1,
+            model_id=MOCK_MODEL_1,
+            messages=[{"role": "user", "content": "Hello"}],
+            max_tokens=100,
+            timeout_seconds=30
+            # Note: no temperature parameter
+        ):
+            chunks.append(chunk)
+
+        # Verify temperature was NOT included in request
+        assert captured_request is not None
+        assert "temperature" not in captured_request
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_stream_completion_includes_temperature_when_provided(self):
+        """Test streaming completion includes temperature when explicitly set."""
+        from prompt_prix.core import stream_completion
+        import json
+
+        captured_request = None
+
+        def capture_request(request):
+            nonlocal captured_request
+            captured_request = json.loads(request.content)
+            streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
+            return httpx.Response(200, text=streaming_content)
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=capture_request)
+
+        chunks = []
+        async for chunk in stream_completion(
+            server_url=MOCK_SERVER_1,
+            model_id=MOCK_MODEL_1,
+            messages=[{"role": "user", "content": "Hello"}],
+            temperature=0.5,
+            max_tokens=100,
+            timeout_seconds=30
+        ):
+            chunks.append(chunk)
+
+        # Verify temperature was included in request
+        assert captured_request is not None
+        assert captured_request.get("temperature") == 0.5
+
 
 class TestGetCompletion:
     """Tests for get_completion function."""
@@ -744,7 +813,6 @@ class TestCompareTabWithGPUPrefix:
             servers_text=MOCK_SERVER_1,
             models_selected=[f"0: {MOCK_MODEL_1}", f"0: {MOCK_MODEL_2}"],
             system_prompt_text="Test prompt",
-            temperature=0.7,
             timeout=300,
             max_tokens=2048
         )
@@ -776,7 +844,6 @@ class TestCompareTabWithGPUPrefix:
             servers_text=MOCK_SERVER_1,
             models_selected=[f"1: {complex_model}"],
             system_prompt_text="Test",
-            temperature=0.7,
             timeout=300,
             max_tokens=2048
         )
@@ -802,7 +869,6 @@ class TestCompareTabWithGPUPrefix:
             servers_text=MOCK_SERVER_1,
             models_selected=[MOCK_MODEL_1],
             system_prompt_text="Test",
-            temperature=0.7,
             timeout=300,
             max_tokens=2048
         )

@@ -71,9 +71,9 @@ async def stream_completion(
     server_url: str,
     model_id: str,
     messages: list[dict],
-    temperature: float,
     max_tokens: int,
     timeout_seconds: int,
+    temperature: Optional[float] = None,
     tools: Optional[list[dict]] = None,
     seed: Optional[int] = None,
     repeat_penalty: Optional[float] = None
@@ -82,14 +82,18 @@ async def stream_completion(
     Stream a completion from an LM Studio server.
     Yields text chunks as they arrive.
     Raises LMStudioError with user-friendly message on error.
+
+    Args:
+        temperature: If None, omitted from payload so LM Studio uses per-model defaults.
     """
     payload = {
         "model": model_id,
         "messages": messages,
-        "temperature": temperature,
         "max_tokens": max_tokens,
         "stream": True
     }
+    if temperature is not None:
+        payload["temperature"] = temperature
     if tools:
         payload["tools"] = _normalize_tools_for_openai(tools)
     if seed is not None:
@@ -149,25 +153,31 @@ async def get_completion(
     server_url: str,
     model_id: str,
     messages: list[dict],
-    temperature: float,
     max_tokens: int,
-    timeout_seconds: int
+    timeout_seconds: int,
+    temperature: Optional[float] = None
 ) -> str:
     """
     Get a complete (non-streaming) response from an LM Studio server.
     Returns full response text.
     Raises LMStudioError with user-friendly message on error.
+
+    Args:
+        temperature: If None, omitted from payload so LM Studio uses per-model defaults.
     """
+    payload = {
+        "model": model_id,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "stream": False
+    }
+    if temperature is not None:
+        payload["temperature"] = temperature
+
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         response = await client.post(
             f"{server_url}/v1/chat/completions",
-            json={
-                "model": model_id,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": False
-            }
+            json=payload
         )
         if response.status_code >= 400:
             error_msg = parse_lm_studio_error(response)
@@ -184,6 +194,9 @@ class ComparisonSession:
     """
     Manages a multi-model comparison session.
     Handles prompt dispatch, context tracking, and failure handling.
+
+    Note: temperature is optional and defaults to None. When None, temperature
+    is omitted from API requests so LM Studio uses per-model defaults.
     """
 
     def __init__(
@@ -191,9 +204,9 @@ class ComparisonSession:
         models: list[str],
         server_pool: ServerPool,
         system_prompt: str,
-        temperature: float,
         timeout_seconds: int,
-        max_tokens: int
+        max_tokens: int,
+        temperature: Optional[float] = None
     ):
         self.server_pool = server_pool
         self.state = SessionState(

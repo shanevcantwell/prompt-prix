@@ -14,7 +14,6 @@ from prompt_prix import state
 from prompt_prix.handlers import fetch_available_models, handle_stop
 from prompt_prix.config import (
     get_default_servers,
-    DEFAULT_TEMPERATURE,
     DEFAULT_TIMEOUT_SECONDS,
     DEFAULT_MAX_TOKENS
 )
@@ -23,7 +22,6 @@ from prompt_prix.ui_helpers import (
     TAB_STATUS_JS,
     PERSISTENCE_LOAD_JS,
     SAVE_SERVERS_JS,
-    SAVE_TEMPERATURE_JS,
 )
 
 # Import tab-specific handlers
@@ -88,14 +86,6 @@ def create_app() -> gr.Blocks:
                 )
 
         with gr.Row():
-            temp_slider = gr.Slider(
-                label="Temperature",
-                minimum=0.0,
-                maximum=2.0,
-                step=0.1,
-                value=DEFAULT_TEMPERATURE,
-                scale=1
-            )
             timeout_slider = gr.Slider(
                 label="Timeout (seconds)",
                 minimum=30,
@@ -193,7 +183,7 @@ def create_app() -> gr.Blocks:
             fn=battery_handlers.run_handler,
             inputs=[
                 battery.file, models_selector, servers_input,
-                temp_slider, timeout_slider, max_tokens_slider, battery.system_prompt
+                timeout_slider, max_tokens_slider, battery.system_prompt
             ],
             outputs=[battery.status, battery.grid]
         )
@@ -202,7 +192,7 @@ def create_app() -> gr.Blocks:
             fn=battery_handlers.quick_prompt_handler,
             inputs=[
                 battery.quick_prompt, models_selector, servers_input,
-                temp_slider, timeout_slider, max_tokens_slider, battery.system_prompt
+                timeout_slider, max_tokens_slider, battery.system_prompt
             ],
             outputs=[battery.quick_prompt_output]
         )
@@ -239,13 +229,13 @@ def create_app() -> gr.Blocks:
 
         async def compare_send_with_auto_init(
             prompt, tools, image, seed, repeat_penalty, servers_text, models_selected,
-            system_prompt, temperature, timeout, max_tokens
+            system_prompt, timeout, max_tokens
         ):
             if (state.session is None or
                 set(state.session.state.models) != set(models_selected)):
                 init_status, *init_outputs = await compare_handlers.initialize_session(
                     servers_text, models_selected, system_prompt,
-                    temperature, timeout, max_tokens
+                    timeout, max_tokens
                 )
                 if "❌" in init_status or "⚠️" in init_status:
                     yield (init_status, []) + tuple(init_outputs)
@@ -259,7 +249,7 @@ def create_app() -> gr.Blocks:
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
                 servers_input, models_selector,
-                compare.system_prompt, temp_slider, timeout_slider, max_tokens_slider
+                compare.system_prompt, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
         )
@@ -269,7 +259,7 @@ def create_app() -> gr.Blocks:
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
                 servers_input, models_selector,
-                compare.system_prompt, temp_slider, timeout_slider, max_tokens_slider
+                compare.system_prompt, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
         )
@@ -301,11 +291,10 @@ def create_app() -> gr.Blocks:
         app.load(
             fn=None,
             inputs=[],
-            outputs=[servers_input, temp_slider],
+            outputs=[servers_input],
             js=PERSISTENCE_LOAD_JS
         )
 
         servers_input.change(fn=None, inputs=[servers_input], outputs=[servers_input], js=SAVE_SERVERS_JS)
-        temp_slider.change(fn=None, inputs=[temp_slider], outputs=[temp_slider], js=SAVE_TEMPERATURE_JS)
 
     return app

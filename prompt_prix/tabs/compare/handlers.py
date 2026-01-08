@@ -26,7 +26,6 @@ async def initialize_session(
     servers_text: str,
     models_selected: list[str],
     system_prompt_text: str,
-    temperature: float,
     timeout: int,
     max_tokens: int
 ) -> tuple:
@@ -38,6 +37,8 @@ async def initialize_session(
         The model dropdown may contain GPU-prefixed values (e.g., '0: lfm2-1.2b-tool').
         We strip the prefix before checking availability and initializing the session,
         and store server hints for routing.
+
+        Temperature is not passed; LM Studio uses per-model defaults.
     """
     servers = parse_servers_input(servers_text)
     models_raw = models_selected if models_selected else []
@@ -79,7 +80,6 @@ async def initialize_session(
         models=stripped_models,
         server_pool=state.server_pool,
         system_prompt=system_prompt,
-        temperature=temperature,
         timeout_seconds=timeout,
         max_tokens=max_tokens
     )

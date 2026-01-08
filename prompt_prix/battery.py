@@ -265,9 +265,9 @@ class BatteryRunner:
         adapter: "LMStudioAdapter",
         tests: list["TestCase"],
         models: list[str],
-        temperature: float = 0.0,  # Deterministic for evals
         max_tokens: int = 2048,
-        timeout_seconds: int = 300
+        timeout_seconds: int = 300,
+        temperature: Optional[float] = None
     ):
         """
         Initialize battery runner.
@@ -276,9 +276,9 @@ class BatteryRunner:
             adapter: LMStudioAdapter for model inference (DI)
             tests: List of TestCase objects to run
             models: List of model IDs to test against
-            temperature: Sampling temperature (default 0.0 for reproducibility)
             max_tokens: Maximum tokens per response
             timeout_seconds: Timeout per request
+            temperature: Sampling temperature. None = use per-model defaults.
         """
         self.adapter = adapter
         self.tests = tests
