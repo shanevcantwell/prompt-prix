@@ -52,10 +52,37 @@ Output: Side-by-side visual comparison
 
 ## Architecture
 
+### UI Layout (v2 Simplified)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  prompt-prix                                             │
+│  Audit local LLM function calling and agentic reliability│
+├─────────────────────────────────────────────────────────┤
+│  [Servers]              [Models]                        │
+│  http://localhost:1234  ☑ model-a  ☑ model-b  ☐ model-c │
+│                                                         │
+│  Temperature: 0.7    Timeout: 120s    Max Tokens: 2048  │
+├─────────────────────────────────────────────────────────┤
+│  ┌─────────┐  ┌─────────┐                              │
+│  │ Battery │  │ Compare │                              │
+│  └─────────┘  └─────────┘                              │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │  Tab-specific content                             │  │
+│  │  Battery: test file + results grid                │  │
+│  │  Compare: prompts + conversation outputs          │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+Shared header above tabs eliminates duplicate controls.
+
+### File Structure
+
 ```
 prompt_prix/
 ├── main.py              # Entry point, Gradio launch
-├── ui.py                # Gradio UI composition (imports tab UIs)
+├── ui.py                # Gradio UI: shared header + tabs
 ├── ui_helpers.py        # CSS, JS constants
 ├── handlers.py          # Shared async event handlers
 ├── core.py              # ServerPool, ComparisonSession, streaming
@@ -66,22 +93,19 @@ prompt_prix/
 ├── state.py             # Global mutable state
 ├── battery.py           # BatteryRunner, BatteryRun state
 ├── semantic_validator.py # Refusal detection, tool call validation
+├── tool_parsers.py      # Model-family tool call parsing
 ├── adapters/
 │   ├── base.py          # LLMAdapter protocol
 │   ├── lmstudio.py      # LMStudioAdapter (OpenAI-compatible)
-│   ├── gemini_webui.py  # GeminiWebUIAdapter (DOM-based, deprecated)
-│   ├── gemini_visual.py # GeminiVisualAdapter (Fara-based, preferred)
+│   ├── gemini_visual.py # GeminiVisualAdapter (Fara-based)
 │   └── fara.py          # FaraService (visual element location)
 ├── tabs/
 │   ├── battery/
 │   │   ├── handlers.py  # Battery tab event handlers
 │   │   └── ui.py        # Battery tab Gradio components
-│   ├── compare/
-│   │   ├── handlers.py  # Compare tab event handlers
-│   │   └── ui.py        # Compare tab Gradio components
-│   └── stability/
-│       ├── handlers.py  # Stability tab event handlers
-│       └── ui.py        # Stability tab Gradio components
+│   └── compare/
+│       ├── handlers.py  # Compare tab event handlers
+│       └── ui.py        # Compare tab Gradio components
 └── benchmarks/
     ├── base.py          # TestCase model
     └── custom.py        # CustomJSONLoader (JSON/JSONL/BFCL)
@@ -143,22 +167,20 @@ Use GeminiVisualAdapter instead.
 ## Tabs
 
 ### Battery Tab
-Run benchmark test suites across multiple models.
+Run benchmark test suites across selected models.
 - Load JSON/JSONL test files
-- Model × Test grid view
+- Model × Test grid view with ✓/⚠/❌ status
 - Parallel execution via WorkStealingDispatcher
+- Semantic validation (refusal detection, tool call checks)
 
 ### Compare Tab
-Interactive side-by-side model comparison.
-- Multi-turn conversations
-- Per-model context management
-- Halt on error capability
+Multi-turn context engineering workshop.
+- Build conversation scenarios across models
+- Test tool calling with configurable tools JSON
+- Per-model conversation context
+- **Purpose:** Construct test scenarios, then export as Battery test cases
 
-### Stability Tab
-Analyze regeneration stability for a single model.
-- Run same prompt N times
-- Capture output variance
-- Uses GeminiVisualAdapter for Gemini models
+See [ADR-004](docs/adr/004-compare-to-battery-export.md) for the Compare → Battery export workflow.
 
 ---
 

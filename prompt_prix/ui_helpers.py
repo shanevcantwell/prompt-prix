@@ -96,16 +96,16 @@ PERSISTENCE_LOAD_JS = """
 () => {
     // Skip load if user has already started editing (race condition guard)
     if (window._promptprix_user_edited) {
-        return [undefined, undefined, undefined];
+        return [undefined, undefined];
     }
 
     const servers = localStorage.getItem('promptprix_servers');
     const temp = localStorage.getItem('promptprix_temperature');
 
     // Return undefined to preserve Python defaults when localStorage is empty.
+    // v2: Only servers and single shared temperature slider
     return [
         servers || undefined,
-        temp ? parseFloat(temp) : undefined,
         temp ? parseFloat(temp) : undefined
     ];
 }

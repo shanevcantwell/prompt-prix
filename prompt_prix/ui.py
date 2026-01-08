@@ -1,17 +1,23 @@
 """
 Gradio UI definition for prompt-prix.
 
-Battery-first design: Model × Test grid is the primary interface.
-Interactive comparison is secondary (Compare tab).
+v2 Simplified: Shared header with model selection, two tabs (Battery/Compare).
+Battery runs test suites. Compare builds multi-turn test scenarios for export.
 
 Tab-specific handlers are in prompt_prix.tabs.{battery,compare}.handlers
-Tab-specific UI layouts are in prompt_prix.tabs.{battery,compare,stability}.ui
+Tab-specific UI layouts are in prompt_prix.tabs.{battery,compare}.ui
 """
 
 import gradio as gr
 
 from prompt_prix import state
 from prompt_prix.handlers import fetch_available_models, handle_stop
+from prompt_prix.config import (
+    get_default_servers,
+    DEFAULT_TEMPERATURE,
+    DEFAULT_TIMEOUT_SECONDS,
+    DEFAULT_MAX_TOKENS
+)
 from prompt_prix.ui_helpers import (
     CUSTOM_CSS,
     TAB_STATUS_JS,
@@ -23,12 +29,10 @@ from prompt_prix.ui_helpers import (
 # Import tab-specific handlers
 from prompt_prix.tabs.battery import handlers as battery_handlers
 from prompt_prix.tabs.compare import handlers as compare_handlers
-from prompt_prix.tabs.stability import handlers as stability_handlers
 
 # Import tab-specific UI layouts
 from prompt_prix.tabs.battery import ui as battery_ui
 from prompt_prix.tabs.compare import ui as compare_ui
-from prompt_prix.tabs.stability import ui as stability_ui
 
 
 def create_app() -> gr.Blocks:
@@ -46,27 +50,92 @@ def create_app() -> gr.Blocks:
     with gr.Blocks(**blocks_kwargs) as app:
 
         gr.Markdown("# prompt-prix")
-        gr.Markdown("Find your optimal open-weights model.")
+        gr.Markdown("Audit local LLM function calling and agentic reliability.")
 
         available_models = gr.State([])
+
+        # ─────────────────────────────────────────────────────────────
+        # SHARED HEADER: Server config + Model selection
+        # ─────────────────────────────────────────────────────────────
+
+        with gr.Row():
+            with gr.Column(scale=1):
+                servers_input = gr.Textbox(
+                    label="LM Studio Servers (one per line)",
+                    value="\n".join(get_default_servers()),
+                    lines=2,
+                    placeholder="http://localhost:1234",
+                    elem_id="servers"
+                )
+                with gr.Row():
+                    fetch_btn = gr.Button(
+                        "🔄 Fetch Models",
+                        variant="secondary",
+                        size="sm"
+                    )
+                    only_loaded_checkbox = gr.Checkbox(
+                        label="Only Loaded",
+                        value=False,
+                        info="Filter to models in memory"
+                    )
+                    gemini_checkbox = gr.Checkbox(
+                        label="Gemini",
+                        value=False,
+                        info="Include Gemini Web UI"
+                    )
+
+            with gr.Column(scale=2):
+                models_selector = gr.CheckboxGroup(
+                    label="Models",
+                    choices=[],
+                    value=[],
+                    elem_id="models-selector"
+                )
+
+        with gr.Row():
+            temp_slider = gr.Slider(
+                label="Temperature",
+                minimum=0.0,
+                maximum=2.0,
+                step=0.1,
+                value=DEFAULT_TEMPERATURE,
+                scale=1
+            )
+            timeout_slider = gr.Slider(
+                label="Timeout (seconds)",
+                minimum=30,
+                maximum=600,
+                step=30,
+                value=DEFAULT_TIMEOUT_SECONDS,
+                scale=1
+            )
+            max_tokens_slider = gr.Slider(
+                label="Max Tokens",
+                minimum=256,
+                maximum=8192,
+                step=256,
+                value=DEFAULT_MAX_TOKENS,
+                scale=1
+            )
+
+        gr.Markdown("---")
 
         # ─────────────────────────────────────────────────────────────
         # MAIN TABS
         # ─────────────────────────────────────────────────────────────
 
         with gr.Tabs() as main_tabs:
-            
+
             # Render tabs and get their components
             battery = battery_ui.render_tab()
             compare = compare_ui.render_tab()
-            stability = stability_ui.render_tab()
 
         # ─────────────────────────────────────────────────────────────
-        # EVENT BINDINGS: Shared
+        # EVENT BINDINGS: Shared Header
         # ─────────────────────────────────────────────────────────────
 
         async def on_fetch_models(servers_text, only_loaded, include_gemini):
-            """Fetch models and update all tabs' model selectors."""
+            """Fetch models and update the shared model selector."""
             status, models_update = await fetch_available_models(servers_text, only_loaded)
             choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
 
@@ -79,67 +148,19 @@ def create_app() -> gr.Blocks:
             return (
                 choices,
                 gr.update(choices=choices),
-                gr.update(choices=choices),
-                gr.update(choices=choices),
-                gr.update(choices=choices),
-                gr.update(choices=choices),
+                gr.update(choices=choices),  # battery.detail_model
+                gr.update(choices=choices),  # battery.judge_model
             )
 
-        battery.fetch_btn.click(
+        fetch_btn.click(
             fn=on_fetch_models,
-            inputs=[battery.servers_input, battery.only_loaded_checkbox, battery.gemini_checkbox],
+            inputs=[servers_input, only_loaded_checkbox, gemini_checkbox],
             outputs=[
-                available_models, 
-                battery.models, 
-                compare.models, 
-                battery.detail_model, 
-                battery.judge_model, 
-                stability.model
+                available_models,
+                models_selector,
+                battery.detail_model,
+                battery.judge_model,
             ]
-        )
-
-        compare.fetch_btn.click(
-            fn=on_fetch_models,
-            inputs=[battery.servers_input, battery.only_loaded_checkbox, battery.gemini_checkbox],
-            outputs=[
-                available_models, 
-                battery.models, 
-                compare.models, 
-                battery.detail_model, 
-                battery.judge_model, 
-                stability.model
-            ]
-        )
-
-        async def on_stability_fetch(servers_text, include_gemini):
-            """Fetch models for Stability tab."""
-            status, models_update = await fetch_available_models(servers_text, only_loaded=False)
-            choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
-
-            if include_gemini:
-                gemini_model = "gemini-2.0-flash-thinking (Web UI)"
-                if gemini_model not in choices:
-                    choices = [gemini_model] + list(choices)
-
-            return gr.update(choices=choices)
-
-        stability.fetch_btn.click(
-            fn=on_stability_fetch,
-            inputs=[battery.servers_input, stability.gemini_checkbox],
-            outputs=[stability.model]
-        )
-
-        def on_gemini_checkbox_change(use_gemini):
-            """Toggle visibility of LM Studio controls based on Gemini checkbox."""
-            return (
-                gr.update(visible=not use_gemini),  # stability_lmstudio_row
-                gr.update(visible=not use_gemini),  # stability_model
-            )
-
-        stability.gemini_checkbox.change(
-            fn=on_gemini_checkbox_change,
-            inputs=[stability.gemini_checkbox],
-            outputs=[stability.lmstudio_row, stability.model]
         )
 
         # ─────────────────────────────────────────────────────────────
@@ -182,8 +203,8 @@ def create_app() -> gr.Blocks:
         battery.run_btn.click(
             fn=battery_handlers.run_handler,
             inputs=[
-                battery.file, battery.models, battery.servers_input,
-                battery.temp, battery.timeout, battery.max_tokens, battery.system_prompt
+                battery.file, models_selector, servers_input,
+                temp_slider, timeout_slider, max_tokens_slider, battery.system_prompt
             ],
             outputs=[battery.status, battery.grid]
         )
@@ -191,8 +212,8 @@ def create_app() -> gr.Blocks:
         battery.quick_prompt_btn.click(
             fn=battery_handlers.quick_prompt_handler,
             inputs=[
-                battery.quick_prompt, battery.models, battery.servers_input,
-                battery.temp, battery.timeout, battery.max_tokens, battery.system_prompt
+                battery.quick_prompt, models_selector, servers_input,
+                temp_slider, timeout_slider, max_tokens_slider, battery.system_prompt
             ],
             outputs=[battery.quick_prompt_output]
         )
@@ -248,8 +269,8 @@ def create_app() -> gr.Blocks:
             fn=compare_send_with_auto_init,
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
-                battery.servers_input, compare.models,
-                compare.system_prompt, compare.temp, compare.timeout, compare.max_tokens
+                servers_input, models_selector,
+                compare.system_prompt, temp_slider, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
         )
@@ -258,8 +279,8 @@ def create_app() -> gr.Blocks:
             fn=compare_send_with_auto_init,
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
-                battery.servers_input, compare.models,
-                compare.system_prompt, compare.temp, compare.timeout, compare.max_tokens
+                servers_input, models_selector,
+                compare.system_prompt, temp_slider, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
         )
@@ -285,46 +306,17 @@ def create_app() -> gr.Blocks:
         ).then(fn=lambda: gr.update(visible=True), outputs=[compare.export_preview])
 
         # ─────────────────────────────────────────────────────────────
-        # EVENT BINDINGS: Stability Tab
-        # ─────────────────────────────────────────────────────────────
-
-        stability.run_btn.click(
-            fn=stability_handlers.run_regenerations,
-            inputs=[
-                stability.gemini_checkbox, stability.model, stability.prompt, stability.regen_count,
-                battery.servers_input, stability.temp, stability.timeout,
-                stability.max_tokens, stability.system_prompt, stability.capture_thinking
-            ],
-            outputs=[stability.status] + stability.regen_outputs
-        )
-
-        stability.stop_btn.click(fn=handle_stop, inputs=[], outputs=[stability.status])
-
-        stability.export_json_btn.click(
-            fn=stability_handlers.export_json,
-            inputs=[],
-            outputs=[stability.status, stability.export_file]
-        )
-
-        stability.export_md_btn.click(
-            fn=stability_handlers.export_markdown,
-            inputs=[],
-            outputs=[stability.status, stability.export_file]
-        )
-
-        # ─────────────────────────────────────────────────────────────
         # PERSISTENCE
         # ─────────────────────────────────────────────────────────────
 
         app.load(
             fn=None,
             inputs=[],
-            outputs=[battery.servers_input, battery.temp, compare.temp],
+            outputs=[servers_input, temp_slider],
             js=PERSISTENCE_LOAD_JS
         )
 
-        battery.servers_input.change(fn=None, inputs=[battery.servers_input], outputs=[battery.servers_input], js=SAVE_SERVERS_JS)
-        battery.temp.change(fn=None, inputs=[battery.temp], outputs=[battery.temp], js=SAVE_TEMPERATURE_JS)
-        compare.temp.change(fn=None, inputs=[compare.temp], outputs=[compare.temp], js=SAVE_TEMPERATURE_JS)
+        servers_input.change(fn=None, inputs=[servers_input], outputs=[servers_input], js=SAVE_SERVERS_JS)
+        temp_slider.change(fn=None, inputs=[temp_slider], outputs=[temp_slider], js=SAVE_TEMPERATURE_JS)
 
     return app
