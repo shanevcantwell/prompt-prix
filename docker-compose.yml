@@ -7,6 +7,8 @@ services:
     volumes:
       # Persist test data and results
       - ./data:/app/data
+      # Uncomment for development (live code reload without rebuild):
+      # - ./prompt_prix:/app/prompt_prix
     env_file:
       - .env
     environment:
