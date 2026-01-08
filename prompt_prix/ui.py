@@ -53,55 +53,56 @@ def create_app() -> gr.Blocks:
         available_models = gr.State([])
 
         # ─────────────────────────────────────────────────────────────
-        # SHARED HEADER: Server config + Model selection
+        # SHARED HEADER: Server config + Model selection (collapsible)
         # ─────────────────────────────────────────────────────────────
 
-        with gr.Row():
-            with gr.Column(scale=1):
-                servers_input = gr.Textbox(
-                    label="LM Studio Servers (one per line)",
-                    value="\n".join(get_default_servers()),
-                    lines=2,
-                    placeholder="http://localhost:1234",
-                    elem_id="servers"
-                )
-                with gr.Row():
-                    fetch_btn = gr.Button(
-                        "🔄 Fetch Models",
-                        variant="secondary",
-                        size="sm"
+        with gr.Accordion("⚙️ Server & Model Configuration", open=True):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    servers_input = gr.Textbox(
+                        label="LM Studio Servers (one per line)",
+                        value="\n".join(get_default_servers()),
+                        lines=2,
+                        placeholder="http://localhost:1234",
+                        elem_id="servers"
                     )
-                    only_loaded_checkbox = gr.Checkbox(
-                        label="Only Loaded",
-                        value=False,
-                        info="Filter to models in memory"
+                    with gr.Row():
+                        fetch_btn = gr.Button(
+                            "🔄 Fetch Models",
+                            variant="secondary",
+                            size="sm"
+                        )
+                        only_loaded_checkbox = gr.Checkbox(
+                            label="Only Loaded",
+                            value=False,
+                            info="Filter to models in memory"
+                        )
+
+                with gr.Column(scale=2):
+                    models_selector = gr.CheckboxGroup(
+                        label="Models",
+                        choices=[],
+                        value=[],
+                        elem_id="models-selector"
                     )
 
-            with gr.Column(scale=2):
-                models_selector = gr.CheckboxGroup(
-                    label="Models",
-                    choices=[],
-                    value=[],
-                    elem_id="models-selector"
+            with gr.Row():
+                timeout_slider = gr.Slider(
+                    label="Timeout (seconds)",
+                    minimum=30,
+                    maximum=600,
+                    step=30,
+                    value=DEFAULT_TIMEOUT_SECONDS,
+                    scale=1
                 )
-
-        with gr.Row():
-            timeout_slider = gr.Slider(
-                label="Timeout (seconds)",
-                minimum=30,
-                maximum=600,
-                step=30,
-                value=DEFAULT_TIMEOUT_SECONDS,
-                scale=1
-            )
-            max_tokens_slider = gr.Slider(
-                label="Max Tokens",
-                minimum=256,
-                maximum=8192,
-                step=256,
-                value=DEFAULT_MAX_TOKENS,
-                scale=1
-            )
+                max_tokens_slider = gr.Slider(
+                    label="Max Tokens",
+                    minimum=256,
+                    maximum=8192,
+                    step=256,
+                    value=DEFAULT_MAX_TOKENS,
+                    scale=1
+                )
 
         gr.Markdown("---")
 
@@ -219,6 +220,12 @@ def create_app() -> gr.Blocks:
 
         battery.export_csv_btn.click(
             fn=battery_handlers.export_csv,
+            inputs=[],
+            outputs=[battery.status, battery.export_file]
+        )
+
+        battery.export_image_btn.click(
+            fn=battery_handlers.export_grid_image,
             inputs=[],
             outputs=[battery.status, battery.export_file]
         )

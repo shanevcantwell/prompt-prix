@@ -37,7 +37,8 @@ def render_tab():
                     label="Judge Model",
                     choices=[],
                     value=None,
-                    info="Model for LLM-as-judge evaluation"
+                    info="Model for LLM-as-judge evaluation",
+                    visible=False  # Hidden until #19 LLM-as-judge implemented
                 )
 
             with gr.Column(scale=1):
@@ -87,7 +88,7 @@ def render_tab():
         battery_grid = gr.Dataframe(
             label="Model × Test Results",
             headers=["Model"],
-            interactive=True,
+            interactive=False,
             wrap=True,
             elem_id="battery-grid"
         )
@@ -113,6 +114,7 @@ def render_tab():
         with gr.Row():
             battery_export_json_btn = gr.Button("Export JSON")
             battery_export_csv_btn = gr.Button("Export CSV")
+            battery_export_image_btn = gr.Button("📷 Export Image")
 
         battery_export_file = gr.File(
             label="Download",
@@ -138,5 +140,6 @@ def render_tab():
         detail_content=detail_content,
         export_json_btn=battery_export_json_btn,
         export_csv_btn=battery_export_csv_btn,
+        export_image_btn=battery_export_image_btn,
         export_file=battery_export_file
     )

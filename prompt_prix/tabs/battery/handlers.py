@@ -306,6 +306,128 @@ def export_csv():
     return f"✅ Exported {row_count} results", gr.update(visible=True, value=filepath)
 
 
+def export_grid_image():
+    """Export battery grid as PNG image.
+
+    Renders the grid using Pillow with colored cells for pass/fail status.
+    """
+    from PIL import Image, ImageDraw, ImageFont
+
+    if not state.battery_run:
+        return "❌ No battery results to export", gr.update(visible=False, value=None)
+
+    run = state.battery_run
+    models = run.models
+    tests = run.tests
+
+    if not models or not tests:
+        return "❌ No results to render", gr.update(visible=False, value=None)
+
+    # Layout constants
+    cell_width = 100
+    cell_height = 30
+    header_col_width = 200  # First column for test names
+    padding = 5
+
+    # Calculate dimensions
+    img_width = header_col_width + (len(models) * cell_width)
+    img_height = cell_height + (len(tests) * cell_height)  # Header row + test rows
+
+    # Create image with white background
+    img = Image.new('RGB', (img_width, img_height), color='white')
+    draw = ImageDraw.Draw(img)
+
+    # Try to load a font, fall back to default
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 11)
+    except (IOError, OSError):
+        try:
+            font = ImageFont.truetype("arial.ttf", 11)
+        except (IOError, OSError):
+            font = ImageFont.load_default()
+
+    # Colors
+    colors = {
+        'header_bg': '#e0e0e0',
+        'pass': '#d1fae5',      # Light green
+        'fail': '#fee2e2',      # Light red
+        'error': '#fef3c7',     # Light yellow
+        'pending': '#f3f4f6',   # Light gray
+        'border': '#9ca3af',
+        'text': '#1f2937',
+    }
+
+    def truncate_text(text: str, max_chars: int) -> str:
+        if len(text) <= max_chars:
+            return text
+        return text[:max_chars - 2] + ".."
+
+    # Draw header row (model names)
+    x = header_col_width
+    for model_id in models:
+        draw.rectangle([x, 0, x + cell_width - 1, cell_height - 1],
+                       fill=colors['header_bg'], outline=colors['border'])
+        display_name = truncate_text(model_id.split('/')[-1], 12)
+        draw.text((x + padding, padding), display_name, fill=colors['text'], font=font)
+        x += cell_width
+
+    # Draw first column header
+    draw.rectangle([0, 0, header_col_width - 1, cell_height - 1],
+                   fill=colors['header_bg'], outline=colors['border'])
+    draw.text((padding, padding), "Test", fill=colors['text'], font=font)
+
+    # Draw grid rows
+    y = cell_height
+    for test_id in tests:
+        # Test name column
+        draw.rectangle([0, y, header_col_width - 1, y + cell_height - 1],
+                       fill=colors['header_bg'], outline=colors['border'])
+        display_test = truncate_text(test_id, 25)
+        draw.text((padding, y + padding), display_test, fill=colors['text'], font=font)
+
+        # Result cells
+        x = header_col_width
+        for model_id in models:
+            result = run.get_result(test_id, model_id)
+
+            if result:
+                status = result.status.value
+                if status == "completed":
+                    bg_color = colors['pass']
+                    symbol = "✓"
+                elif status == "semantic_failure":
+                    bg_color = colors['fail']
+                    symbol = "❌"
+                elif status == "error":
+                    bg_color = colors['error']
+                    symbol = "⚠"
+                else:
+                    bg_color = colors['pending']
+                    symbol = "..."
+            else:
+                bg_color = colors['pending']
+                symbol = "..."
+
+            draw.rectangle([x, y, x + cell_width - 1, y + cell_height - 1],
+                           fill=bg_color, outline=colors['border'])
+            # Center the symbol
+            text_bbox = draw.textbbox((0, 0), symbol, font=font)
+            text_width = text_bbox[2] - text_bbox[0]
+            text_x = x + (cell_width - text_width) // 2
+            draw.text((text_x, y + padding), symbol, fill=colors['text'], font=font)
+            x += cell_width
+
+        y += cell_height
+
+    # Save to temp file
+    basename = _get_export_basename()
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, f"{basename}.png")
+    img.save(filepath, 'PNG')
+
+    return f"✅ Exported grid image ({len(models)} models × {len(tests)} tests)", gr.update(visible=True, value=filepath)
+
+
 def get_cell_detail(model: str, test: str) -> str:
     """Get response detail for a (model, test) cell.
 

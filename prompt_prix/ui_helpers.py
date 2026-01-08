@@ -59,24 +59,49 @@ function updateTabColors(tabStates) {
     const tabContainer = document.getElementById('model-tabs');
     if (!tabContainer) return tabStates;
     const buttons = tabContainer.querySelectorAll('button[role="tab"]');
-    tabStates.forEach((status, index) => {
+    const panels = tabContainer.querySelectorAll('[role="tabpanel"]');
+
+    tabStates.forEach((item, index) => {
         if (index < buttons.length) {
             const btn = buttons[index];
+            // Support both old format (string) and new format ({status, name})
+            const status = typeof item === 'object' ? item.status : item;
+            const name = typeof item === 'object' ? item.name : null;
+
+            // Update tab label if name provided
+            if (name) {
+                // Truncate long model names for tab display
+                const displayName = name.length > 25 ? name.substring(0, 22) + '...' : name;
+                btn.textContent = displayName;
+            }
+
+            // Show/hide tabs based on whether they have content
+            const hasContent = status && status !== '';
+            btn.style.display = hasContent ? '' : 'none';
+            if (panels[index]) {
+                panels[index].style.display = hasContent ? '' : 'none';
+            }
+
+            // Apply status colors
             if (status === 'pending') {
                 btn.style.background = 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)';
                 btn.style.borderLeft = '4px solid #ef4444';
+                btn.style.color = 'black';
                 btn.style.animation = '';
             } else if (status === 'streaming') {
                 btn.style.background = 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)';
                 btn.style.borderLeft = '4px solid #f59e0b';
+                btn.style.color = 'black';
                 btn.style.animation = 'pulse 1.5s ease-in-out infinite';
             } else if (status === 'completed') {
                 btn.style.background = 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)';
                 btn.style.borderLeft = '4px solid #10b981';
+                btn.style.color = 'black';
                 btn.style.animation = '';
             } else {
                 btn.style.background = '';
                 btn.style.borderLeft = '';
+                btn.style.color = '';
                 btn.style.animation = '';
             }
         }

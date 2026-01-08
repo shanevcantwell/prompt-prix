@@ -118,9 +118,12 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
         return
 
     if session.state.halted:
+        halted_states = [
+            {"status": "completed", "name": m} for m in session.state.models
+        ] + [{"status": "", "name": ""} for _ in range(10 - len(session.state.models))]
         yield (
             f"❌ Session halted: {session.state.halt_reason}",
-            ["completed"] * len(session.state.models) + [""] * (10 - len(session.state.models)),
+            halted_states,
         ) + tuple(
             session.get_context_display(m) if m in session.state.contexts else ""
             for m in session.state.models[:10]
@@ -148,18 +151,20 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
     completed_models: set[str] = set()
 
     def build_tab_states():
+        """Build tab states with both status and model name for dynamic tabs."""
         states = []
         for i in range(10):
             if i < len(session.state.models):
                 model_id = session.state.models[i]
                 if model_id in completed_models:
-                    states.append("completed")
+                    status = "completed"
                 elif model_id in streaming_started:
-                    states.append("streaming")
+                    status = "streaming"
                 else:
-                    states.append("pending")
+                    status = "pending"
+                states.append({"status": status, "name": model_id})
             else:
-                states.append("")
+                states.append({"status": "", "name": ""})
         return states
 
     def build_output():
@@ -299,7 +304,9 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
     if session.state.halted:
         status = f"⚠️ Session halted: {session.state.halt_reason}"
 
-    final_tab_states = ["completed"] * len(session.state.models) + [""] * (10 - len(session.state.models))
+    final_tab_states = [
+        {"status": "completed", "name": m} for m in session.state.models
+    ] + [{"status": "", "name": ""} for _ in range(10 - len(session.state.models))]
 
     contexts = []
     for i in range(10):
