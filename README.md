@@ -79,6 +79,29 @@ prompt-prix ships with `examples/tool_competence_tests.json`—15 tests covering
 
 Load your own tests in JSON/JSONL format, or import directly from [BFCL](https://github.com/ShishirPatil/gorilla).
 
+## From Observability to Model Improvement
+
+The real power of BFCL-compatible formats: **your production traces become your test suite**.
+
+```
+Agentic system in production
+    ↓
+Observability captures tool calls (LangSmith, Arize, custom)
+    ↓
+Export traces as BFCL/JSON test cases
+    ↓
+prompt-prix auditions:
+    • Base models → which handles YOUR patterns?
+    • SFT checkpoints → is fine-tuning improving?
+    • Quantizations → what precision do you need?
+    ↓
+Visual grid + JSON export
+    ↓
+Informed RL/SFT decisions
+```
+
+This isn't about running someone else's benchmarks. It's about testing models against **your actual usage patterns**—the tool calls your system makes in production—and rapidly iterating on fine-tuning with immediate visual feedback.
+
 ## Semantic Validation
 
 HTTP 200 doesn't mean success. A model that returns:
