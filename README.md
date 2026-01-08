@@ -4,9 +4,9 @@
 
 **Audit local LLM function calling and agentic reliability.**
 
-Before deploying a model in an agentic workflow, you need to know: *Will it actually follow constraints?* Leaderboard scores won't tell you. They're measured on datacenter hardware with full-precision weights. Your 24GB GPU running a Q4 quantization is a different beast.
+You have a 24GB GPU. Should you run `gpt-oss-20b` or `lfm2.5-1.2b-instruct` for tool calling? BFCL gives you leaderboard scores for full-precision models on datacenter hardware. That doesn't answer your question.
 
-prompt-prix answers the question that matters: **Which model follows tool-use constraints reliably on YOUR hardware?**
+prompt-prix answers the question that matters: **Which model follows tool-use constraints reliably on YOUR hardware, TODAY?**
 
 ## Why Function Calling Benchmarks Matter
 
