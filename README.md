@@ -1,79 +1,123 @@
-<img width="1024" height="506" alt="image" src="https://github.com/user-attachments/assets/2b251520-ed77-40e1-8fef-2a48a1156f2a" />
-
+<img width="1024" height="506" alt="prompt-prix Battery tab showing model comparison grid" src="https://github.com/user-attachments/assets/2b251520-ed77-40e1-8fef-2a48a1156f2a" />
 
 # prompt-prix
 
-**Find your optimal open-weights model.**
+**Audit local LLMs for agentic reliability.**
 
-prompt-prix is a visual tool for running benchmark test suites across multiple LLMs simultaneously, helping you discover which model and quantization best fits your VRAM constraints and task requirements.
+Before deploying a model in an agentic workflow, you need to know: *Will it actually follow constraints?* Leaderboard scores won't tell you. They're measured on datacenter hardware with full-precision weights. Your 24GB GPU running a Q4 quantization is a different beast.
 
-## The Problem
+prompt-prix answers the question that matters: **Which model follows tool-use constraints reliably on YOUR hardware?**
 
-You have a 24GB GPU. Should you run `gpt-oss-20b` or `lfm2.5-1.2b-instruct` for tool calling? BFCL gives you leaderboard scores for full-precision models. That doesn't answer your question. This is a different kind of metric.
+## Why This Exists
 
-## The Solution
+Agentic AI frameworks like LangGraph, AutoGPT, and CrewAI assume models will:
+- Call the right tool from a set of options
+- Respect `tool_choice: "none"` when told not to use tools
+- Emit valid JSON schemas, not hallucinated parameters
+- Follow system prompt constraints instead of refusing
 
-Run existing benchmarks against *your* candidate models, on *your* hardware, and see results side-by-side.
+**Most benchmarks don't test this.** They measure next-token prediction (perplexity) or multiple-choice accuracy (MMLU). Neither tells you if a model will stay inside the guardrails when you deploy it.
 
-- **Fan-out dispatch**: Same test case → N models in parallel
-- **Work-stealing scheduler**: Efficient multi-GPU utilization across heterogeneous workstations
-- **Visual comparison**: Real-time streaming with Model × Test result grid
-- **Benchmark-native**: Consumes BFCL and Inspect AI test formats directly
+prompt-prix runs **tool-use compliance tests** against your candidate models, on your hardware, and shows you which ones pass.
 
-<img width="1024" height="506" alt="image" src="https://github.com/user-attachments/assets/1bc2b4df-90fb-4212-8789-338b84e77ed4" />
+## The "4-bit is good enough" Question
 
-## Status
+The local LLM community has repeated "Q4 quantization is fine" for years. That claim is based on perplexity scores and vibes—not structured output reliability.
 
-🚧 **Alpha Release Dec 30, 2025**
+Is it actually true for tool calling? Run the same tests against:
+- `llama-3-8b-instruct` (FP16)
+- `llama-3-8b-instruct-q4_k_m`
+- `llama-3-8b-instruct-iq4_xs`
+
+If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both pass, you've validated the quantization for your use case.
+
+## Features
+
+| Feature | What It Does |
+|---------|--------------|
+| **Fan-Out Dispatch** | Same test → N models in parallel |
+| **Semantic Validation** | Detects refusals and missing tool calls (not just HTTP success) |
+| **Model-Family Parsing** | Recognizes tool calls from LiquidAI, Hermes, OpenAI formats |
+| **Work-Stealing Scheduler** | Efficient multi-GPU utilization |
+| **Latency Capture** | Per-test timing on YOUR hardware |
+| **Visual Grid** | Model × Test results at a glance |
+
+<img width="1024" height="506" alt="Battery tab results grid" src="https://github.com/user-attachments/assets/1bc2b4df-90fb-4212-8789-338b84e77ed4" />
 
 ## Quick Start
 
 ```bash
-# Clone and install
 git clone https://github.com/shanevcantwell/prompt-prix.git
 cd prompt-prix
 pip install -e .
 
-# Configure LM Studio servers
+# Configure your LM Studio server(s)
 cp .env.example .env
 # Edit .env: LM_STUDIO_SERVER_1=http://localhost:1234
 
-# Run
 prompt-prix
 ```
 
-Opens at `http://localhost:7860` (or `GRADIO_PORT` from .env). Requires [LM Studio](https://lmstudio.ai/) running with models loaded.
+Opens at `http://localhost:7860`. Requires [LM Studio](https://lmstudio.ai/) with models loaded.
 
-**Or with Docker:**
+**Docker:**
 ```bash
 docker compose up
 ```
+
+## Test Suites
+
+prompt-prix ships with `examples/tool_competence_tests.json`—15 tests covering:
+
+| Category | Tests |
+|----------|-------|
+| Basic tool invocation | Does it call the tool at all? |
+| Tool selection | Does it pick the right tool from 3 options? |
+| Constraint compliance | Does it respect "don't use this tool"? |
+| Schema compliance | Does it emit valid enum values, nested objects, required params? |
+| Tool judgment | Does it know when NOT to use tools? |
+
+Load your own tests in JSON/JSONL format, or import directly from [BFCL](https://github.com/ShishirPatil/gorilla).
+
+## Semantic Validation
+
+HTTP 200 doesn't mean success. A model that returns:
+
+> "I'm sorry, but I can't execute scripts or run code..."
+
+...has **semantically failed** the task, even though the API call succeeded.
+
+prompt-prix detects:
+- **Refusals**: Common patterns like "I can't", "As an AI", "I'm not able to"
+- **Missing tool calls**: When `tool_choice: "required"` but response is plain text
+- **Forbidden tool calls**: When `tool_choice: "none"` but model calls anyway
+
+Results show ✓ (pass), ⚠ (semantic failure), or ❌ (error).
 
 ## Ecosystem Position
 
 | Tool | Purpose |
 |------|---------|
-| [BFCL](https://github.com/ShishirPatil/gorilla) | Function-calling benchmark with leaderboard |
-| [Inspect AI](https://inspect.ai-safety-institute.org.uk/) | Evaluation framework (UK AISI) |
-| **prompt-prix** | Visual fan-out for model selection |
+| [BFCL](https://github.com/ShishirPatil/gorilla) | Function-calling leaderboard (datacenter benchmarks) |
+| [Inspect AI](https://inspect.ai-safety-institute.org.uk/) | Safety evaluation framework |
+| **prompt-prix** | Visual tool-use audit on YOUR hardware |
 
-prompt-prix complements these tools—it's a visual layer for comparing models during selection, not a replacement for rigorous evaluation.
+## Status
 
-## Architecture Highlights
+Alpha release. Core functionality works. Expect rough edges.
 
-- **Adapter pattern**: OpenAI-compatible API now (LM Studio), extensible to Ollama/vLLM
-- **Fail-fast validation**: Invalid benchmark files rejected immediately
-- **Pydantic state management**: Explicit, typed, observable
-- **Work-stealing dispatcher**: Asymmetric GPU setups handled automatically
+## Documentation
+
+- [docs/README.md](docs/README.md) — Architecture overview
+- [docs/EXTENDING.md](docs/EXTENDING.md) — Adding features
+- [CLAUDE.md](.claude/CLAUDE.md) — AI assistant context
 
 ## License
 
 MIT
 
-## Links
+---
 
-- [Development branch](https://github.com/shanevcantwell/prompt-prix/tree/development/testing) — working code
-- [BFCL](https://github.com/ShishirPatil/gorilla) — upstream benchmark source
-- [Inspect AI](https://inspect.ai-safety-institute.org.uk/) — UK AISI evaluation framework
+Built for [langgraph-agentic-scaffold](https://github.com/shanevcantwell/langgraph-agentic-scaffold) and the principle that **frameworks must enforce safety through structure, not trust**.
 
 (C) 2025 Reflective Attention
