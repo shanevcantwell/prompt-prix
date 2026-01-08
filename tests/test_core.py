@@ -510,6 +510,103 @@ class TestStreamCompletion:
         assert captured_request is not None
         assert captured_request.get("temperature") == 0.5
 
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_tool_call_accumulated_not_fragmented(self):
+        """Bug #36: Tool call arguments should be accumulated, not fragmented.
+
+        OpenAI streaming sends tool call arguments token-by-token. Each chunk
+        should NOT get its own markdown block - arguments should be accumulated
+        and formatted once at the end.
+        """
+        from prompt_prix.core import stream_completion
+        import json as json_module
+
+        # Simulate streaming tool call chunks (how OpenAI sends them)
+        tool_call_chunks = [
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "get_weather"}}]}}]}',
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\\"city"}}]}}]}',
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "\\":\\"Paris"}}]}}]}',
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "\\"}"}}]}}]}',
+            'data: [DONE]'
+        ]
+        streaming_content = "\n".join(tool_call_chunks) + "\n"
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
+            return_value=httpx.Response(200, text=streaming_content)
+        )
+
+        chunks = []
+        async for chunk in stream_completion(
+            server_url=MOCK_SERVER_1,
+            model_id=MOCK_MODEL_1,
+            messages=[{"role": "user", "content": "Weather in Paris?"}],
+            temperature=0.7,
+            max_tokens=100,
+            timeout_seconds=30
+        ):
+            chunks.append(chunk)
+
+        full_response = "".join(chunks)
+
+        # Should have exactly ONE **Tool Call:** marker
+        assert full_response.count("**Tool Call:**") == 1, \
+            f"Expected 1 tool call marker, got {full_response.count('**Tool Call:**')}"
+
+        # Should have exactly ONE json code block
+        assert full_response.count("```json") == 1, \
+            f"Expected 1 json block, got {full_response.count('```json')}"
+
+        # The JSON should be parseable (not fragmented)
+        import re
+        json_match = re.search(r"```json\n(.*?)\n```", full_response, re.DOTALL)
+        assert json_match, "No JSON block found"
+        json_str = json_match.group(1)
+        parsed = json_module.loads(json_str)
+        assert parsed == {"city": "Paris"}
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_tool_call_multiple_calls_accumulated(self):
+        """Bug #36: Multiple tool calls should each be accumulated separately."""
+        from prompt_prix.core import stream_completion
+
+        # Two tool calls, each with fragmented arguments
+        tool_call_chunks = [
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"name": "get_weather"}}]}}]}',
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\\"city\\":"}}]}}]}',
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 1, "function": {"name": "get_time"}}]}}]}',
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "\\"Tokyo\\"}"}}]}}]}',
+            'data: {"choices": [{"delta": {"tool_calls": [{"index": 1, "function": {"arguments": "{\\"tz\\":\\"JST\\"}"}}]}}]}',
+            'data: [DONE]'
+        ]
+        streaming_content = "\n".join(tool_call_chunks) + "\n"
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
+            return_value=httpx.Response(200, text=streaming_content)
+        )
+
+        chunks = []
+        async for chunk in stream_completion(
+            server_url=MOCK_SERVER_1,
+            model_id=MOCK_MODEL_1,
+            messages=[{"role": "user", "content": "Weather and time in Tokyo?"}],
+            temperature=0.7,
+            max_tokens=100,
+            timeout_seconds=30
+        ):
+            chunks.append(chunk)
+
+        full_response = "".join(chunks)
+
+        # Should have exactly TWO tool call markers
+        assert full_response.count("**Tool Call:**") == 2
+        assert "get_weather" in full_response
+        assert "get_time" in full_response
+
+        # Should have exactly TWO json code blocks
+        assert full_response.count("```json") == 2
+
 
 class TestGetCompletion:
     """Tests for get_completion function."""

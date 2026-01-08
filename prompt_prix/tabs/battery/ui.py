@@ -87,7 +87,7 @@ def render_tab():
         battery_grid = gr.Dataframe(
             label="Model × Test Results",
             headers=["Model"],
-            interactive=False,
+            interactive=True,
             wrap=True,
             elem_id="battery-grid"
         )

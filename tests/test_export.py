@@ -146,6 +146,23 @@ class TestGenerateJsonReport:
         parsed = json.loads(report_str)
         assert isinstance(parsed, dict)
 
+    def test_generate_json_report_excludes_server_metadata(self, sample_session_state):
+        """Bug #31: Server metadata should not appear in exported JSON.
+
+        The Compare tab displays server info like '*[Server: localhost:1234]*'
+        for debugging, but this metadata should NOT be stored in the context
+        or appear in exports.
+        """
+        from prompt_prix.export import generate_json_report
+
+        report_str = generate_json_report(sample_session_state)
+
+        # Server metadata patterns that should NOT appear
+        assert "*[Server:" not in report_str
+        assert "[Server:" not in report_str
+        assert "localhost:1234" not in report_str
+        assert "192.168." not in report_str  # No IP addresses in responses
+
 
 class TestSaveReport:
     """Tests for save_report function."""

@@ -121,6 +121,11 @@ async def stream_completion(
                     msg = error_body.decode()[:200]
                 raise LMStudioError(f"LM Studio error for '{model_id}': {msg}")
 
+            # Accumulate tool calls until complete (Bug #36 fix)
+            # OpenAI streaming sends tool call arguments token-by-token.
+            # We must collect all chunks before formatting to avoid fragmented JSON.
+            tool_call_accumulator: dict[int, dict] = {}  # index → {name, arguments}
+
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
                     data = line[6:]
@@ -135,18 +140,28 @@ async def stream_completion(
                         if content:
                             yield content
 
-                        # Handle tool calls
+                        # Handle tool calls - accumulate, don't yield yet
                         tool_calls = delta.get("tool_calls", [])
                         for tc in tool_calls:
+                            idx = tc.get("index", 0)
                             func = tc.get("function", {})
-                            name = func.get("name", "")
-                            args = func.get("arguments", "")
-                            if name:
-                                yield f"\n**Tool Call:** `{name}`\n"
-                            if args:
-                                yield f"```json\n{args}\n```\n"
+
+                            if idx not in tool_call_accumulator:
+                                tool_call_accumulator[idx] = {"name": "", "arguments": ""}
+
+                            if func.get("name"):
+                                tool_call_accumulator[idx]["name"] = func["name"]
+                            if func.get("arguments"):
+                                tool_call_accumulator[idx]["arguments"] += func["arguments"]
                     except json.JSONDecodeError:
                         continue
+
+            # After streaming completes, yield accumulated tool calls with proper formatting
+            for tc_data in tool_call_accumulator.values():
+                if tc_data["name"]:
+                    yield f"\n**Tool Call:** `{tc_data['name']}`\n"
+                if tc_data["arguments"]:
+                    yield f"```json\n{tc_data['arguments']}\n```\n"
 
 
 async def get_completion(

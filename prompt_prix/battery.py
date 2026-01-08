@@ -141,8 +141,8 @@ class TestResult(BaseModel):
             TestStatus.PENDING: "—",
             TestStatus.RUNNING: "⏳",
             TestStatus.COMPLETED: "✓",
-            TestStatus.SEMANTIC_FAILURE: "⚠",
-            TestStatus.ERROR: "❌"
+            TestStatus.SEMANTIC_FAILURE: "❌",  # Model failed the test
+            TestStatus.ERROR: "⚠"               # Technical issue (not model's fault)
         }
         return symbols.get(self.status, "?")
 

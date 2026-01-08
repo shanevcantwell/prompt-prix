@@ -202,14 +202,17 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
 
         streaming_started.add(model_id)
 
+        # Bug #31 fix: Separate display formatting from stored data
+        # Display shows server info, but stored response should be clean
         server_label = server_url.split("//")[-1]
-        streaming_responses[model_id] = f"*[Server: {server_label}]*\n\n"
+        display_prefix = f"*[Server: {server_label}]*\n\n"
+        streaming_responses[model_id] = display_prefix
 
         try:
             from prompt_prix.core import stream_completion
             messages = context.to_openai_messages(session.state.system_prompt)
 
-            full_response = f"*[Server: {server_label}]*\n\n"
+            raw_response = ""  # Clean response for storage/export
             async for chunk in stream_completion(
                 server_url=server_url,
                 model_id=model_id,
@@ -221,10 +224,10 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
                 seed=seed,
                 repeat_penalty=repeat_penalty
             ):
-                full_response += chunk
-                streaming_responses[model_id] = full_response
+                raw_response += chunk
+                streaming_responses[model_id] = display_prefix + raw_response  # Display with prefix
 
-            context.add_assistant_message(full_response)
+            context.add_assistant_message(raw_response)  # Store clean (no server metadata)
             completed_models.add(model_id)
 
         except Exception as e:
@@ -237,13 +240,35 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
             session.server_pool.release(server_url)
 
     def find_work_for_server(server_url: str) -> str | None:
+        """Find a model from queue that should run on this server.
+
+        Bug #32 fix: Respects server hints from GPU prefix selection.
+        If a model has a hint for a different server, skip it.
+        """
         server = session.server_pool.servers[server_url]
         for model_id in model_queue:
+            # Check if this model has a server hint
+            hint = state.get_server_hint(model_id)
+            # Skip if model has hint for a DIFFERENT server
+            if hint and hint != server_url:
+                continue
             if model_id in server.manifest_models:
                 return model_id
         return None
 
     while model_queue or active_tasks:
+        # Bug #32: First, assign hinted models to their preferred servers
+        for model_id in list(model_queue):
+            hint = state.get_server_hint(model_id)
+            if hint and hint in session.server_pool.servers:
+                server = session.server_pool.servers[hint]
+                if not server.is_busy and model_id in server.manifest_models:
+                    model_queue.remove(model_id)
+                    await session.server_pool.acquire(hint)
+                    task = asyncio.create_task(run_model_on_server(model_id, hint))
+                    active_tasks[hint] = task
+
+        # Then handle remaining models (no hint or hint server busy)
         for server_url, server in session.server_pool.servers.items():
             if server.is_busy:
                 continue

@@ -360,7 +360,8 @@ class TestTestResult:
         assert TestResult(test_id="t", model_id="m", status=TestStatus.PENDING).status_symbol == "—"
         assert TestResult(test_id="t", model_id="m", status=TestStatus.RUNNING).status_symbol == "⏳"
         assert TestResult(test_id="t", model_id="m", status=TestStatus.COMPLETED).status_symbol == "✓"
-        assert TestResult(test_id="t", model_id="m", status=TestStatus.ERROR).status_symbol == "❌"
+        assert TestResult(test_id="t", model_id="m", status=TestStatus.SEMANTIC_FAILURE).status_symbol == "❌"
+        assert TestResult(test_id="t", model_id="m", status=TestStatus.ERROR).status_symbol == "⚠"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -395,7 +396,7 @@ class TestBatteryRun:
 
         grid = run.to_grid()
         assert grid[0] == ["Test", "m1", "m2"]  # Header
-        assert grid[1] == ["t1", "✓", "❌"]      # t1 results
+        assert grid[1] == ["t1", "✓", "⚠"]      # t1: m1=completed, m2=error (technical issue)
         assert grid[2] == ["t2", "—", "—"]      # t2 pending
 
     def test_to_grid_latency_mode(self):
