@@ -7,8 +7,8 @@
 ## The Sequence
 
 ```
-1. IDENTIFY   →  2. FILE    →  3. TEST-DRIVEN LOOP  →  4. COMMIT  →  5. CLOSE
-   (problem)      (issue)       (see below)             (atomic)      (with ID)
+1. IDENTIFY   →  2. FILE    →  3. TEST-DRIVEN LOOP  →  4. COMMIT  →  5. LABEL  →  6. VERIFY & CLOSE
+   (problem)      (issue)       (see below)             (atomic)      (pending)    (confirmed)
 ```
 
 This is the primary operating model. Claude is responsible for enforcing this workflow, even when the user is in flow state.
@@ -88,8 +88,10 @@ git commit -m "Fix scheduler bugs and add GPU prefix feature"
 
 ### Commit Message Format
 
+Use `Ref #N` (not `Fix #N`) to avoid auto-closing before verification:
+
 ```
-{Fix|Implement|Add|Update} #{issue}: Brief description
+Ref #{issue}: Brief description
 
 - Bullet point of key change
 - Another key change
@@ -101,12 +103,28 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ---
 
-## Step 5: Close
+## Step 5: Label for Verification
 
-Always close with commit reference:
+After commit, mark the issue as awaiting verification:
 
 ```bash
-gh issue close {N} --comment "Fixed in {commit_hash}. Hotfix candidate for v{X.Y.Z}."
+gh issue edit {N} --add-label "needs-verification" --comment "Fix committed in {commit_hash}. Ready for verification."
+```
+
+To see all fixes awaiting verification:
+
+```bash
+gh issue list --label "needs-verification"
+```
+
+---
+
+## Step 6: Verify & Close
+
+After manual verification confirms the fix:
+
+```bash
+gh issue close {N} --comment "Verified in {commit_hash}. Hotfix candidate for v{X.Y.Z}."
 ```
 
 ---

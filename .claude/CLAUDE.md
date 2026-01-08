@@ -30,14 +30,16 @@ When in doubt: discuss the approach first.
 **Primary workflow. Not optional.**
 
 ```
-IDENTIFY → FILE → TEST-DRIVEN LOOP → COMMIT → CLOSE
+IDENTIFY → FILE → TEST-DRIVEN LOOP → COMMIT → LABEL → VERIFY & CLOSE
 ```
 
 Core rules:
 - File the issue before writing code, even for "quick fixes"
 - Write failing test before implementing fix
 - One issue = one atomic commit
-- Close with commit reference
+- Use `Ref #N` (not `Fix #N`) to avoid auto-close before verification
+- Label with `needs-verification` after commit
+- Close only after manual verification confirms fix
 
 **Before any commit or significant code change:** Read `.claude/CHANGE_MANAGEMENT.md` and confirm: "Reviewed CHANGE_MANAGEMENT.md, proceeding with [step]."
 
