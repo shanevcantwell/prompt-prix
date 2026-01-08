@@ -134,7 +134,7 @@ Output: Side-by-side visual comparison
 | `scheduler.py` | ServerPool, BatchRunner |
 | `battery.py` | BatteryRunner orchestrator |
 | `semantic_validator.py` | Refusal detection, tool call validation |
-| `adapters/` | LMStudio, Gemini, Fara providers |
+| `adapters/` | LMStudio provider |
 | `tabs/` | Battery and Compare tab UI/handlers |
 
 For full file structure and module details, see `docs/ARCHITECTURE.md`.
@@ -144,9 +144,6 @@ For full file structure and module details, see `docs/ARCHITECTURE.md`.
 ## Adapters
 
 - **LMStudioAdapter**: OpenAI-compatible, local models
-- **GeminiVisualAdapter**: Fara-7B vision for Gemini web UI (preferred)
-- **FaraService**: Visual element location
-- **GeminiWebUIAdapter**: DOM-based, deprecated
 
 ---
 
@@ -188,13 +185,5 @@ Validates beyond HTTP success:
 
 ```bash
 LM_STUDIO_SERVER_1=http://localhost:1234
-FARA_SERVER_URL=http://localhost:1234
-FARA_MODEL_ID=microsoft_fara-7b
 GRADIO_PORT=7860
 ```
-
----
-
-## Future Direction
-
-Fara adapter evolving toward MCP service architecture. See `docs/MCP_ROADMAP.md`.

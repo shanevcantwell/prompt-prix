@@ -35,7 +35,7 @@ These require real API calls—mocks cannot verify correctness:
 - `find_server()` routing — server hints, prefer-loaded logic
 - `only_loaded` filtering — actual VRAM state queries
 - Battery/Compare end-to-end execution
-- Adapter implementations (LMStudioAdapter, GeminiVisualAdapter)
+- Adapter implementations (LMStudioAdapter)
 
 **LM Studio calls are free and fast (<250ms).** There is no cost barrier to integration tests.
 
@@ -65,9 +65,6 @@ pytest
 
 # Integration tests (the ones that matter for model code)
 pytest -m integration
-
-# Specific test class
-pytest tests/test_gemini_adapter.py::TestGeminiVisualAdapter -m integration -v
 
 # With coverage
 pytest --cov=prompt_prix
@@ -105,12 +102,7 @@ Did the test actually exercise the changed code path? If you modified `scheduler
 Before running integration tests:
 
 1. **LM Studio running** with required models loaded
-2. **Gemini session active** (if testing Gemini adapters):
-   ```bash
-   prompt-prix-gemini --on
-   prompt-prix-gemini --status
-   ```
-3. **`.env` configured** with correct server URLs
+2. **`.env` configured** with correct server URLs
 
 ---
 

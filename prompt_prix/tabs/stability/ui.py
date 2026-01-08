@@ -17,13 +17,7 @@ def render_tab():
 
         with gr.Row():
             with gr.Column(scale=1):
-                stability_gemini_checkbox = gr.Checkbox(
-                    label="Use Gemini Web UI",
-                    value=True,
-                    info="Use Gemini instead of LM Studio models"
-                )
-
-                with gr.Row(visible=False) as stability_lmstudio_row:
+                with gr.Row():
                     stability_fetch_btn = gr.Button(
                         "🔄 Fetch",
                         variant="secondary",
@@ -34,8 +28,7 @@ def render_tab():
                     label="LM Studio Model",
                     choices=[],
                     value=None,
-                    info="Select model (or use Gemini above)",
-                    visible=False
+                    info="Select model from available LM Studio servers"
                 )
                 stability_regen_count = gr.Slider(
                     label="Regeneration Count",
@@ -88,11 +81,6 @@ def render_tab():
                     placeholder="System instructions",
                     lines=2
                 )
-                stability_capture_thinking = gr.Checkbox(
-                    label="Capture Thinking Blocks",
-                    value=True,
-                    info="Extract reasoning traces (Gemini only)"
-                )
 
         stability_status = gr.Textbox(
             label="Status",
@@ -123,8 +111,6 @@ def render_tab():
         )
 
     return SimpleNamespace(
-        gemini_checkbox=stability_gemini_checkbox,
-        lmstudio_row=stability_lmstudio_row,
         fetch_btn=stability_fetch_btn,
         model=stability_model,
         regen_count=stability_regen_count,
@@ -135,7 +121,6 @@ def render_tab():
         timeout=stability_timeout,
         max_tokens=stability_max_tokens,
         system_prompt=stability_system_prompt,
-        capture_thinking=stability_capture_thinking,
         status=stability_status,
         regen_outputs=regen_outputs,
         export_json_btn=stability_export_json_btn,

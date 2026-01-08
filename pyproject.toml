@@ -25,13 +25,8 @@ dev = [
     "pytest-cov>=4.0.0",
     "respx>=0.20.0",
 ]
-gemini = [
-    "playwright>=1.40.0",
-]
-
 [project.scripts]
 prompt-prix = "prompt_prix.main:run"
-prompt-prix-gemini = "prompt_prix.main:gemini_setup"
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -41,7 +36,6 @@ include = ["prompt_prix*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v -m 'not integration'"
-norecursedirs = ["tests/deferred"]
 markers = [
     "integration: marks tests that require external services (deselect with '-m \"not integration\"')",
 ]
