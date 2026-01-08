@@ -1,14 +1,14 @@
-<img width="1024" height="506" alt="prompt-prix Battery tab showing model comparison grid" src="https://github.com/user-attachments/assets/2b251520-ed77-40e1-8fef-2a48a1156f2a" />
+<img width="1024" height="506" alt="LLM function calling benchmark grid - prompt-prix visual comparison dashboard" src="https://github.com/user-attachments/assets/2b251520-ed77-40e1-8fef-2a48a1156f2a" />
 
 # prompt-prix
 
-**Audit local LLMs for agentic reliability.**
+**Audit local LLM function calling and agentic reliability.**
 
 Before deploying a model in an agentic workflow, you need to know: *Will it actually follow constraints?* Leaderboard scores won't tell you. They're measured on datacenter hardware with full-precision weights. Your 24GB GPU running a Q4 quantization is a different beast.
 
 prompt-prix answers the question that matters: **Which model follows tool-use constraints reliably on YOUR hardware?**
 
-## Why This Exists
+## Why Function Calling Benchmarks Matter
 
 Agentic AI frameworks like LangGraph, AutoGPT, and CrewAI assume models will:
 - Call the right tool from a set of options
@@ -20,18 +20,18 @@ Agentic AI frameworks like LangGraph, AutoGPT, and CrewAI assume models will:
 
 prompt-prix runs **tool-use compliance tests** against your candidate models, on your hardware, and shows you which ones pass.
 
-## The "4-bit is good enough" Question
+## Quantization Testing: Is 4-bit Good Enough?
 
 The local LLM community has repeated "Q4 quantization is fine" for years. That claim is based on perplexity scores and vibes—not structured output reliability.
 
-Is it actually true for tool calling? Run the same tests against:
+Is it actually true for function calling? Run the same tests against:
 - `llama-3-8b-instruct` (FP16)
 - `llama-3-8b-instruct-q4_k_m`
 - `llama-3-8b-instruct-iq4_xs`
 
 If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both pass, you've validated the quantization for your use case.
 
-## Features
+## Prompt-Prix Core Features
 
 | Feature | What It Does |
 |---------|--------------|
@@ -42,7 +42,20 @@ If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both 
 | **Latency Capture** | Per-test timing on YOUR hardware |
 | **Visual Grid** | Model × Test results at a glance |
 
-<img width="1024" height="506" alt="Battery tab results grid" src="https://github.com/user-attachments/assets/1bc2b4df-90fb-4212-8789-338b84e77ed4" />
+<img width="1024" height="506" alt="LLM tool use test results - model comparison grid" src="https://github.com/user-attachments/assets/1bc2b4df-90fb-4212-8789-338b84e77ed4" />
+
+## Tested Models
+
+Works with any model served via OpenAI-compatible API. Tested on:
+
+- **Llama 3 / 3.1 / 3.2** — Instruct variants, various quantizations
+- **Qwen 2.5** — 7B, 14B, 72B instruct
+- **Mistral / Mixtral** — 7B instruct, 8x7B
+- **Phi-3 / Phi-3.5** — Mini, Medium
+- **DeepSeek** — V2, V2.5, Coder
+- **LiquidAI LFM** — 1.2B, 3B tool-use variants
+
+*Using [LM Studio](https://lmstudio.ai/) as the inference backend. Ollama support planned.*
 
 ## Quick Start
 
@@ -65,7 +78,7 @@ Opens at `http://localhost:7860`. Requires [LM Studio](https://lmstudio.ai/) wit
 docker compose up
 ```
 
-## Test Suites
+## LLM Tool-Use Test Suites
 
 prompt-prix ships with `examples/tool_competence_tests.json`—15 tests covering:
 
@@ -123,7 +136,11 @@ Results show ✓ (pass), ⚠ (semantic failure), or ❌ (error).
 |------|---------|
 | [BFCL](https://github.com/ShishirPatil/gorilla) | Function-calling leaderboard (datacenter benchmarks) |
 | [Inspect AI](https://inspect.ai-safety-institute.org.uk/) | Safety evaluation framework |
-| **prompt-prix** | Visual tool-use audit on YOUR hardware |
+| **prompt-prix** | Visual function-calling audit on YOUR hardware |
+
+## Related Projects
+
+- **[langgraph-agentic-scaffold](https://github.com/shanevcantwell/langgraph-agentic-scaffold)** — Agentic framework built on the principle that safety comes from structure, not trust. prompt-prix auditions models for deployment in LAS workflows.
 
 ## Status
 
@@ -140,7 +157,5 @@ Alpha release. Core functionality works. Expect rough edges.
 MIT
 
 ---
-
-Built for [langgraph-agentic-scaffold](https://github.com/shanevcantwell/langgraph-agentic-scaffold) and the principle that **frameworks must enforce safety through structure, not trust**.
 
 (C) 2025 Reflective Attention
