@@ -85,8 +85,8 @@ prompt_prix/
 ├── ui.py                # Gradio UI: shared header + tabs
 ├── ui_helpers.py        # CSS, JS constants
 ├── handlers.py          # Shared async event handlers
-├── core.py              # ServerPool, ComparisonSession, streaming
-├── dispatcher.py        # WorkStealingDispatcher (parallel execution)
+├── core.py              # ComparisonSession, streaming functions
+├── scheduler.py         # ServerPool, BatchRunner (model-batched execution)
 ├── config.py            # Pydantic models, constants, .env loading
 ├── parsers.py           # Input parsing utilities
 ├── export.py            # Markdown/JSON report generation
@@ -115,9 +115,9 @@ prompt_prix/
 
 | Module | Purpose |
 |--------|---------|
-| `config.py` | ServerConfig, ModelContext, SessionState, env loading |
-| `core.py` | ServerPool management, streaming functions |
-| `dispatcher.py` | WorkStealingDispatcher for parallel execution |
+| `config.py` | ModelContext, SessionState, env loading |
+| `core.py` | ComparisonSession, streaming functions |
+| `scheduler.py` | ServerPool (with load state), BatchRunner for model-batched execution |
 | `handlers.py` | Shared async handlers (fetch models, stop) |
 | `ui.py` | Gradio app composition, imports tab UIs |
 | `state.py` | Mutable state shared across handlers |
@@ -170,7 +170,7 @@ Use GeminiVisualAdapter instead.
 Run benchmark test suites across selected models.
 - Load JSON/JSONL test files
 - Model × Test grid view with ✓/⚠/❌ status
-- Parallel execution via WorkStealingDispatcher
+- Model-batched execution via BatchRunner (all tests for one model run together)
 - Semantic validation (refusal detection, tool call checks)
 
 ### Compare Tab
@@ -385,14 +385,43 @@ Result: `⚠ Semantic Failure` - "Model refused: 'i'm sorry, but'"
 
 ## Key Components
 
-### ServerPool
-Manages multiple LM Studio servers:
+### ServerPool (`scheduler.py`)
+Manages multiple LM Studio servers with explicit load state tracking:
 ```python
-servers: dict[str, ServerConfig]  # URL → config
-find_available_server(model_id)   # Find idle server with model
-acquire_server(url)               # Mark busy
-release_server(url)               # Mark available
+@dataclass
+class ServerState:
+    url: str
+    manifest_models: list[str]  # From /v1/models (what CAN run)
+    loaded_model: Optional[str]  # From /api/v0/models (what IS running)
+    is_busy: bool = False
+
+class ServerPool:
+    servers: dict[str, ServerState]
+    async def refresh() -> None          # Query both manifest AND load state
+    def find_server(model_id, require_loaded=False) -> Optional[str]
+    def get_available_models(only_loaded=False) -> set[str]
+    async def acquire(url) -> None
+    def release(url) -> None
 ```
+
+Key design: `manifest_models` (capability) is separate from `loaded_model` (readiness).
+Server affinity: `find_server()` prefers servers where model is already loaded.
+
+### BatchRunner (`scheduler.py`)
+Model-batched execution - all tests for one model run together before moving to next:
+```python
+@dataclass
+class ModelBatch:
+    model_id: str
+    test_ids: list[str]
+    assigned_server: Optional[str] = None
+
+class BatchRunner:
+    async def run(models, test_ids, execute_fn) -> AsyncGenerator[BatchProgress, None]
+```
+
+Key design: ModelBatch is the atomic scheduling unit, not (test, model) pairs.
+This minimizes VRAM swapping and ensures fair comparison conditions.
 
 ### ComparisonSession
 Maintains comparison state:
@@ -401,16 +430,8 @@ Maintains comparison state:
 - Configuration (temperature, max tokens, system prompt)
 - Halt state
 
-### WorkStealingDispatcher (`dispatcher.py`)
-Reusable parallel execution strategy:
-```python
-dispatcher = WorkStealingDispatcher(pool)
-async for completed in dispatcher.dispatch(work_items, execute_fn):
-    yield state  # UI update opportunity
-```
-
 ### BatteryRunner (Battery Mode)
-Orchestrates benchmark execution:
+Orchestrates benchmark execution using BatchRunner:
 ```python
 runner = BatteryRunner(adapter, tests, models, temperature, max_tokens, timeout)
 async for state in runner.run():

@@ -24,6 +24,27 @@ MOCK_MANIFEST_RESPONSE = {
     ]
 }
 
+# LM Studio native API /api/v0/models response (load state)
+MOCK_LOAD_STATE_RESPONSE = {
+    "data": [
+        {"id": MOCK_MODEL_1, "state": "loaded"},
+        {"id": MOCK_MODEL_2, "state": "not_loaded"},
+    ]
+}
+
+# Empty load state (no model loaded)
+MOCK_LOAD_STATE_EMPTY = {
+    "data": []
+}
+
+# Multiple models loaded simultaneously (LM Studio supports this)
+MOCK_LOAD_STATE_MULTIPLE = {
+    "data": [
+        {"id": MOCK_MODEL_1, "state": "loaded"},
+        {"id": MOCK_MODEL_2, "state": "loaded"},
+    ]
+}
+
 MOCK_COMPLETION_RESPONSE = {
     "id": "chatcmpl-123",
     "object": "chat.completion",

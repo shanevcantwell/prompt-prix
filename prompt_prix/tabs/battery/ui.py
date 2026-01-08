@@ -8,7 +8,7 @@ def render_tab():
     Server config, model selection, and shared settings (temp, timeout, max_tokens)
     are now in the shared header above tabs.
     """
-    with gr.Tab("🔋 Battery", id="battery-tab"):
+    with gr.Tab("📊 Battery", id="battery-tab"):
 
         gr.Markdown("""
         Run benchmark test suites across selected models.

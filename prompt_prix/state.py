@@ -25,6 +25,10 @@ battery_source_file: Optional[str] = None
 # Cancellation flag - checked by long-running handlers
 stop_requested: bool = False
 
+# Server index mapping for GPU prefix feature
+server_index_map: dict[int, str] = {}  # idx → URL
+server_hints: dict[str, str] = {}      # model_id → forced URL
+
 
 def request_stop():
     """Signal that the current operation should stop."""
@@ -41,3 +45,25 @@ def clear_stop():
 def should_stop() -> bool:
     """Check if stop was requested."""
     return stop_requested
+
+
+def set_server_map(mapping: dict[int, str]) -> None:
+    """Set server index → URL mapping (from fetch)."""
+    global server_index_map
+    server_index_map = mapping
+
+
+def get_server_url(index: int) -> Optional[str]:
+    """Get server URL by index."""
+    return server_index_map.get(index)
+
+
+def set_server_hints(hints: dict[str, str]) -> None:
+    """Set model_id → forced server URL hints."""
+    global server_hints
+    server_hints = hints
+
+
+def get_server_hint(model_id: str) -> Optional[str]:
+    """Get forced server URL for a model, if set."""
+    return server_hints.get(model_id)

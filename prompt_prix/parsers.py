@@ -30,6 +30,24 @@ def parse_servers_input(servers_text: str) -> list[str]:
     return servers
 
 
+def parse_prefixed_model(selection: str) -> tuple[int, str]:
+    """
+    Parse GPU-prefixed model selection.
+
+    Args:
+        selection: String like "0: model-name" or "1: qwen-7b"
+
+    Returns:
+        (server_index, model_id) tuple
+
+    Example:
+        >>> parse_prefixed_model("0: lfm2.5-1.2b-instruct")
+        (0, "lfm2.5-1.2b-instruct")
+    """
+    idx_str, model_id = selection.split(": ", 1)
+    return int(idx_str), model_id
+
+
 def parse_prompts_file(file_content: str) -> list[str]:
     """Parse uploaded file into list of prompts (newline-separated)."""
     prompts = []

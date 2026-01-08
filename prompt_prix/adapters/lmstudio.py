@@ -8,7 +8,8 @@ It wraps the existing ServerPool and stream_completion functions.
 import asyncio
 from typing import AsyncGenerator, Optional
 
-from prompt_prix.core import ServerPool, stream_completion
+from prompt_prix.scheduler import ServerPool
+from prompt_prix.core import stream_completion
 
 
 class LMStudioAdapter:
@@ -31,14 +32,14 @@ class LMStudioAdapter:
 
     @property
     def pool(self) -> ServerPool:
-        """Expose ServerPool for work-stealing dispatcher access."""
+        """Expose ServerPool for BatchRunner access."""
         return self._pool
 
     async def get_available_models(self) -> list[str]:
         """Return list of all models available across all servers."""
         async with self._lock:
-            await self._pool.refresh_all_manifests()
-            return list(self._pool.get_all_available_models())
+            await self._pool.refresh()
+            return list(self._pool.get_available_models())
 
     async def stream_completion(
         self,
@@ -58,14 +59,14 @@ class LMStudioAdapter:
         # Find available server
         server_url = None
         async with self._lock:
-            await self._pool.refresh_all_manifests()
-            server_url = self._pool.find_available_server(model_id)
+            await self._pool.refresh()
+            server_url = self._pool.find_server(model_id)
 
         if server_url is None:
             raise RuntimeError(f"No server available for model: {model_id}")
 
         # Acquire and stream
-        await self._pool.acquire_server(server_url)
+        await self._pool.acquire(server_url)
         try:
             async for chunk in stream_completion(
                 server_url=server_url,
@@ -78,4 +79,4 @@ class LMStudioAdapter:
             ):
                 yield chunk
         finally:
-            self._pool.release_server(server_url)
+            self._pool.release(server_url)

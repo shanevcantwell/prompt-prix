@@ -13,6 +13,7 @@ import gradio as gr
 
 from prompt_prix import state
 from prompt_prix.handlers import _init_pool_and_validate
+from prompt_prix.parsers import parse_prefixed_model
 
 
 def _get_export_basename() -> str:
@@ -89,8 +90,20 @@ async def run_handler(
         yield f"❌ Failed to load tests: {e}", []
         return
 
-    # Validate servers and models
-    pool, error = await _init_pool_and_validate(servers_text, models_selected)
+    # Parse prefixed selections and build server hints
+    hints = {}
+    stripped_models = []
+    for selection in models_selected:
+        idx, model_id = parse_prefixed_model(selection)
+        url = state.get_server_url(idx)
+        if url:
+            hints[model_id] = url
+        stripped_models.append(model_id)
+
+    state.set_server_hints(hints)
+
+    # Validate servers and models (use stripped model IDs)
+    pool, error = await _init_pool_and_validate(servers_text, stripped_models)
     if error:
         yield error, []
         return
@@ -101,7 +114,7 @@ async def run_handler(
     runner = BatteryRunner(
         adapter=adapter,
         tests=tests,
-        models=models_selected,
+        models=stripped_models,
         temperature=temperature,
         max_tokens=max_tokens,
         timeout_seconds=timeout
@@ -142,7 +155,19 @@ async def quick_prompt_handler(
 
     from prompt_prix.core import stream_completion
 
-    pool, error = await _init_pool_and_validate(servers_text, models_selected)
+    # Parse prefixed selections and build server hints
+    hints = {}
+    stripped_models = []
+    for selection in models_selected:
+        idx, model_id = parse_prefixed_model(selection)
+        url = state.get_server_url(idx)
+        if url:
+            hints[model_id] = url
+        stripped_models.append(model_id)
+
+    state.set_server_hints(hints)
+
+    pool, error = await _init_pool_and_validate(servers_text, stripped_models)
     if error:
         yield error
         return
@@ -155,13 +180,14 @@ async def quick_prompt_handler(
     results = {}
     output_lines = [f"**Prompt:** {prompt.strip()}\n\n---\n"]
 
-    for model_id in models_selected:
+    for model_id in stripped_models:
         if state.should_stop():
             output_lines.append("---\n🛑 **Stopped by user**")
             yield "\n".join(output_lines)
             return
 
-        server_url = pool.find_available_server(model_id)
+        hint = state.get_server_hint(model_id)
+        server_url = pool.find_server(model_id, preferred_url=hint)
         if not server_url:
             results[model_id] = f"❌ No server available"
             output_lines.append(f"### {model_id}\n{results[model_id]}\n\n")

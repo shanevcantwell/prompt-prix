@@ -86,30 +86,65 @@ def malformed_json_file(tmp_path):
     return file_path
 
 
-class MockServerConfig:
-    """Mock server config for testing."""
+class MockServerState:
+    """Mock server state for testing (matches scheduler.ServerState)."""
 
-    def __init__(self, available_models: list[str]):
-        self.available_models = available_models
+    def __init__(self, url: str, manifest_models: list[str]):
+        self.url = url
+        self.manifest_models = manifest_models
+        self.loaded_models: list[str] = []  # No models loaded by default
         self.is_busy = False
 
 
 class MockServerPool:
-    """Mock server pool for testing work-stealing dispatcher."""
+    """Mock server pool for testing BatchRunner (matches scheduler.ServerPool API)."""
 
     def __init__(self, models: list[str]):
         # Create a single mock server with all models
         self.servers = {
-            "http://mock-server:1234": MockServerConfig(models)
+            "http://mock-server:1234": MockServerState("http://mock-server:1234", models)
         }
+        self._locks = {}
 
-    async def acquire_server(self, url: str):
+    def find_server(self, model_id: str, require_loaded: bool = False, preferred_url: str | None = None) -> str | None:
+        """Find a server that can run the model."""
+        # Check preferred URL first if specified
+        if preferred_url and preferred_url in self.servers:
+            server = self.servers[preferred_url]
+            if not server.is_busy:
+                if model_id in server.loaded_models or model_id in server.manifest_models:
+                    return preferred_url
+
+        for url, server in self.servers.items():
+            if server.is_busy:
+                continue
+            if require_loaded:
+                if model_id in server.loaded_models:
+                    return url
+            else:
+                if model_id in server.manifest_models:
+                    return url
+        return None
+
+    def get_available_models(self, only_loaded: bool = False) -> set[str]:
+        """Get all models that can run."""
+        if only_loaded:
+            result = set()
+            for server in self.servers.values():
+                result.update(server.loaded_models)
+            return result
+        result = set()
+        for server in self.servers.values():
+            result.update(server.manifest_models)
+        return result
+
+    async def acquire(self, url: str):
         self.servers[url].is_busy = True
 
-    def release_server(self, url: str):
+    def release(self, url: str):
         self.servers[url].is_busy = False
 
-    async def refresh_all_manifests(self):
+    async def refresh(self):
         pass  # No-op for tests
 
 

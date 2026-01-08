@@ -152,7 +152,7 @@ async def run_regenerations(
             return
 
         # Find server for this model
-        server_url = pool.find_available_server(model_id)
+        server_url = pool.find_server(model_id)
         if not server_url:
             outputs[i] = f"*Error: No server available for {model_id}*"
             yield (f"Running regeneration {i + 1}/{regen_count}...",) + tuple(outputs)

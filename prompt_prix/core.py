@@ -1,5 +1,7 @@
 """
-Core logic: server pool management, manifest fetching, prompt execution.
+Core logic: streaming completion, comparison session management.
+
+Server pool management is in scheduler.py.
 """
 
 import asyncio
@@ -7,10 +9,8 @@ import json
 import httpx
 from typing import AsyncGenerator, Optional, Callable
 
-from prompt_prix.config import (
-    ServerConfig, ModelContext, SessionState,
-    MANIFEST_REFRESH_INTERVAL_SECONDS
-)
+from prompt_prix.config import ModelContext, SessionState
+from prompt_prix.scheduler import ServerPool
 
 
 class LMStudioError(Exception):
@@ -34,74 +34,6 @@ def parse_lm_studio_error(response: httpx.Response) -> str:
         return f"HTTP {response.status_code}: {response.text[:200]}"
     except Exception:
         return f"HTTP {response.status_code}: {response.text[:200]}"
-
-
-# ─────────────────────────────────────────────────────────────────────
-# SERVER POOL
-# ─────────────────────────────────────────────────────────────────────
-
-class ServerPool:
-    """
-    Manages multiple LM Studio servers.
-    Tracks which models are available on each server and server busy state.
-    """
-
-    def __init__(self, server_urls: list[str]):
-        self.servers: dict[str, ServerConfig] = {
-            url: ServerConfig(url=url) for url in server_urls
-        }
-        self._locks: dict[str, asyncio.Lock] = {
-            url: asyncio.Lock() for url in server_urls
-        }
-
-    async def refresh_all_manifests(self) -> None:
-        """Fetch model lists from all servers."""
-        tasks = [self._refresh_manifest(url) for url in self.servers]
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def _refresh_manifest(self, server_url: str) -> None:
-        """Fetch model list from a single server."""
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(f"{server_url}/v1/models")
-                response.raise_for_status()
-                data = response.json()
-                # LM Studio returns {"data": [{"id": "model-name", ...}, ...]}
-                model_ids = [m["id"] for m in data.get("data", [])]
-                self.servers[server_url].available_models = model_ids
-        except Exception as e:
-            # Server unreachable or error - clear its model list
-            self.servers[server_url].available_models = []
-
-    def find_available_server(self, model_id: str) -> Optional[str]:
-        """
-        Find a server that has the requested model and is not busy.
-        Returns server URL or None if no server available.
-        """
-        for url, server in self.servers.items():
-            if model_id in server.available_models and not server.is_busy:
-                return url
-        return None
-
-    def get_all_available_models(self) -> set[str]:
-        """Return union of all models across all servers."""
-        result = set()
-        for server in self.servers.values():
-            result.update(server.available_models)
-        return result
-
-    async def acquire_server(self, server_url: str) -> None:
-        """Mark server as busy."""
-        await self._locks[server_url].acquire()
-        self.servers[server_url].is_busy = True
-
-    def release_server(self, server_url: str) -> None:
-        """Mark server as available."""
-        self.servers[server_url].is_busy = False
-        try:
-            self._locks[server_url].release()
-        except RuntimeError:
-            pass  # Lock wasn't held
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -292,13 +224,13 @@ class ComparisonSession:
         # Find available server
         server_url = None
         while server_url is None:
-            await self.server_pool.refresh_all_manifests()
-            server_url = self.server_pool.find_available_server(model_id)
+            await self.server_pool.refresh()
+            server_url = self.server_pool.find_server(model_id)
             if server_url is None:
                 await asyncio.sleep(1.0)  # Wait and retry
 
         # Acquire server
-        await self.server_pool.acquire_server(server_url)
+        await self.server_pool.acquire(server_url)
 
         try:
             messages = context.to_openai_messages(self.state.system_prompt)
@@ -331,7 +263,7 @@ class ComparisonSession:
             return full_response
 
         finally:
-            self.server_pool.release_server(server_url)
+            self.server_pool.release(server_url)
 
     async def send_prompt_to_all(
         self,

@@ -9,7 +9,8 @@ from unittest.mock import AsyncMock, patch, MagicMock
 from tests.conftest import (
     MOCK_SERVER_1, MOCK_SERVER_2, MOCK_SERVERS,
     MOCK_MODEL_1, MOCK_MODEL_2, MOCK_MODELS,
-    MOCK_MANIFEST_RESPONSE, MOCK_COMPLETION_RESPONSE, MOCK_STREAMING_CHUNKS
+    MOCK_MANIFEST_RESPONSE, MOCK_COMPLETION_RESPONSE, MOCK_STREAMING_CHUNKS,
+    MOCK_LOAD_STATE_RESPONSE, MOCK_LOAD_STATE_EMPTY, MOCK_LOAD_STATE_MULTIPLE
 )
 
 
@@ -18,7 +19,7 @@ class TestServerPool:
 
     def test_server_pool_initialization(self, mock_servers):
         """Test ServerPool initializes with servers."""
-        from prompt_prix.core import ServerPool
+        from prompt_prix.scheduler import ServerPool
 
         pool = ServerPool(mock_servers)
 
@@ -28,120 +29,232 @@ class TestServerPool:
 
     def test_server_pool_servers_have_empty_models(self, mock_servers):
         """Test newly initialized servers have no models."""
-        from prompt_prix.core import ServerPool
+        from prompt_prix.scheduler import ServerPool
 
         pool = ServerPool(mock_servers)
 
         for server in pool.servers.values():
-            assert server.available_models == []
+            assert server.manifest_models == []
+            assert server.loaded_models == []
             assert server.is_busy is False
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_server_pool_refresh_manifest_success(self, mock_servers):
-        """Test refreshing manifest fetches models from servers."""
-        from prompt_prix.core import ServerPool
+    async def test_server_pool_refresh_success(self, mock_servers):
+        """Test refreshing fetches both manifest and load state from servers."""
+        from prompt_prix.scheduler import ServerPool
 
-        # Mock both server responses
+        # Mock manifest endpoint for both servers
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
         )
         respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
         )
+        # Mock load state endpoint for both servers
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_RESPONSE)
+        )
+        respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
+        )
 
         pool = ServerPool(mock_servers)
-        await pool.refresh_all_manifests()
+        await pool.refresh()
 
-        # Both servers should have the models
-        assert MOCK_MODEL_1 in pool.servers[MOCK_SERVER_1].available_models
-        assert MOCK_MODEL_2 in pool.servers[MOCK_SERVER_1].available_models
+        # Both servers should have the manifest models
+        assert MOCK_MODEL_1 in pool.servers[MOCK_SERVER_1].manifest_models
+        assert MOCK_MODEL_2 in pool.servers[MOCK_SERVER_1].manifest_models
+        # Server 1 should have model 1 loaded
+        assert MOCK_MODEL_1 in pool.servers[MOCK_SERVER_1].loaded_models
+        # Server 2 should have no model loaded
+        assert pool.servers[MOCK_SERVER_2].loaded_models == []
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_server_pool_refresh_manifest_server_down(self, mock_servers):
-        """Test manifest refresh handles server failure gracefully."""
-        from prompt_prix.core import ServerPool
+    async def test_server_pool_refresh_server_down(self, mock_servers):
+        """Test refresh handles server failure gracefully."""
+        from prompt_prix.scheduler import ServerPool
 
         # First server succeeds, second fails
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
         )
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_RESPONSE)
+        )
         respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
             side_effect=httpx.ConnectError("Connection refused")
         )
 
         pool = ServerPool(mock_servers)
-        await pool.refresh_all_manifests()
+        await pool.refresh()
 
         # First server should have models
-        assert MOCK_MODEL_1 in pool.servers[MOCK_SERVER_1].available_models
+        assert MOCK_MODEL_1 in pool.servers[MOCK_SERVER_1].manifest_models
         # Second server should have empty models (cleared on error)
-        assert pool.servers[MOCK_SERVER_2].available_models == []
+        assert pool.servers[MOCK_SERVER_2].manifest_models == []
+        assert pool.servers[MOCK_SERVER_2].loaded_models == []
 
-    def test_server_pool_find_available_server_found(self, mock_servers):
-        """Test finding available server for a model."""
-        from prompt_prix.core import ServerPool
+    def test_server_pool_find_server_found(self, mock_servers):
+        """Test finding server for a model in manifest."""
+        from prompt_prix.scheduler import ServerPool
 
         pool = ServerPool(mock_servers)
         # Manually set model availability
-        pool.servers[MOCK_SERVER_1].available_models = [MOCK_MODEL_1]
-        pool.servers[MOCK_SERVER_2].available_models = [MOCK_MODEL_2]
+        pool.servers[MOCK_SERVER_1].manifest_models = [MOCK_MODEL_1]
+        pool.servers[MOCK_SERVER_2].manifest_models = [MOCK_MODEL_2]
 
-        result = pool.find_available_server(MOCK_MODEL_1)
+        result = pool.find_server(MOCK_MODEL_1)
 
         assert result == MOCK_SERVER_1
 
-    def test_server_pool_find_available_server_not_found(self, mock_servers):
+    def test_server_pool_find_server_not_found(self, mock_servers):
         """Test returns None when model not available."""
-        from prompt_prix.core import ServerPool
+        from prompt_prix.scheduler import ServerPool
 
         pool = ServerPool(mock_servers)
-        # No models loaded
+        # No models in manifest
 
-        result = pool.find_available_server("nonexistent-model")
+        result = pool.find_server("nonexistent-model")
 
         assert result is None
 
-    def test_server_pool_find_available_server_skips_busy(self, mock_servers):
+    def test_server_pool_find_server_skips_busy(self, mock_servers):
         """Test skips busy servers when finding available."""
-        from prompt_prix.core import ServerPool
+        from prompt_prix.scheduler import ServerPool
 
         pool = ServerPool(mock_servers)
         # Both have model but first is busy
-        pool.servers[MOCK_SERVER_1].available_models = [MOCK_MODEL_1]
+        pool.servers[MOCK_SERVER_1].manifest_models = [MOCK_MODEL_1]
         pool.servers[MOCK_SERVER_1].is_busy = True
-        pool.servers[MOCK_SERVER_2].available_models = [MOCK_MODEL_1]
+        pool.servers[MOCK_SERVER_2].manifest_models = [MOCK_MODEL_1]
 
-        result = pool.find_available_server(MOCK_MODEL_1)
+        result = pool.find_server(MOCK_MODEL_1)
 
         assert result == MOCK_SERVER_2
 
-    def test_server_pool_get_all_available_models(self, mock_servers):
-        """Test getting union of all available models."""
-        from prompt_prix.core import ServerPool
+    def test_server_pool_find_server_prefers_loaded(self, mock_servers):
+        """Test find_server prefers server where model is already loaded."""
+        from prompt_prix.scheduler import ServerPool
 
         pool = ServerPool(mock_servers)
-        pool.servers[MOCK_SERVER_1].available_models = [MOCK_MODEL_1]
-        pool.servers[MOCK_SERVER_2].available_models = [MOCK_MODEL_2, "model-c"]
+        # Both have model in manifest, but only server 2 has it loaded
+        pool.servers[MOCK_SERVER_1].manifest_models = [MOCK_MODEL_1]
+        pool.servers[MOCK_SERVER_1].loaded_models = [MOCK_MODEL_2]  # different model loaded
+        pool.servers[MOCK_SERVER_2].manifest_models = [MOCK_MODEL_1]
+        pool.servers[MOCK_SERVER_2].loaded_models = [MOCK_MODEL_1]  # target model loaded
 
-        result = pool.get_all_available_models()
+        result = pool.find_server(MOCK_MODEL_1)
+
+        # Should prefer server 2 where model is already loaded
+        assert result == MOCK_SERVER_2
+
+    def test_server_pool_get_available_models(self, mock_servers):
+        """Test getting union of all manifest models."""
+        from prompt_prix.scheduler import ServerPool
+
+        pool = ServerPool(mock_servers)
+        pool.servers[MOCK_SERVER_1].manifest_models = [MOCK_MODEL_1]
+        pool.servers[MOCK_SERVER_2].manifest_models = [MOCK_MODEL_2, "model-c"]
+
+        result = pool.get_available_models()
 
         assert result == {MOCK_MODEL_1, MOCK_MODEL_2, "model-c"}
+
+    def test_server_pool_get_available_models_only_loaded(self, mock_servers):
+        """Test getting only loaded models."""
+        from prompt_prix.scheduler import ServerPool
+
+        pool = ServerPool(mock_servers)
+        pool.servers[MOCK_SERVER_1].manifest_models = [MOCK_MODEL_1, MOCK_MODEL_2]
+        pool.servers[MOCK_SERVER_1].loaded_models = [MOCK_MODEL_1]
+        pool.servers[MOCK_SERVER_2].manifest_models = [MOCK_MODEL_1, MOCK_MODEL_2]
+        pool.servers[MOCK_SERVER_2].loaded_models = [MOCK_MODEL_2]
+
+        result = pool.get_available_models(only_loaded=True)
+
+        # Should only return the loaded models
+        assert result == {MOCK_MODEL_1, MOCK_MODEL_2}
+
+    def test_server_pool_multiple_loaded_models_on_one_server(self, mock_servers):
+        """Test that multiple models can be loaded on a single server.
+
+        LM Studio supports loading multiple models into VRAM simultaneously.
+        This test verifies we track all of them, not just the first.
+        """
+        from prompt_prix.scheduler import ServerPool
+
+        pool = ServerPool(mock_servers)
+        pool.servers[MOCK_SERVER_1].manifest_models = [MOCK_MODEL_1, MOCK_MODEL_2]
+        pool.servers[MOCK_SERVER_1].loaded_models = [MOCK_MODEL_1, MOCK_MODEL_2]  # Both loaded
+        pool.servers[MOCK_SERVER_2].manifest_models = [MOCK_MODEL_1, MOCK_MODEL_2]
+        pool.servers[MOCK_SERVER_2].loaded_models = []  # None loaded
+
+        result = pool.get_available_models(only_loaded=True)
+
+        # Should return BOTH models from server 1
+        assert result == {MOCK_MODEL_1, MOCK_MODEL_2}
+
+    def test_server_pool_find_server_with_multiple_loaded(self, mock_servers):
+        """Test find_server works when multiple models are loaded."""
+        from prompt_prix.scheduler import ServerPool
+
+        pool = ServerPool(mock_servers)
+        pool.servers[MOCK_SERVER_1].manifest_models = [MOCK_MODEL_1, MOCK_MODEL_2]
+        pool.servers[MOCK_SERVER_1].loaded_models = [MOCK_MODEL_1, MOCK_MODEL_2]
+        pool.servers[MOCK_SERVER_2].manifest_models = [MOCK_MODEL_1, MOCK_MODEL_2]
+        pool.servers[MOCK_SERVER_2].loaded_models = []
+
+        # Should find server 1 for both models (they're both loaded there)
+        assert pool.find_server(MOCK_MODEL_1) == MOCK_SERVER_1
+        assert pool.find_server(MOCK_MODEL_2) == MOCK_SERVER_1
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_server_pool_refresh_multiple_loaded(self, mock_servers):
+        """Test refresh correctly identifies multiple loaded models."""
+        from prompt_prix.scheduler import ServerPool
+
+        # Mock both endpoints
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_MULTIPLE)
+        )
+        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
+            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
+        )
+
+        pool = ServerPool(mock_servers)
+        await pool.refresh()
+
+        # Server 1 should have both models loaded
+        assert MOCK_MODEL_1 in pool.servers[MOCK_SERVER_1].loaded_models
+        assert MOCK_MODEL_2 in pool.servers[MOCK_SERVER_1].loaded_models
+        # Server 2 should have none loaded
+        assert pool.servers[MOCK_SERVER_2].loaded_models == []
 
     @pytest.mark.asyncio
     async def test_server_pool_acquire_release(self, mock_servers):
         """Test acquiring and releasing server locks."""
-        from prompt_prix.core import ServerPool
+        from prompt_prix.scheduler import ServerPool
 
         pool = ServerPool(mock_servers)
 
         # Acquire server
-        await pool.acquire_server(MOCK_SERVER_1)
+        await pool.acquire(MOCK_SERVER_1)
         assert pool.servers[MOCK_SERVER_1].is_busy is True
 
         # Release server
-        pool.release_server(MOCK_SERVER_1)
+        pool.release(MOCK_SERVER_1)
         assert pool.servers[MOCK_SERVER_1].is_busy is False
 
 
@@ -382,7 +495,8 @@ class TestComparisonSession:
 
     def test_comparison_session_init(self, mock_servers, mock_models):
         """Test ComparisonSession initialization."""
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool(mock_servers)
         session = ComparisonSession(
@@ -401,7 +515,8 @@ class TestComparisonSession:
 
     def test_comparison_session_creates_contexts_for_all_models(self, mock_servers, mock_models):
         """Test session creates empty context for each model."""
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool(mock_servers)
         session = ComparisonSession(
@@ -422,22 +537,30 @@ class TestComparisonSession:
     @pytest.mark.asyncio
     async def test_comparison_session_send_single_prompt(self, mock_servers, mock_models):
         """Test sending prompt to single model."""
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
-        # Setup mocks
+        # Setup mocks - manifest endpoints
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
         )
         respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
         )
+        # Setup mocks - load state endpoints
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
+        )
+        respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
+        )
         respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
             return_value=httpx.Response(200, json=MOCK_COMPLETION_RESPONSE)
         )
 
         pool = ServerPool(mock_servers)
-        # Pre-populate the server manifests to avoid infinite retry loop
-        await pool.refresh_all_manifests()
+        # Pre-populate the server state to avoid infinite retry loop
+        await pool.refresh()
 
         session = ComparisonSession(
             models=[MOCK_MODEL_1],
@@ -457,14 +580,22 @@ class TestComparisonSession:
     @pytest.mark.asyncio
     async def test_comparison_session_send_all_parallel(self, mock_servers, mock_models):
         """Test sending prompt to all models."""
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
-        # Setup mocks
+        # Setup mocks - manifest endpoints
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
         )
         respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        # Setup mocks - load state endpoints
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
+        )
+        respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
         )
         respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
             return_value=httpx.Response(200, json=MOCK_COMPLETION_RESPONSE)
@@ -474,8 +605,8 @@ class TestComparisonSession:
         )
 
         pool = ServerPool(mock_servers)
-        # Pre-populate the server manifests to avoid infinite retry loop
-        await pool.refresh_all_manifests()
+        # Pre-populate the server state to avoid infinite retry loop
+        await pool.refresh()
 
         session = ComparisonSession(
             models=mock_models,
@@ -496,7 +627,8 @@ class TestComparisonSession:
     @pytest.mark.asyncio
     async def test_comparison_session_halt_on_error(self, mock_servers, mock_models):
         """Test session halts on model error."""
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         # Setup mocks - each model only available on one server
         # Server 1 has model 1, Server 2 has model 2
@@ -505,6 +637,13 @@ class TestComparisonSession:
         )
         respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
             return_value=httpx.Response(200, json={"data": [{"id": MOCK_MODEL_2}]})
+        )
+        # Setup mocks - load state endpoints
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
+        )
+        respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
         )
         # Server 1 succeeds, Server 2 fails
         respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
@@ -515,8 +654,8 @@ class TestComparisonSession:
         )
 
         pool = ServerPool(mock_servers)
-        # Pre-populate the server manifests to avoid infinite retry loop
-        await pool.refresh_all_manifests()
+        # Pre-populate the server state to avoid infinite retry loop
+        await pool.refresh()
 
         session = ComparisonSession(
             models=mock_models,
@@ -535,7 +674,8 @@ class TestComparisonSession:
 
     def test_comparison_session_get_context_display(self, mock_servers, mock_models):
         """Test getting display format for a model."""
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool(mock_servers)
         session = ComparisonSession(
@@ -558,7 +698,8 @@ class TestComparisonSession:
 
     def test_comparison_session_get_all_contexts(self, mock_servers, mock_models):
         """Test getting all context displays."""
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool(mock_servers)
         session = ComparisonSession(

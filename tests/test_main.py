@@ -9,7 +9,8 @@ import respx
 from tests.conftest import (
     MOCK_SERVER_1, MOCK_SERVER_2, MOCK_SERVERS,
     MOCK_MODEL_1, MOCK_MODEL_2, MOCK_MODELS,
-    MOCK_MANIFEST_RESPONSE, MOCK_COMPLETION_RESPONSE
+    MOCK_MANIFEST_RESPONSE, MOCK_COMPLETION_RESPONSE,
+    MOCK_LOAD_STATE_EMPTY, MOCK_LOAD_STATE_RESPONSE
 )
 
 
@@ -249,11 +250,16 @@ class TestSendSinglePrompt:
     async def test_send_single_prompt_success(self):
         """Test sending a single prompt."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
-        # Setup mocks
+        # Setup mocks - manifest endpoint
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        # Setup mocks - load state endpoint
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
         )
         respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
             return_value=httpx.Response(200, json=MOCK_COMPLETION_RESPONSE)
@@ -261,7 +267,7 @@ class TestSendSinglePrompt:
 
         # Initialize session
         pool = ServerPool([MOCK_SERVER_1])
-        await pool.refresh_all_manifests()
+        await pool.refresh()
         main.state.server_pool = pool
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
@@ -299,7 +305,8 @@ class TestSendSinglePrompt:
     async def test_send_single_prompt_empty(self):
         """Test sending empty prompt."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         # Setup minimal session
         pool = ServerPool([MOCK_SERVER_1])
@@ -327,7 +334,8 @@ class TestClearSession:
     def test_clear_session_with_active_session(self):
         """Test clearing an active session."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         # Setup session
         pool = ServerPool([MOCK_SERVER_1])
@@ -396,7 +404,8 @@ class TestExportFunctions:
     def test_export_markdown_with_session(self, tmp_path):
         """Test export markdown with active session."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         # Change to tmp directory for file output
         import os
@@ -425,7 +434,8 @@ class TestExportFunctions:
     def test_export_json_with_session(self, tmp_path):
         """Test export JSON with active session."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
         import json
 
         # Change to tmp directory for file output
@@ -463,11 +473,16 @@ class TestStreamingOutputNoDuplication:
     async def test_streaming_no_user_message_duplication(self):
         """Test that user message is not duplicated during streaming."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
-        # Setup mocks
+        # Setup mocks - manifest endpoint
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        # Setup mocks - load state endpoint
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
         )
         respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
             return_value=httpx.Response(200, json=MOCK_COMPLETION_RESPONSE)
@@ -475,7 +490,7 @@ class TestStreamingOutputNoDuplication:
 
         # Initialize session
         pool = ServerPool([MOCK_SERVER_1])
-        await pool.refresh_all_manifests()
+        await pool.refresh()
         main.state.server_pool = pool
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
@@ -505,11 +520,15 @@ class TestStreamingOutputNoDuplication:
     async def test_streaming_intermediate_output_no_duplication(self):
         """Test intermediate streaming updates don't duplicate messages."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
-        # Setup mocks with streaming response
+        # Setup mocks - manifest and load state endpoints
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
         )
 
         from tests.conftest import MOCK_STREAMING_CHUNKS
@@ -520,7 +539,7 @@ class TestStreamingOutputNoDuplication:
 
         # Initialize session
         pool = ServerPool([MOCK_SERVER_1])
-        await pool.refresh_all_manifests()
+        await pool.refresh()
         main.state.server_pool = pool
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
@@ -561,7 +580,8 @@ class TestLaunchBeyondCompare:
     def test_launch_beyond_compare_missing_model_selection(self):
         """Test Beyond Compare fails when models not selected."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
         main.state.session = ComparisonSession(
@@ -582,7 +602,8 @@ class TestLaunchBeyondCompare:
     def test_launch_beyond_compare_same_model(self):
         """Test Beyond Compare fails when same model selected twice."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
         main.state.session = ComparisonSession(
@@ -601,7 +622,8 @@ class TestLaunchBeyondCompare:
     def test_launch_beyond_compare_model_not_in_session(self):
         """Test Beyond Compare fails when model not in session."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
         main.state.session = ComparisonSession(
@@ -620,7 +642,8 @@ class TestLaunchBeyondCompare:
     def test_launch_beyond_compare_no_content(self):
         """Test Beyond Compare fails when no conversation content."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
         main.state.session = ComparisonSession(
@@ -640,7 +663,8 @@ class TestLaunchBeyondCompare:
     def test_launch_beyond_compare_executable_not_found(self, monkeypatch):
         """Test Beyond Compare handles missing executable gracefully."""
         from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix.scheduler import ServerPool
+        from prompt_prix.core import ComparisonSession
 
         pool = ServerPool([MOCK_SERVER_1])
         main.state.session = ComparisonSession(
@@ -685,10 +709,10 @@ class TestFetchAvailableModels:
         status, models_update = await fetch_available_models(MOCK_SERVER_1)
 
         assert "✅" in status
-        # Returns gr.update dict with choices
+        # Returns gr.update dict with choices (now prefixed with server index)
         assert "choices" in models_update
-        assert MOCK_MODEL_1 in models_update["choices"]
-        assert MOCK_MODEL_2 in models_update["choices"]
+        assert f"0: {MOCK_MODEL_1}" in models_update["choices"]
+        assert f"0: {MOCK_MODEL_2}" in models_update["choices"]
 
     @respx.mock
     @pytest.mark.asyncio
@@ -722,112 +746,11 @@ class TestFetchAvailableModels:
 
 
 class TestOnlyLoadedFilter:
-    """Tests for Only Loaded models filter functionality."""
+    """Tests for Only Loaded models filter functionality.
 
-    def _create_mock_lmstudio(self, models_list):
-        """Create a mock lmstudio module with list_loaded_models."""
-        mock_lms = MagicMock()
-        mock_lms.list_loaded_models.return_value = models_list
-        return mock_lms
-
-    def test_get_loaded_models_with_model_key(self):
-        """Test _get_loaded_models extracts model_key attribute."""
-        from prompt_prix.handlers import _get_loaded_models
-
-        # Create mock model objects with model_key attribute
-        mock_model = MagicMock()
-        mock_model.model_key = "test-model-1"
-
-        mock_lms = self._create_mock_lmstudio([mock_model])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            result = _get_loaded_models()
-
-        assert "test-model-1" in result
-        mock_lms.list_loaded_models.assert_called_once_with("llm")
-
-    def test_get_loaded_models_with_path(self):
-        """Test _get_loaded_models falls back to path attribute."""
-        from prompt_prix.handlers import _get_loaded_models
-
-        # Create mock model without model_key but with path
-        mock_model = MagicMock(spec=["path"])
-        mock_model.path = "models/test-model-2"
-
-        mock_lms = self._create_mock_lmstudio([mock_model])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            result = _get_loaded_models()
-
-        assert "models/test-model-2" in result
-
-    def test_get_loaded_models_with_identifier(self):
-        """Test _get_loaded_models falls back to identifier attribute."""
-        from prompt_prix.handlers import _get_loaded_models
-
-        # Create mock model without model_key or path but with identifier
-        mock_model = MagicMock(spec=["identifier"])
-        mock_model.identifier = "test-model-id"
-
-        mock_lms = self._create_mock_lmstudio([mock_model])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            result = _get_loaded_models()
-
-        assert "test-model-id" in result
-
-    def test_get_loaded_models_import_error(self):
-        """Test _get_loaded_models returns empty set when lmstudio not installed."""
-        from prompt_prix.handlers import _get_loaded_models
-        import sys
-
-        # Remove lmstudio from modules if it exists
-        lmstudio_backup = sys.modules.get("lmstudio")
-        sys.modules["lmstudio"] = None  # Simulate ImportError
-
-        try:
-            result = _get_loaded_models()
-            # Should return empty set on import error
-            assert result == set()
-        finally:
-            # Restore
-            if lmstudio_backup:
-                sys.modules["lmstudio"] = lmstudio_backup
-            elif "lmstudio" in sys.modules:
-                del sys.modules["lmstudio"]
-
-    def test_get_loaded_models_sdk_exception(self):
-        """Test _get_loaded_models returns empty set on SDK exception."""
-        from prompt_prix.handlers import _get_loaded_models
-
-        mock_lms = MagicMock()
-        mock_lms.list_loaded_models.side_effect = RuntimeError("SDK error")
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            result = _get_loaded_models()
-
-        assert result == set()
-
-    def test_get_loaded_models_multiple_models(self):
-        """Test _get_loaded_models handles multiple loaded models."""
-        from prompt_prix.handlers import _get_loaded_models
-
-        mock_model_1 = MagicMock()
-        mock_model_1.model_key = "model-a"
-        mock_model_2 = MagicMock()
-        mock_model_2.model_key = "model-b"
-        mock_model_3 = MagicMock()
-        mock_model_3.model_key = "model-c"
-
-        mock_lms = self._create_mock_lmstudio([mock_model_1, mock_model_2, mock_model_3])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            result = _get_loaded_models()
-
-        assert len(result) == 3
-        assert "model-a" in result
-        assert "model-b" in result
-        assert "model-c" in result
+    The 'only_loaded' filter now uses ServerPool which queries the LM Studio
+    native API (/api/v0/models) to determine which models are currently loaded.
+    """
 
     @respx.mock
     @pytest.mark.asyncio
@@ -835,7 +758,7 @@ class TestOnlyLoadedFilter:
         """Test fetch with only_loaded=True filters to loaded models only."""
         from prompt_prix.handlers import fetch_available_models
 
-        # Server has models A, B, C available
+        # Server has models A, B, C in manifest
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [
@@ -845,29 +768,29 @@ class TestOnlyLoadedFilter:
                 ]
             })
         )
+        # Only model-a is loaded (via LM Studio native API)
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a", "state": "loaded"},
+                    {"id": "model-b", "state": "not_loaded"},
+                ]
+            })
+        )
 
-        # Only model-a and model-c are loaded
-        mock_model_a = MagicMock()
-        mock_model_a.model_key = "model-a"
-        mock_model_c = MagicMock()
-        mock_model_c.model_key = "model-c"
-
-        mock_lms = self._create_mock_lmstudio([mock_model_a, mock_model_c])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
 
         assert "✅" in status
         assert "(loaded only)" in status
         choices = models_update["choices"]
-        assert "model-a" in choices
-        assert "model-c" in choices
-        assert "model-b" not in choices  # Not loaded, should be filtered out
+        assert "0: model-a" in choices
+        assert "0: model-b" not in choices  # Not loaded, should be filtered out
+        assert "0: model-c" not in choices  # Not in load state response
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_fetch_only_loaded_no_match(self):
-        """Test fetch with only_loaded=True when no loaded models match."""
+    async def test_fetch_only_loaded_no_models_loaded(self):
+        """Test fetch with only_loaded=True when no models are loaded."""
         from prompt_prix.handlers import fetch_available_models
 
         # Server has models A, B available
@@ -879,37 +802,16 @@ class TestOnlyLoadedFilter:
                 ]
             })
         )
-
-        # Only model-x is loaded (not on server)
-        mock_model_x = MagicMock()
-        mock_model_x.model_key = "model-x"
-
-        mock_lms = self._create_mock_lmstudio([mock_model_x])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
-
-        assert "⚠️" in status
-        assert "No loaded models match" in status
-        assert models_update["choices"] == []
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_fetch_only_loaded_sdk_unavailable(self):
-        """Test fetch with only_loaded=True when SDK not available."""
-        from prompt_prix.handlers import fetch_available_models
-
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        # No models loaded
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json={"data": []})
         )
 
-        with patch("prompt_prix.handlers._get_loaded_models", return_value=set()):
-            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
 
         assert "⚠️" in status
-        assert "Could not detect loaded models" in status
-        # Should still return all models as fallback
-        assert len(models_update["choices"]) > 0
+        assert "No models currently loaded" in status
+        assert models_update["choices"] == []
 
     @respx.mock
     @pytest.mark.asyncio
@@ -926,53 +828,41 @@ class TestOnlyLoadedFilter:
                 ]
             })
         )
+        # Load state endpoint - even if called, only_loaded=False ignores it
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json={"data": []})
+        )
 
-        # Even with lmstudio available, should not call it when only_loaded=False
         status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=False)
 
         assert "✅" in status
         assert "(loaded only)" not in status
         choices = models_update["choices"]
-        assert "model-a" in choices
-        assert "model-b" in choices
-        assert "model-c" in choices
-
-
-class TestLoadedModelsViaHttp:
-    """Tests for HTTP-based loaded models detection (Docker-compatible)."""
+        assert "0: model-a" in choices
+        assert "0: model-b" in choices
+        assert "0: model-c" in choices
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_get_loaded_models_via_http_filters_by_state(self):
-        """Test HTTP-based approach filters models by state=loaded."""
-        from prompt_prix.handlers import _get_loaded_models_via_http
+    async def test_fetch_only_loaded_multiple_servers(self):
+        """Test only_loaded with models loaded on different servers."""
+        from prompt_prix.handlers import fetch_available_models
 
-        # Server returns models with state field (LM Studio native API)
-        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+        # Server 1 has model-a loaded
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json={
-                "data": [
-                    {"id": "model-a", "state": "loaded"},
-                    {"id": "model-b", "state": "not-loaded"},
-                    {"id": "model-c", "state": "loaded"},
-                ]
+                "data": [{"id": "model-a"}, {"id": "model-b"}]
             })
         )
-
-        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
-
-        assert "model-a" in result
-        assert "model-c" in result
-        assert "model-b" not in result  # Not loaded
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_get_loaded_models_via_http_multiple_servers(self):
-        """Test HTTP-based approach aggregates from multiple servers."""
-        from prompt_prix.handlers import _get_loaded_models_via_http
-
         respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [{"id": "model-a", "state": "loaded"}]
+            })
+        )
+        # Server 2 has model-b loaded
+        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [{"id": "model-a"}, {"id": "model-b"}]
             })
         )
         respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
@@ -981,90 +871,10 @@ class TestLoadedModelsViaHttp:
             })
         )
 
-        result = await _get_loaded_models_via_http([MOCK_SERVER_1, MOCK_SERVER_2])
-
-        assert "model-a" in result
-        assert "model-b" in result
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_get_loaded_models_via_http_handles_missing_state(self):
-        """Test HTTP-based approach handles responses without state field."""
-        from prompt_prix.handlers import _get_loaded_models_via_http
-
-        # Server returns models without state field (older LM Studio version)
-        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
-            return_value=httpx.Response(200, json={
-                "data": [
-                    {"id": "model-a"},
-                    {"id": "model-b"},
-                ]
-            })
-        )
-
-        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
-
-        # Should return empty set since no models have state=loaded
-        assert result == set()
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_get_loaded_models_via_http_handles_server_error(self):
-        """Test HTTP-based approach handles server errors gracefully."""
-        from prompt_prix.handlers import _get_loaded_models_via_http
-
-        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
-            return_value=httpx.Response(500, json={"error": "Internal error"})
-        )
-
-        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
-
-        assert result == set()
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_get_loaded_models_via_http_handles_connection_error(self):
-        """Test HTTP-based approach handles connection errors gracefully."""
-        from prompt_prix.handlers import _get_loaded_models_via_http
-
-        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(side_effect=httpx.ConnectError("Connection refused"))
-
-        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
-
-        assert result == set()
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_fetch_only_loaded_uses_http_first(self):
-        """Test fetch_available_models uses HTTP approach for only_loaded."""
-        from prompt_prix.handlers import fetch_available_models
-
-        # OpenAI-compat endpoint for ServerPool.refresh_all_manifests()
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json={
-                "data": [
-                    {"id": "model-a"},
-                    {"id": "model-b"},
-                    {"id": "model-c"},
-                ]
-            })
-        )
-        # LM Studio native API for loaded state
-        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
-            return_value=httpx.Response(200, json={
-                "data": [
-                    {"id": "model-a", "state": "loaded"},
-                    {"id": "model-b", "state": "not-loaded"},
-                    {"id": "model-c", "state": "loaded"},
-                ]
-            })
-        )
-
-        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        servers_text = f"{MOCK_SERVER_1}\n{MOCK_SERVER_2}"
+        status, models_update = await fetch_available_models(servers_text, only_loaded=True)
 
         assert "✅" in status
-        assert "(loaded only)" in status
         choices = models_update["choices"]
-        assert "model-a" in choices
-        assert "model-c" in choices
-        assert "model-b" not in choices
+        assert "0: model-a" in choices  # model-a loaded on server 0
+        assert "1: model-b" in choices  # model-b loaded on server 1

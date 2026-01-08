@@ -6,13 +6,14 @@ State management per CLAUDE.md:
 - Observable by default (yields state snapshots for UI)
 - Fail loudly on errors (no swallowing exceptions)
 
-Uses WorkStealingDispatcher for parallel execution across servers.
-Includes retry logic with exponential backoff for transient errors.
+Uses BatchRunner for model-batched execution:
+- All tests for one model run together on one server
+- Minimizes VRAM swapping, ensures fair comparison
+- Server affinity prefers where model is already loaded
 """
 
 import logging
 import time
-from dataclasses import dataclass
 from enum import Enum
 from typing import AsyncGenerator, Optional, TYPE_CHECKING
 
@@ -102,14 +103,6 @@ def validate_response(response: str) -> None:
 if TYPE_CHECKING:
     from prompt_prix.adapters.lmstudio import LMStudioAdapter
     from prompt_prix.benchmarks.base import TestCase
-
-
-@dataclass
-class BatteryWorkItem:
-    """Work item for battery dispatcher."""
-
-    test: "TestCase"
-    model_id: str
 
 
 class TestStatus(str, Enum):
@@ -234,7 +227,7 @@ class BatteryRun(BaseModel):
         """Count of completed or errored tests."""
         return sum(
             1 for r in self.results.values()
-            if r.status in [TestStatus.COMPLETED, TestStatus.ERROR]
+            if r.status in [TestStatus.COMPLETED, TestStatus.SEMANTIC_FAILURE, TestStatus.ERROR]
         )
 
     @property
@@ -252,13 +245,19 @@ class BatteryRun(BaseModel):
 
 class BatteryRunner:
     """
-    Orchestrates battery execution with work-stealing parallelism.
+    Orchestrates battery execution with model-batched parallelism.
 
     Design per CLAUDE.md:
     - Dependency injection (adapter passed in, not hardcoded)
     - Observable (yields state snapshots for UI updates)
     - Fail loudly (errors recorded in TestResult, not swallowed)
-    - Work-stealing dispatcher for parallel execution across servers
+    - Model-batched execution: all tests for one model run together
+
+    Execution strategy:
+    - Tests grouped by model into batches
+    - Each batch runs on one server (no mid-batch VRAM swapping)
+    - Server affinity prefers where model is already loaded
+    - Multiple batches can run in parallel on different GPUs
     """
 
     def __init__(
@@ -283,6 +282,7 @@ class BatteryRunner:
         """
         self.adapter = adapter
         self.tests = tests
+        self.tests_by_id = {t.id: t for t in tests}  # Lookup for execute_fn
         self.models = models
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -296,31 +296,29 @@ class BatteryRunner:
 
     async def run(self) -> AsyncGenerator[BatteryRun, None]:
         """
-        Execute all tests across all models using work-stealing.
+        Execute all tests across all models using model batching.
 
-        Uses WorkStealingDispatcher to run tests in parallel across
-        available servers, keeping all servers busy.
+        Uses BatchRunner which:
+        - Groups tests by model (one batch per model)
+        - Runs all tests in a batch sequentially on one server
+        - Runs multiple batches in parallel on different servers
+        - Prefers servers where model is already loaded
 
         Yields:
             BatteryRun state snapshot periodically for UI updates
         """
-        from prompt_prix.dispatcher import WorkStealingDispatcher
+        from prompt_prix.scheduler import BatchRunner
 
-        # Build work items for all (test, model) combinations
-        work_items = [
-            BatteryWorkItem(test=test, model_id=model_id)
-            for test in self.tests
-            for model_id in self.models
-        ]
+        runner = BatchRunner(self.adapter.pool)
 
-        dispatcher = WorkStealingDispatcher(self.adapter.pool)
-
-        async def execute_test(item: BatteryWorkItem, server_url: str) -> None:
+        async def execute_test(test_id: str, model_id: str, server_url: str) -> None:
             """Execute a single test on a specific server with retry logic."""
+            test = self.tests_by_id[test_id]
+
             # Mark as running
             self.state.set_result(TestResult(
-                test_id=item.test.id,
-                model_id=item.model_id,
+                test_id=test_id,
+                model_id=model_id,
                 status=TestStatus.RUNNING
             ))
 
@@ -342,12 +340,12 @@ class BatteryRunner:
                 response = ""
                 async for chunk in stream_completion(
                     server_url=server_url,
-                    model_id=item.model_id,
-                    messages=item.test.to_messages(),
+                    model_id=model_id,
+                    messages=test.to_messages(),
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     timeout_seconds=self.timeout_seconds,
-                    tools=item.test.tools
+                    tools=test.tools
                 ):
                     response += chunk
                     # Check for cancellation during streaming
@@ -365,21 +363,21 @@ class BatteryRunner:
                 # Semantic validation: check for refusals and expected tool calls
                 # Pass model_id for model-aware tool call parsing
                 is_valid, failure_reason = validate_response_semantic(
-                    item.test, response, model_id=item.model_id
+                    test, response, model_id=model_id
                 )
 
                 if is_valid:
                     self.state.set_result(TestResult(
-                        test_id=item.test.id,
-                        model_id=item.model_id,
+                        test_id=test_id,
+                        model_id=model_id,
                         status=TestStatus.COMPLETED,
                         response=response,
                         latency_ms=latency_ms
                     ))
                 else:
                     self.state.set_result(TestResult(
-                        test_id=item.test.id,
-                        model_id=item.model_id,
+                        test_id=test_id,
+                        model_id=model_id,
                         status=TestStatus.SEMANTIC_FAILURE,
                         response=response,
                         latency_ms=latency_ms,
@@ -391,17 +389,20 @@ class BatteryRunner:
 
                 # Mark as error (fail loudly - record error, don't hide it)
                 self.state.set_result(TestResult(
-                    test_id=item.test.id,
-                    model_id=item.model_id,
+                    test_id=test_id,
+                    model_id=model_id,
                     status=TestStatus.ERROR,
                     error=str(e),
                     latency_ms=latency_ms
                 ))
 
-        # Run dispatcher and yield state on each iteration
-        async for _ in dispatcher.dispatch(
-            work_items, execute_test, should_cancel=app_state.should_stop
-        ):
+        # Run with BatchRunner - tests batched by model
+        test_ids = [t.id for t in self.tests]
+
+        async for progress in runner.run(self.models, test_ids, execute_test):
+            # Check for stop request
+            if app_state.should_stop():
+                runner.request_stop()
             yield self.state
 
         # Final yield with complete state

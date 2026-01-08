@@ -11,7 +11,8 @@ import tempfile
 from datetime import datetime
 
 from prompt_prix import state
-from prompt_prix.core import ServerPool, ComparisonSession
+from prompt_prix.scheduler import ServerPool
+from prompt_prix.core import ComparisonSession
 from prompt_prix.export import generate_markdown_report, generate_json_report, save_report
 from prompt_prix.parsers import parse_servers_input
 
@@ -43,9 +44,9 @@ async def initialize_session(
         return ("❌ No models configured",) + _empty_tabs()
 
     state.server_pool = ServerPool(servers)
-    await state.server_pool.refresh_all_manifests()
+    await state.server_pool.refresh()
 
-    available = state.server_pool.get_all_available_models()
+    available = state.server_pool.get_available_models()
     missing = [m for m in models if m not in available]
 
     if missing:
@@ -166,7 +167,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
     for model_id in session.state.models:
         session.state.contexts[model_id].add_user_message(prompt.strip(), image_path=image_path)
 
-    await session.server_pool.refresh_all_manifests()
+    await session.server_pool.refresh()
 
     pending = len(session.state.models)
     yield (f"⏳ Generating responses... (0/{pending} complete)", build_tab_states()) + tuple(build_output())
@@ -212,12 +213,12 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
             streaming_responses[model_id] = f"[ERROR: {e}]"
             completed_models.add(model_id)
         finally:
-            session.server_pool.release_server(server_url)
+            session.server_pool.release(server_url)
 
     def find_work_for_server(server_url: str) -> str | None:
         server = session.server_pool.servers[server_url]
         for model_id in model_queue:
-            if model_id in server.available_models:
+            if model_id in server.manifest_models:
                 return model_id
         return None
 
@@ -229,7 +230,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
             model_id = find_work_for_server(server_url)
             if model_id:
                 model_queue.remove(model_id)
-                await session.server_pool.acquire_server(server_url)
+                await session.server_pool.acquire(server_url)
                 task = asyncio.create_task(run_model_on_server(model_id, server_url))
                 active_tasks[server_url] = task
 
@@ -243,7 +244,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
                 del active_tasks[server_url]
 
         if model_queue and not active_tasks:
-            await session.server_pool.refresh_all_manifests()
+            await session.server_pool.refresh()
 
     if active_tasks:
         await asyncio.gather(*active_tasks.values(), return_exceptions=True)
