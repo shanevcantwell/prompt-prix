@@ -294,7 +294,16 @@ def export_csv():
 
 
 def get_cell_detail(model: str, test: str) -> str:
-    """Get response detail for a (model, test) cell."""
+    """Get response detail for a (model, test) cell.
+
+    Args:
+        model: Model ID, possibly with GPU prefix like '0: model-name'
+        test: Test ID
+
+    Note:
+        The model dropdown may contain GPU-prefixed values (e.g., '0: lfm2-1.2b-tool')
+        but battery results are keyed by stripped model ID. We strip the prefix before lookup.
+    """
     from prompt_prix.battery import TestStatus
 
     if not state.battery_run:
@@ -302,6 +311,10 @@ def get_cell_detail(model: str, test: str) -> str:
 
     if not model or not test:
         return "*Select a model and test to view the response*"
+
+    # Strip GPU prefix if present (dropdown shows '0: model-name', results keyed by 'model-name')
+    if ": " in model:
+        _, model = parse_prefixed_model(model)
 
     result = state.battery_run.get_result(test, model)
     if not result:

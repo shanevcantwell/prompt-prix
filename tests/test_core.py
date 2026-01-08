@@ -716,3 +716,96 @@ class TestComparisonSession:
         assert len(contexts) == 2
         assert MOCK_MODEL_1 in contexts
         assert MOCK_MODEL_2 in contexts
+
+
+class TestCompareTabWithGPUPrefix:
+    """Tests for Compare tab initialization with GPU-prefixed model names.
+
+    Bug #29: Compare tab fails to find models when dropdowns contain
+    prefixed names like '0: model-name' but server pool has 'model-name'.
+    """
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_initialize_session_strips_gpu_prefix(self):
+        """Test that initialize_session works with GPU-prefixed model names."""
+        from prompt_prix.tabs.compare.handlers import initialize_session
+
+        # Mock server responses
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_RESPONSE)
+        )
+
+        # Call with GPU-prefixed model names (as dropdown provides)
+        result = await initialize_session(
+            servers_text=MOCK_SERVER_1,
+            models_selected=[f"0: {MOCK_MODEL_1}", f"0: {MOCK_MODEL_2}"],
+            system_prompt_text="Test prompt",
+            temperature=0.7,
+            timeout=300,
+            max_tokens=2048
+        )
+
+        status = result[0]
+        # Should succeed, not return "Models not found"
+        assert "not found" not in status.lower()
+        assert "initialized" in status.lower() or "✅" in status
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_initialize_session_handles_complex_model_paths(self):
+        """Test prefix stripping with complex model paths containing slashes."""
+        from prompt_prix.tabs.compare.handlers import initialize_session
+
+        complex_model = "openai/gpt-oss-20b-gguf/gpt-oss-20b-router.gguf"
+        manifest_with_complex = {
+            "data": [{"id": complex_model}]
+        }
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=manifest_with_complex)
+        )
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
+        )
+
+        result = await initialize_session(
+            servers_text=MOCK_SERVER_1,
+            models_selected=[f"1: {complex_model}"],
+            system_prompt_text="Test",
+            temperature=0.7,
+            timeout=300,
+            max_tokens=2048
+        )
+
+        status = result[0]
+        assert "not found" not in status.lower()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_initialize_session_without_prefix_still_works(self):
+        """Test that non-prefixed model names still work (backwards compat)."""
+        from prompt_prix.tabs.compare.handlers import initialize_session
+
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+        )
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json=MOCK_LOAD_STATE_RESPONSE)
+        )
+
+        # Call without prefix (backwards compatibility)
+        result = await initialize_session(
+            servers_text=MOCK_SERVER_1,
+            models_selected=[MOCK_MODEL_1],
+            system_prompt_text="Test",
+            temperature=0.7,
+            timeout=300,
+            max_tokens=2048
+        )
+
+        status = result[0]
+        assert "not found" not in status.lower()

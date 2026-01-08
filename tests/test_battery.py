@@ -702,3 +702,89 @@ class TestCooperativeCancellation:
         assert state.should_stop() is True
         state.clear_stop()
         assert state.should_stop() is False
+
+
+class TestGetCellDetailWithPrefix:
+    """Tests for get_cell_detail with GPU-prefixed model names.
+
+    Bug #23: Response Detail shows 'No result' when model dropdown
+    contains prefixed names like '0: model-name' but results are keyed
+    by stripped model ID 'model-name'.
+    """
+
+    def test_get_cell_detail_strips_gpu_prefix(self):
+        """Test that get_cell_detail works with GPU-prefixed model names.
+
+        The dropdown passes '0: model-name' but results are stored
+        with key 'model-name'. The handler must strip the prefix.
+        """
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import get_cell_detail
+
+        # Setup battery run with stripped model IDs (as run_handler stores them)
+        run = BatteryRun(tests=["test_1"], models=["lfm2-1.2b-tool"])
+        run.set_result(TestResult(
+            test_id="test_1",
+            model_id="lfm2-1.2b-tool",  # Stored without prefix
+            status=TestStatus.COMPLETED,
+            response="Test response",
+            latency_ms=100.0
+        ))
+        state.battery_run = run
+
+        # Call with prefixed model name (as dropdown would provide)
+        result = get_cell_detail("0: lfm2-1.2b-tool", "test_1")
+
+        # Should find the result, not return "No result"
+        assert "No result" not in result
+        assert "Test response" in result
+
+        # Cleanup
+        state.battery_run = None
+
+    def test_get_cell_detail_handles_model_with_slashes(self):
+        """Test prefix stripping with complex model paths containing slashes."""
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import get_cell_detail
+
+        model_id = "openai/gpt-oss-20b-gguf/gpt-oss-20b-router-mxfp4.gguf"
+        run = BatteryRun(tests=["test_1"], models=[model_id])
+        run.set_result(TestResult(
+            test_id="test_1",
+            model_id=model_id,
+            status=TestStatus.COMPLETED,
+            response="Complex model response",
+            latency_ms=500.0
+        ))
+        state.battery_run = run
+
+        # Call with prefixed complex model name
+        result = get_cell_detail(f"1: {model_id}", "test_1")
+
+        assert "No result" not in result
+        assert "Complex model response" in result
+
+        state.battery_run = None
+
+    def test_get_cell_detail_without_prefix_still_works(self):
+        """Test that non-prefixed model names still work (backwards compat)."""
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import get_cell_detail
+
+        run = BatteryRun(tests=["test_1"], models=["simple-model"])
+        run.set_result(TestResult(
+            test_id="test_1",
+            model_id="simple-model",
+            status=TestStatus.COMPLETED,
+            response="Simple response",
+            latency_ms=50.0
+        ))
+        state.battery_run = run
+
+        # Call without prefix (should still work)
+        result = get_cell_detail("simple-model", "test_1")
+
+        assert "No result" not in result
+        assert "Simple response" in result
+
+        state.battery_run = None

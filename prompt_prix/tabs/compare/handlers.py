@@ -14,7 +14,7 @@ from prompt_prix import state
 from prompt_prix.scheduler import ServerPool
 from prompt_prix.core import ComparisonSession
 from prompt_prix.export import generate_markdown_report, generate_json_report, save_report
-from prompt_prix.parsers import parse_servers_input
+from prompt_prix.parsers import parse_servers_input, parse_prefixed_model
 
 
 def _empty_tabs(n: int = 10) -> tuple:
@@ -33,21 +33,42 @@ async def initialize_session(
     """
     Initialize or reinitialize the comparison session.
     Returns tuple of (status_message, *model_tab_contents)
+
+    Note:
+        The model dropdown may contain GPU-prefixed values (e.g., '0: lfm2-1.2b-tool').
+        We strip the prefix before checking availability and initializing the session,
+        and store server hints for routing.
     """
     servers = parse_servers_input(servers_text)
-    models = models_selected if models_selected else []
+    models_raw = models_selected if models_selected else []
     system_prompt = system_prompt_text.strip() if system_prompt_text else ""
 
     if not servers:
         return ("❌ No servers configured",) + _empty_tabs()
-    if not models:
+    if not models_raw:
         return ("❌ No models configured",) + _empty_tabs()
+
+    # Strip GPU prefix from model selections and build server hints
+    hints = {}
+    stripped_models = []
+    for selection in models_raw:
+        if ": " in selection:
+            idx, model_id = parse_prefixed_model(selection)
+            url = state.get_server_url(idx)
+            if url:
+                hints[model_id] = url
+            stripped_models.append(model_id)
+        else:
+            # No prefix - use as-is (backwards compatibility)
+            stripped_models.append(selection)
+
+    state.set_server_hints(hints)
 
     state.server_pool = ServerPool(servers)
     await state.server_pool.refresh()
 
     available = state.server_pool.get_available_models()
-    missing = [m for m in models if m not in available]
+    missing = [m for m in stripped_models if m not in available]
 
     if missing:
         return (
@@ -55,7 +76,7 @@ async def initialize_session(
         ) + _empty_tabs()
 
     state.session = ComparisonSession(
-        models=models,
+        models=stripped_models,
         server_pool=state.server_pool,
         system_prompt=system_prompt,
         temperature=temperature,
@@ -63,7 +84,7 @@ async def initialize_session(
         max_tokens=max_tokens
     )
 
-    return (f"✅ Session initialized with {len(models)} models",) + _empty_tabs()
+    return (f"✅ Session initialized with {len(stripped_models)} models",) + _empty_tabs()
 
 
 def clear_session() -> tuple:
