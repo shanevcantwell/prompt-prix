@@ -29,6 +29,157 @@ When in doubt: discuss the approach first. The user's time is better spent on ar
 
 ---
 
+## Change Management (Primary Workflow)
+
+**This is the primary operating model, not a suggestion.** Every bug fix and feature follows this sequence. Claude is responsible for enforcing this workflow, even when the user is in flow state.
+
+### The Sequence
+
+```
+1. IDENTIFY   →  2. FILE    →  3. TEST-DRIVEN LOOP  →  4. COMMIT  →  5. CLOSE
+   (problem)      (issue)       (see below)             (atomic)      (with ID)
+```
+
+### Step 3: Test-Driven Loop (Mandatory)
+
+This is where the actual work happens. Do not skip or compress these sub-steps:
+
+```
+3a. Write targeted test(s) for the fix
+         ↓
+3b. Run tests → expect FAILURE (proves test catches the bug)
+         ↓
+3c. Implement the fix
+         ↓
+3d. Run tests → expect PASS
+         ↓
+    If FAIL → return to 3c
+    If PASS → proceed to Step 4
+```
+
+**Why this matters:** If you write the fix before the test, you can't prove the test actually catches the bug. A test that passes before and after the fix proves nothing.
+
+### Before Writing Any Code
+
+1. **Check open issues**: `gh issue list --state open`
+2. **File the issue first**: Even for "quick fixes"
+   ```bash
+   gh issue create --title "Bug: brief description" --body "## Summary\n..."
+   ```
+3. **Reference the issue number** in all subsequent work
+
+### Issue Structure Template
+
+```markdown
+## Summary
+One-sentence description of the bug or feature.
+
+## Evidence
+- Error message, failing test, or observed behavior
+- Steps to reproduce (if bug)
+
+## Root Cause (if known)
+File and line number, architectural issue, etc.
+
+## Proposed Fix
+Brief description of the approach.
+```
+
+### One Issue = One Commit
+
+Do not batch multiple issues into one commit. Each issue gets its own atomic commit:
+
+```bash
+# Good: Atomic commits
+git commit -m "Fix #9: Only Loaded bypass - track loaded_models per server"
+git commit -m "Fix #10: Replace dispatcher with BatchRunner"
+git commit -m "Fix #11: Support multiple loaded models in VRAM"
+
+# Bad: Batched commit
+git commit -m "Fix scheduler bugs and add GPU prefix feature"
+```
+
+### Commit Message Format
+
+```
+{Fix|Implement|Add|Update} #{issue}: Brief description
+
+- Bullet point of key change
+- Another key change
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
+```
+
+### Closing Issues
+
+Always close with commit reference:
+```bash
+gh issue close {N} --comment "Fixed in {commit_hash}. Hotfix candidate for v{X.Y.Z}."
+```
+
+### Session Start Ritual
+
+At the start of each session (or after context compaction):
+1. `gh issue list --state open` - See what's in flight
+2. `git status` - Check for uncommitted work
+3. `git log --oneline -5` - Recent commits for context
+
+### Claude's Responsibility
+
+When identifying a bug or feature request during conversation:
+1. **Stop** before writing code
+2. **Say**: "This looks like a bug/feature. Filing issue first."
+3. **File** the issue with `gh issue create`
+4. **Then** proceed with Step 3 (test-driven loop)
+
+When the user says "just fix it" or pushes to skip the process:
+- Acknowledge the request
+- File the issue anyway (it takes 10 seconds)
+- Explain: "This keeps the changelog clean and makes the work traceable"
+
+### Test Output Verification
+
+After running tests, check for:
+- **Skipped tests** - Investigate why, don't ignore
+- **Warnings** - May indicate silent failures
+- **Coverage** - Did the test actually exercise the changed code path?
+
+"224 passed, 15 skipped" requires explanation before proceeding. Common reasons for skips:
+- Missing `@pytest.mark.integration` for integration tests (expected)
+- Missing fixture or import (problem - investigate)
+- Conditional skip that shouldn't apply (problem - investigate)
+
+### Branch Operations
+
+Before any branch operation (checkout, delete, rebase):
+1. Confirm current branch: `git branch --show-current`
+2. Confirm no uncommitted changes: `git status`
+3. **Never** delete a branch that contains the only copy of work
+4. **Never** checkout in a way that invalidates the workspace file
+
+### Repository Boundaries
+
+This project is: `prompt-prix`
+
+Do not commit to or push other repositories (e.g., design-docs, langgraph-agentic-scaffold) without explicit instruction. Symlinks may cross repo boundaries—this does not grant write permission.
+
+When exploring related repos for patterns:
+- Read-only operations only
+- Copy patterns, don't modify source
+- Acknowledge when referencing external code
+
+### Changelog Generation
+
+With atomic commits referencing issues, changelog generation becomes:
+```bash
+gh issue list --state closed --json number,title,closedAt \
+  --jq 'sort_by(.closedAt) | reverse | .[] | "- #\(.number): \(.title)"'
+```
+
+---
+
 ## Core Concept: Fan-Out Pattern
 
 prompt-prix is NOT an eval framework. It's a visual comparison layer.
@@ -613,47 +764,6 @@ git clean -fdx  # without explicit confirmation
 - `.claude/`
 - `pyproject.toml`
 - `.env`
-
----
-
-## Bug Fix Workflow (Post-Release)
-
-For bugs discovered after release, follow this sequence:
-
-1. **File the bug** - Create GitHub issue with description, error message, root cause analysis
-   ```bash
-   gh issue create --title "Bug title" --body "Description..."
-   ```
-
-2. **Write tests first** - Add tests that:
-   - Demonstrate the current (bad) behavior
-   - Define the expected (good) behavior
-   - Cover edge cases and error handling
-
-3. **Implement the fix** - Make minimal changes to fix the issue
-
-4. **Run tests** - Verify all tests pass including new ones
-   ```bash
-   pytest -v --tb=short
-   ```
-
-5. **Commit with bug reference** - Use "Fix #N" to auto-close
-   ```bash
-   git commit -m "Fix #3: Brief description of fix"
-   ```
-
-6. **Close the bug** - Add hotfix note for release tracking
-   ```bash
-   gh issue close 3 --comment "Fixed in <commit>. Hotfix candidate for v0.1.1."
-   ```
-
-7. **Push** - Don't update the release tag yet; hotfixes batch into point releases
-
-This workflow ensures:
-- Issues are tracked and searchable
-- Tests prevent regression
-- Commits are traceable to issues
-- Release planning has visibility into pending hotfixes
 
 ---
 
