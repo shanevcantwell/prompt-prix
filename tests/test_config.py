@@ -487,3 +487,64 @@ class TestConstants:
         from prompt_prix.config import MANIFEST_REFRESH_INTERVAL_SECONDS
 
         assert MANIFEST_REFRESH_INTERVAL_SECONDS > 0
+
+
+class TestDockerComposeConfig:
+    """Tests for docker-compose.yml configuration.
+
+    These tests validate that Docker config respects .env settings
+    rather than hardcoding values.
+    """
+
+    def test_gradio_port_not_hardcoded_in_environment(self):
+        """Test that GRADIO_PORT is not explicitly set in docker-compose.yml environment.
+
+        Bug #14: docker-compose.yml had `- GRADIO_PORT=7860` which overrides
+        whatever the user sets in .env, making that setting useless.
+        """
+        from pathlib import Path
+        import yaml
+
+        compose_file = Path(__file__).parent.parent / "docker-compose.yml"
+        assert compose_file.exists(), "docker-compose.yml not found"
+
+        with open(compose_file) as f:
+            config = yaml.safe_load(f)
+
+        # Check environment section doesn't hardcode GRADIO_PORT
+        services = config.get("services", {})
+        for service_name, service_config in services.items():
+            env_list = service_config.get("environment", [])
+            for env_item in env_list:
+                if isinstance(env_item, str) and env_item.startswith("GRADIO_PORT="):
+                    # Allow variable substitution like ${GRADIO_PORT:-7860}
+                    # but not hardcoded values like GRADIO_PORT=7860
+                    if "GRADIO_PORT=7860" in env_item and "${" not in env_item:
+                        pytest.fail(
+                            f"Service '{service_name}' has hardcoded GRADIO_PORT=7860. "
+                            f"This overrides .env settings. Use variable substitution instead."
+                        )
+
+    def test_port_mapping_uses_variable_substitution(self):
+        """Test that port mapping uses ${GRADIO_PORT} variable.
+
+        Bug #14: Port mapping was hardcoded as "7860:7860" instead of
+        using "${GRADIO_PORT:-7860}:${GRADIO_PORT:-7860}"
+        """
+        from pathlib import Path
+        import yaml
+
+        compose_file = Path(__file__).parent.parent / "docker-compose.yml"
+        with open(compose_file) as f:
+            config = yaml.safe_load(f)
+
+        services = config.get("services", {})
+        for service_name, service_config in services.items():
+            ports = service_config.get("ports", [])
+            for port in ports:
+                if isinstance(port, str) and ":7860" in port:
+                    if "${GRADIO_PORT" not in port:
+                        pytest.fail(
+                            f"Service '{service_name}' has hardcoded port 7860. "
+                            f"Use '${{GRADIO_PORT:-7860}}' for variable substitution."
+                        )
