@@ -65,6 +65,7 @@ prompt_prix/
 ├── export.py            # Markdown/JSON report generation
 ├── state.py             # Global mutable state
 ├── battery.py           # BatteryRunner, BatteryRun state
+├── semantic_validator.py # Refusal detection, tool call validation
 ├── adapters/
 │   ├── base.py          # LLMAdapter protocol
 │   ├── lmstudio.py      # LMStudioAdapter (OpenAI-compatible)
@@ -259,6 +260,104 @@ Files are validated on load with fail-fast behavior:
 - Invalid JSON or missing fields raise `ValueError` with line/index info
 
 Example files: `examples/tool_competence_tests.json`, `data/tests/*.jsonl`
+
+---
+
+## Semantic Validation
+
+Battery tests validate responses beyond HTTP success. A model that returns "I'm sorry, but I can't execute scripts" completed the HTTP transaction but semantically failed the task.
+
+### How It Works
+
+After receiving a response, the validator checks:
+
+1. **Refusal Detection** - Matches common refusal phrases
+2. **Tool Call Validation** - For tests with `tool_choice: "required"`, verifies tool calls exist
+
+### Test Status Values
+
+| Status | Symbol | Meaning |
+|--------|--------|---------|
+| `COMPLETED` | ✓ | Response passed semantic validation |
+| `SEMANTIC_FAILURE` | ⚠ | Response received but failed semantic check |
+| `ERROR` | ❌ | Infrastructure error (timeout, connection, etc.) |
+
+### Refusal Patterns
+
+Defined in `prompt_prix/semantic_validator.py`:
+
+```python
+REFUSAL_PATTERNS = [
+    r"i(?:'m| am) sorry,? but",
+    r"i can(?:'t|not)",
+    r"i(?:'m| am) (?:not )?(?:able|unable)",
+    r"(?:cannot|can't) (?:execute|run|perform|help with)",
+    r"i(?:'m| am) not (?:designed|programmed|able)",
+    r"(?:as an ai|as a language model)",
+    r"i don't have (?:the ability|access)",
+]
+```
+
+### Modifying Refusal Patterns
+
+To add new refusal patterns:
+
+1. Edit `REFUSAL_PATTERNS` in `prompt_prix/semantic_validator.py`
+2. Add corresponding test case in `tests/test_semantic_validator.py`
+3. Run `pytest tests/test_semantic_validator.py -v` to verify
+
+Example - adding a new pattern:
+```python
+# In semantic_validator.py
+REFUSAL_PATTERNS = [
+    # ... existing patterns ...
+    r"(?:that's|this is) (?:not|beyond) (?:something|what) i",  # NEW
+]
+```
+
+### Tool Call Validation
+
+For tests with tools defined:
+
+| `tool_choice` | Expected Behavior |
+|---------------|-------------------|
+| `"required"` | Response MUST contain tool calls → fails if text-only |
+| `"none"` | Response must NOT contain tool calls → fails if tools called |
+| `"auto"` or unset | Either is valid |
+
+Tool calls are detected by the `**Tool Call:**` marker in formatted responses.
+
+### Extending Validation
+
+The `validate_response_semantic()` function in `semantic_validator.py` returns `(is_valid, failure_reason)`. To add new validation types:
+
+```python
+def validate_response_semantic(test: TestCase, response: str) -> Tuple[bool, Optional[str]]:
+    # Existing checks run first...
+
+    # Add new validation here:
+    if some_condition(test, response):
+        return False, "Description of why validation failed"
+
+    return True, None
+```
+
+### Example: Detecting Semantic Failure
+
+Test case:
+```json
+{
+  "id": "delete_file",
+  "user": "Delete report.pdf",
+  "tools": [{"type": "function", "function": {"name": "delete_file", ...}}],
+  "tool_choice": "required"
+}
+```
+
+Model response:
+> "I'm sorry, but I can't execute or run scripts. The available API only allows routing tasks to specialists..."
+
+Result: `⚠ Semantic Failure` - "Model refused: 'i'm sorry, but'"
 
 ---
 

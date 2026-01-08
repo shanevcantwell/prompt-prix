@@ -290,6 +290,16 @@ def get_cell_detail(model: str, test: str) -> str:
     if result.status == TestStatus.RUNNING:
         return f"**Status:** ⏳ Running..."
 
+    if result.status == TestStatus.SEMANTIC_FAILURE:
+        latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
+        failure = result.failure_reason or "Unknown semantic failure"
+        return (
+            f"**Status:** ⚠ Semantic Failure\n\n"
+            f"**Reason:** {failure}\n\n"
+            f"**Latency:** {latency}\n\n"
+            f"---\n\n{result.response}"
+        )
+
     latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
     return f"**Status:** ✓ Completed\n\n**Latency:** {latency}\n\n---\n\n{result.response}"
 

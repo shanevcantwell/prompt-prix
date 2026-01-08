@@ -28,6 +28,7 @@ from tenacity import (
 from prompt_prix.core import stream_completion
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
 from prompt_prix import state as app_state
+from prompt_prix.semantic_validator import validate_response_semantic
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,7 @@ class TestStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
+    SEMANTIC_FAILURE = "semantic_failure"  # Response received but semantically failed
     ERROR = "error"
 
 
@@ -137,6 +139,7 @@ class TestResult(BaseModel):
     response: str = ""
     latency_ms: Optional[float] = None
     error: Optional[str] = None
+    failure_reason: Optional[str] = None  # Explains semantic failures
 
     @property
     def status_symbol(self) -> str:
@@ -145,6 +148,7 @@ class TestResult(BaseModel):
             TestStatus.PENDING: "—",
             TestStatus.RUNNING: "⏳",
             TestStatus.COMPLETED: "✓",
+            TestStatus.SEMANTIC_FAILURE: "⚠",
             TestStatus.ERROR: "❌"
         }
         return symbols.get(self.status, "?")
@@ -358,14 +362,29 @@ class BatteryRunner:
                 response = await stream_with_retry()
                 latency_ms = (time.time() - start_time) * 1000
 
-                # Mark as completed
-                self.state.set_result(TestResult(
-                    test_id=item.test.id,
-                    model_id=item.model_id,
-                    status=TestStatus.COMPLETED,
-                    response=response,
-                    latency_ms=latency_ms
-                ))
+                # Semantic validation: check for refusals and expected tool calls
+                # Pass model_id for model-aware tool call parsing
+                is_valid, failure_reason = validate_response_semantic(
+                    item.test, response, model_id=item.model_id
+                )
+
+                if is_valid:
+                    self.state.set_result(TestResult(
+                        test_id=item.test.id,
+                        model_id=item.model_id,
+                        status=TestStatus.COMPLETED,
+                        response=response,
+                        latency_ms=latency_ms
+                    ))
+                else:
+                    self.state.set_result(TestResult(
+                        test_id=item.test.id,
+                        model_id=item.model_id,
+                        status=TestStatus.SEMANTIC_FAILURE,
+                        response=response,
+                        latency_ms=latency_ms,
+                        failure_reason=failure_reason
+                    ))
 
             except Exception as e:
                 latency_ms = (time.time() - start_time) * 1000

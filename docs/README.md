@@ -38,11 +38,12 @@ prompt-prix complements these tools by providing a visual layer for side-by-side
 1. **Fan-Out Dispatch** - Same prompt to N models simultaneously
 2. **Visual Comparison** - Real-time streaming with status indicators per model
 3. **Work-Stealing** - Efficient multi-GPU utilization across servers
-4. **Session Persistence** - Save and restore UI state
-5. **Export** - Generate Markdown/JSON reports for analysis
-6. **Image Attachment** - Send images to vision models in Compare tab
-7. **Reproducible Outputs** - Optional seed parameter for deterministic results
-8. **Repeat Penalty** - Configurable penalty to reduce repetitive outputs
+4. **Semantic Validation** - Detect model refusals and missing tool calls (not just HTTP success)
+5. **Session Persistence** - Save and restore UI state
+6. **Export** - Generate Markdown/JSON reports for analysis
+7. **Image Attachment** - Send images to vision models in Compare tab
+8. **Reproducible Outputs** - Optional seed parameter for deterministic results
+9. **Repeat Penalty** - Configurable penalty to reduce repetitive outputs
 
 ## Documentation Index
 
@@ -142,15 +143,16 @@ The codebase follows patterns documented in `.claude/CLAUDE.md`:
 
 ```
 prompt_prix/
-├── __init__.py      # Package version
-├── config.py        # Pydantic models, constants, env loading
-├── core.py          # ServerPool, ComparisonSession, streaming
-├── handlers.py      # Gradio event handlers (async)
-├── ui.py            # Gradio component definitions
-├── parsers.py       # Text parsing utilities
-├── export.py        # Markdown/JSON report generation
-├── state.py         # Global mutable state (session, server_pool)
-└── main.py          # Entry point, re-exports for backwards compat
+├── __init__.py           # Package version
+├── config.py             # Pydantic models, constants, env loading
+├── core.py               # ServerPool, ComparisonSession, streaming
+├── handlers.py           # Gradio event handlers (async)
+├── ui.py                 # Gradio component definitions
+├── parsers.py            # Text parsing utilities
+├── export.py             # Markdown/JSON report generation
+├── state.py              # Global mutable state (session, server_pool)
+├── semantic_validator.py # Refusal detection, tool call validation
+└── main.py               # Entry point, re-exports for backwards compat
 ```
 
 ## Next Steps

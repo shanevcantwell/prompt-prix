@@ -8,9 +8,10 @@ This guide explains how to extend prompt-prix with new features, following the e
 2. [Adding a New Handler](#adding-a-new-handler)
 3. [Adding a New Export Format](#adding-a-new-export-format)
 4. [Modifying the Session State](#modifying-the-session-state)
-5. [Adding Tests](#adding-tests)
-6. [Common Patterns](#common-patterns)
-7. [Gotchas and Tips](#gotchas-and-tips)
+5. [Customizing Semantic Validation](#customizing-semantic-validation)
+6. [Adding Tests](#adding-tests)
+7. [Common Patterns](#common-patterns)
+8. [Gotchas and Tips](#gotchas-and-tips)
 
 ---
 
@@ -314,6 +315,127 @@ init_button.click(
     ],
     outputs=[status_display] + model_outputs
 )
+```
+
+---
+
+## Customizing Semantic Validation
+
+Battery tests validate model responses beyond HTTP success. The semantic validator detects:
+- **Model refusals** - "I'm sorry, but I can't help with that"
+- **Missing tool calls** - When `tool_choice: "required"` but no tool was called
+
+### Understanding Test Status
+
+| Status | Symbol | Meaning |
+|--------|--------|---------|
+| `COMPLETED` | ✓ | Response passed semantic validation |
+| `SEMANTIC_FAILURE` | ⚠ | Response received but failed semantic check |
+| `ERROR` | ❌ | Infrastructure error (timeout, connection, etc.) |
+
+### Adding New Refusal Patterns
+
+Edit `prompt_prix/semantic_validator.py`:
+
+```python
+REFUSAL_PATTERNS = [
+    r"i(?:'m| am) sorry,? but",
+    r"i can(?:'t|not)",
+    r"i(?:'m| am) (?:not )?(?:able|unable)",
+    r"(?:cannot|can't) (?:execute|run|perform|help with)",
+    r"i(?:'m| am) not (?:designed|programmed|able)",
+    r"(?:as an ai|as a language model)",
+    r"i don't have (?:the ability|access)",
+    # Add your pattern here:
+    r"(?:that's|this is) beyond my capabilities",
+]
+```
+
+Then add a test in `tests/test_semantic_validator.py`:
+
+```python
+def test_detects_beyond_capabilities(self):
+    response = "That's beyond my capabilities as an assistant."
+    assert detect_refusal(response) is not None
+```
+
+Run the test:
+```bash
+pytest tests/test_semantic_validator.py -v
+```
+
+### Adding New Validation Types
+
+The `validate_response_semantic()` function checks responses in order. Add new checks after existing ones:
+
+```python
+# In prompt_prix/semantic_validator.py
+
+def validate_response_semantic(
+    test: "TestCase",
+    response: str
+) -> Tuple[bool, Optional[str]]:
+    # Existing refusal check
+    refusal = detect_refusal(response)
+    if refusal:
+        return False, f"Model refused: '{refusal}'"
+
+    # Existing tool call checks
+    if test.tools and test.tool_choice == "required":
+        if not has_tool_calls(response):
+            return False, "Expected tool call but got text response"
+
+    if test.tools and test.tool_choice == "none":
+        if has_tool_calls(response):
+            return False, "Tool call made when tool_choice='none'"
+
+    # ADD YOUR NEW VALIDATION HERE:
+    # Example: Check for hallucination markers
+    if contains_hallucination_markers(response):
+        return False, "Response contains hallucination markers"
+
+    return True, None
+```
+
+### Tool Call Detection
+
+Tool calls are detected by the `**Tool Call:**` marker in formatted responses. This marker is added by `stream_completion()` when the model returns tool calls.
+
+The validation rules for `tool_choice`:
+
+| `tool_choice` | Validation |
+|---------------|------------|
+| `"required"` | Fails if no `**Tool Call:**` in response |
+| `"none"` | Fails if `**Tool Call:**` appears in response |
+| `"auto"` or unset | Always passes (model decides) |
+
+### Validation Order
+
+Checks run in this order (first failure wins):
+1. Refusal detection
+2. Tool call validation (if applicable)
+3. Custom validations (if added)
+
+A response containing both a refusal phrase AND a tool call will fail with "Model refused" because refusals are checked first.
+
+### Testing Your Changes
+
+Always test both positive and negative cases:
+
+```python
+class TestMyNewValidation:
+    def test_detects_bad_response(self):
+        test = TestCase(id="test", user="Do something")
+        response = "This response should fail validation"
+        is_valid, reason = validate_response_semantic(test, response)
+        assert is_valid is False
+        assert "expected reason" in reason
+
+    def test_passes_good_response(self):
+        test = TestCase(id="test", user="Do something")
+        response = "This response should pass validation"
+        is_valid, reason = validate_response_semantic(test, response)
+        assert is_valid is True
 ```
 
 ---
