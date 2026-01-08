@@ -41,6 +41,7 @@ include = ["prompt_prix*"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-v -m 'not integration'"
+norecursedirs = ["tests/deferred"]
 markers = [
     "integration: marks tests that require external services (deselect with '-m \"not integration\"')",
 ]
