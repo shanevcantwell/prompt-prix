@@ -42,7 +42,7 @@ Export only the final user message as a single-shot TestCase.
 
 ```json
 {
-  "id": "explore-2024-01-08-001",
+  "id": "explore-2026-01-08-001",
   "user": "Delete the file report.pdf",
   "system": "You have three tools...",
   "tools": [...],
@@ -65,7 +65,7 @@ Export with conversation history embedded in system prompt or as message array.
 
 ```json
 {
-  "id": "explore-2024-01-08-001",
+  "id": "explore-2026-01-08-001",
   "system": "...",
   "context": [
     {"role": "user", "content": "First message"},
@@ -92,7 +92,7 @@ Flatten conversation history into system prompt.
 
 ```json
 {
-  "id": "explore-2024-01-08-001",
+  "id": "explore-2026-01-08-001",
   "system": "You are a helpful assistant.\n\n[Prior conversation]\nUser: First message\nAssistant: First response\nUser: Second message\nAssistant: Second response",
   "user": "Third message",
   "tools": [...]
@@ -131,11 +131,29 @@ Add to Compare tab:
 
 ### Phase 2: Export as Test Case
 
-Add "Export as Test Case" button that:
-1. Takes current system prompt, last user message, tools, tool_choice
-2. Generates TestCase JSON with auto-ID
-3. Shows preview in modal/textbox
-4. Copy to clipboard or download as file
+Add "Export as Test Case" button that opens an export modal with:
+
+1. **Pre-populated fields** (from current session):
+   - `id`: Auto-generated from timestamp (`explore-YYYY-MM-DD-NNN`)
+   - `user`: Last user message
+   - `system`: Current system prompt
+   - `tools`: Current tool definitions (if any)
+   - `tool_choice`: Current tool_choice setting
+
+2. **Optional annotation fields**:
+   - `expected_tool`: Dropdown or text field
+   - `expected_arguments`: JSON editor (pre-populated if a model made a tool call)
+   - `pass_criteria`: Free text
+   - `fail_criteria`: Free text
+
+3. **"Use response from [model] as expected"**:
+   - Dropdown to select which model's response informs the expected behavior
+   - If that model made a tool call, pre-populate `expected_tool` and `expected_arguments`
+
+4. **Output options**:
+   - Copy to clipboard
+   - Download as `.json` file
+   - Append to existing test file (future)
 
 ### Phase 3: Export with Context (future)
 
@@ -144,16 +162,26 @@ Add "Export with Context" option that:
 2. Exports the final turn as the `user` field
 3. Preserves full context for regression testing
 
+## Acceptance Criteria
+
+1. User can define tools in Compare tab and have them sent with prompts
+2. User can export current scenario as valid TestCase JSON
+3. Exported JSON can be immediately loaded in Battery and executed (round-trip validation)
+4. User can select a model's response to inform expected behavior
+5. Export preview shows valid, copy-pasteable JSON
+
 ## Consequences
 
 **Positive:**
 - Clear path from exploration to regression suite
 - Compare becomes the "front end" of test creation
 - Tools become first-class in interactive testing
+- Enables: Production observability → test suite pipeline. Teams using LangSmith/Arize can reconstruct failure scenarios in Compare, export as TestCase, and build regression suites from real incidents.
 
 **Negative:**
 - Tool JSON editor adds UI complexity
 - Users need to understand TestCase schema for annotations
+- Export modal has multiple optional fields (potential UX friction)
 
 ## Related
 
