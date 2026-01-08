@@ -78,11 +78,6 @@ def create_app() -> gr.Blocks:
                         value=False,
                         info="Filter to models in memory"
                     )
-                    gemini_checkbox = gr.Checkbox(
-                        label="Gemini",
-                        value=False,
-                        info="Include Gemini Web UI"
-                    )
 
             with gr.Column(scale=2):
                 models_selector = gr.CheckboxGroup(
@@ -134,16 +129,10 @@ def create_app() -> gr.Blocks:
         # EVENT BINDINGS: Shared Header
         # ─────────────────────────────────────────────────────────────
 
-        async def on_fetch_models(servers_text, only_loaded, include_gemini):
+        async def on_fetch_models(servers_text, only_loaded):
             """Fetch models and update the shared model selector."""
             status, models_update = await fetch_available_models(servers_text, only_loaded)
             choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
-
-            # Add Gemini if checkbox is checked
-            if include_gemini:
-                gemini_model = "gemini-2.0-flash-thinking (Web UI)"
-                if gemini_model not in choices:
-                    choices = [gemini_model] + list(choices)
 
             return (
                 choices,
@@ -154,7 +143,7 @@ def create_app() -> gr.Blocks:
 
         fetch_btn.click(
             fn=on_fetch_models,
-            inputs=[servers_input, only_loaded_checkbox, gemini_checkbox],
+            inputs=[servers_input, only_loaded_checkbox],
             outputs=[
                 available_models,
                 models_selector,
