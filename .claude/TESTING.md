@@ -6,25 +6,54 @@
 
 ## Philosophy
 
-For functionality that depends on LLM behavior (adapters, visual verification, tool use), **integration tests are the meaningful tests**. Unit tests with mocked LLM responses don't validate anything useful—they just test that your mock returns what you told it to return.
+**The distinction:** Mock to test *handling*, not to test *behavior*.
+
+Mocked LLM/API responses don't validate real behavior—they just confirm the mock returns what you told it to return. This is reward hacking: optimizing for green tests rather than correct code.
+
+For prompt-prix, anything that flows through `ServerPool` or hits LM Studio APIs requires **live servers** to be meaningful.
 
 ---
 
 ## When to Use What
 
-### Unit Tests
+### Unit Tests (Mocks Valid)
 
-- Data parsing (JSON/JSONL loaders)
-- Configuration validation
-- Pure utility functions
-- State management logic
+Mock to test handling of responses, not to simulate the external system:
 
-### Integration Tests
+- Data parsing (JSON/JSONL/BFCL loaders)
+- String utilities (`parse_prefixed_model()`, `parse_servers_input()`)
+- Export generation (given results, test markdown/JSON output)
+- Semantic validation patterns (refusal detection, tool call parsing)
+- Error paths (timeout handling, malformed response)
+- State management (SessionState, ModelContext)
 
-- Adapter implementations (LMStudio, Gemini, Fara)
-- Visual UI verification (FaraService)
-- ReAct tool loops
-- End-to-end prompt execution
+### Integration Tests (Live LM Studio Required)
+
+These require real API calls—mocks cannot verify correctness:
+
+- `ServerPool.refresh()` — real `/v1/models` and `/api/v0/models` responses
+- `find_server()` routing — server hints, prefer-loaded logic
+- `only_loaded` filtering — actual VRAM state queries
+- Battery/Compare end-to-end execution
+- Adapter implementations (LMStudioAdapter, GeminiVisualAdapter)
+
+**LM Studio calls are free and fast (<250ms).** There is no cost barrier to integration tests.
+
+---
+
+## xfail and Lowering Expectations - CRITICAL
+
+**ALWAYS ask before marking tests as `xfail` or changing assertions to be more permissive.**
+
+LLMs optimize toward "green"—we instinctively want tests to pass. This creates bias toward marking failures as "expected" rather than fixing underlying issues.
+
+When a test fails:
+1. **First**: Understand why it's failing
+2. **Second**: Propose options (fix the issue, adjust test, mark xfail)
+3. **Third**: Ask the user which approach they prefer
+4. **Never**: Unilaterally mark something xfail or weaken assertions
+
+This applies to any change that lowers the bar: removing expected values, broadening assertions, etc.
 
 ---
 

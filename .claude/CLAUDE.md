@@ -68,10 +68,14 @@ Do not commit to or push other repositories without explicit instruction. Symlin
 
 **Before writing or modifying tests:** Read `.claude/TESTING.md`
 
+**The distinction:** Mock to test *handling*, not to test *behavior*.
+
 Core rules:
-- Integration tests for model-dependent code (adapters, tool use)
+- Integration tests for LM Studio-dependent code (ServerPool, routing, adapters)
 - Unit tests for parsing, config, pure utilities
+- **Never mock ServerPool or LM Studio APIs to test routing behavior**
 - Check for skipped tests—"224 passed, 15 skipped" requires explanation
+- **Ask before marking tests xfail or weakening assertions**
 
 ---
 
