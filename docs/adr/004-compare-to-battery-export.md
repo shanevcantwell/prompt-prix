@@ -10,7 +10,7 @@ The Compare tab serves as a "workshop" for constructing conversation scenarios t
 
 Currently:
 - Compare exports full session reports (Markdown or JSON)
-- Battery expects individual TestCase objects in BFCL-compatible format
+- Battery expects individual TestCase objects in JSON format
 - There is no direct path from "I found a bug in model X's behavior" to "This is now a regression test"
 
 The workflow we want to enable:
@@ -32,7 +32,7 @@ Add to Battery suite for regression testing
 1. **Minimal friction** - Export should be one click after you've identified the scenario
 2. **Tool support** - Many interesting scenarios involve tool calls, so Compare needs tool definition capability
 3. **Annotation flexibility** - User may want to add pass/fail criteria after seeing model responses
-4. **Format compatibility** - Output must be valid BFCL/Battery JSON
+4. **Format compatibility** - Output must be valid Battery JSON
 
 ## Options Considered
 
@@ -84,7 +84,7 @@ Export with conversation history embedded in system prompt or as message array.
 **Cons:**
 - Requires extending TestCase schema
 - More complex Battery execution (needs to inject history)
-- BFCL compatibility unclear
+- Format compatibility unclear with external tools
 
 ### Option C: Export as Prompt Template with Injected History
 
@@ -185,5 +185,5 @@ Add "Export with Context" option that:
 
 ## Related
 
-- ADR-001: Use existing benchmarks (BFCL format)
+- ADR-001: Use existing benchmarks (promptfoo, Inspect AI)
 - ADR-002: Fan-out pattern as core abstraction
