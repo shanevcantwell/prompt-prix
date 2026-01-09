@@ -6,8 +6,8 @@ CLI commands:
 """
 
 import gradio as gr
-from dotenv import load_dotenv
 
+# Note: config.py calls load_dotenv() at import time
 from prompt_prix.config import get_gradio_port
 from prompt_prix.ui import create_app
 from prompt_prix.ui_helpers import CUSTOM_CSS
@@ -33,9 +33,6 @@ from prompt_prix import state
 # Expose global state for tests that access main.session, main.server_pool
 server_pool = state.server_pool
 session = state.session
-
-# Load environment variables from .env file
-load_dotenv()
 
 
 def run():

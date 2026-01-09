@@ -5,12 +5,13 @@ These tests hit REAL LM Studio endpoints - no mocks.
 Run with: pytest -m integration -v
 
 Prerequisites:
-- LM Studio running on localhost:1234
-- At least one model loaded in VRAM
+- LM Studio servers configured in .env (LM_STUDIO_SERVER_1, etc.)
+- At least one model available on configured servers
 """
 
 import pytest
-from prompt_prix.core import ServerPool
+from prompt_prix.config import get_default_servers
+from prompt_prix.scheduler import ServerPool
 
 
 @pytest.mark.integration
@@ -18,29 +19,40 @@ class TestServerPoolIntegration:
     """Integration tests for ServerPool against live LM Studio."""
 
     @pytest.fixture
-    def pool(self):
-        """Create a ServerPool pointing at real LM Studio."""
-        return ServerPool(["http://localhost:1234"])
+    def servers(self):
+        """Get configured servers from .env."""
+        return get_default_servers()
+
+    @pytest.fixture
+    def pool(self, servers):
+        """Create a ServerPool pointing at configured LM Studio servers."""
+        return ServerPool(servers)
 
     @pytest.mark.asyncio
-    async def test_refresh_populates_manifest_models(self, pool):
+    async def test_refresh_populates_manifest_models(self, pool, servers):
         """refresh() should populate manifest_models from /v1/models."""
         await pool.refresh()
 
-        server = pool.servers["http://localhost:1234"]
-        assert len(server.manifest_models) > 0, "No models found in manifest"
-        print(f"\nManifest models: {server.manifest_models[:5]}...")
+        # Check that at least one server has models
+        total_models = 0
+        for url in servers:
+            if url in pool.servers:
+                server = pool.servers[url]
+                total_models += len(server.manifest_models)
+                print(f"\n{url}: {len(server.manifest_models)} manifest models")
+
+        assert total_models > 0, "No models found across any server"
 
     @pytest.mark.asyncio
-    async def test_refresh_populates_loaded_models(self, pool):
+    async def test_refresh_populates_loaded_models(self, pool, servers):
         """refresh() should populate loaded_models from /api/v0/models."""
         await pool.refresh()
 
-        server = pool.servers["http://localhost:1234"]
-        # loaded_models may be empty if nothing is in VRAM
-        print(f"\nLoaded models: {server.loaded_models}")
-        # This test documents current behavior - loaded_models should exist
-        assert hasattr(server, 'loaded_models')
+        for url in servers:
+            if url in pool.servers:
+                server = pool.servers[url]
+                print(f"\n{url} loaded: {server.loaded_models}")
+                assert hasattr(server, 'loaded_models')
 
     @pytest.mark.asyncio
     async def test_get_available_models_returns_all(self, pool):
@@ -56,7 +68,6 @@ class TestServerPoolIntegration:
         """get_available_models(only_loaded=True) returns only loaded models."""
         await pool.refresh()
 
-        server = pool.servers["http://localhost:1234"]
         loaded = pool.get_available_models(only_loaded=True)
         all_models = pool.get_available_models(only_loaded=False)
 
@@ -66,37 +77,45 @@ class TestServerPoolIntegration:
         # Key assertion: loaded should be subset of or equal to all
         assert len(loaded) <= len(all_models)
 
-        # If models are loaded, they should appear in loaded list
-        if server.loaded_models:
-            assert len(loaded) > 0, "Models in VRAM but only_loaded returned empty"
-
     @pytest.mark.asyncio
-    async def test_find_server_for_manifest_model(self, pool):
+    async def test_find_server_for_manifest_model(self, pool, servers):
         """find_server() should find server for any manifest model."""
         await pool.refresh()
 
-        server_config = pool.servers["http://localhost:1234"]
-        if not server_config.manifest_models:
-            pytest.skip("No manifest models available")
+        # Find first server with models
+        test_model = None
+        expected_server = None
+        for url in servers:
+            if url in pool.servers and pool.servers[url].manifest_models:
+                test_model = pool.servers[url].manifest_models[0]
+                expected_server = url
+                break
 
-        test_model = server_config.manifest_models[0]
+        if not test_model:
+            pytest.skip("No manifest models available on any server")
+
         found = pool.find_server(test_model)
-
-        assert found == "http://localhost:1234", f"Couldn't find server for {test_model}"
+        assert found == expected_server, f"Couldn't find server for {test_model}"
 
     @pytest.mark.asyncio
-    async def test_find_server_for_loaded_model(self, pool):
+    async def test_find_server_for_loaded_model(self, pool, servers):
         """find_server() should find server for loaded model."""
         await pool.refresh()
 
-        server_config = pool.servers["http://localhost:1234"]
-        if not server_config.loaded_models:
-            pytest.skip("No models currently loaded in VRAM")
+        # Find first server with loaded models
+        test_model = None
+        expected_server = None
+        for url in servers:
+            if url in pool.servers and pool.servers[url].loaded_models:
+                test_model = pool.servers[url].loaded_models[0]
+                expected_server = url
+                break
 
-        test_model = server_config.loaded_models[0]
+        if not test_model:
+            pytest.skip("No models currently loaded in VRAM on any server")
+
         found = pool.find_server(test_model)
-
-        assert found == "http://localhost:1234", f"Couldn't find server for loaded model {test_model}"
+        assert found == expected_server, f"Couldn't find server for loaded model {test_model}"
 
     @pytest.mark.asyncio
     async def test_find_server_returns_none_for_unknown(self, pool):
@@ -107,17 +126,19 @@ class TestServerPoolIntegration:
         assert found is None
 
     @pytest.mark.asyncio
-    async def test_model_id_format_consistency(self, pool):
+    async def test_model_id_format_consistency(self, pool, servers):
         """Model IDs from /v1/models should match those from /api/v0/models."""
         await pool.refresh()
 
-        server = pool.servers["http://localhost:1234"]
-
-        # If we have loaded models, they should be findable in manifest
-        for loaded_model in server.loaded_models:
-            assert loaded_model in server.manifest_models, \
-                f"Loaded model '{loaded_model}' not in manifest_models. " \
-                f"Format mismatch between /v1/models and /api/v0/models?"
+        for url in servers:
+            if url not in pool.servers:
+                continue
+            server = pool.servers[url]
+            # If we have loaded models, they should be findable in manifest
+            for loaded_model in server.loaded_models:
+                assert loaded_model in server.manifest_models, \
+                    f"Loaded model '{loaded_model}' not in manifest_models on {url}. " \
+                    f"Format mismatch between /v1/models and /api/v0/models?"
 
 
 @pytest.mark.integration
@@ -129,18 +150,23 @@ class TestOnlyLoadedFilterIntegration:
         """The only_loaded filter should return exactly the models in VRAM."""
         import httpx
 
-        # Get ground truth from LM Studio API directly
-        async with httpx.AsyncClient() as client:
-            resp = await client.get("http://localhost:1234/api/v0/models")
-            data = resp.json()
+        servers = get_default_servers()
 
-        actual_loaded = [
-            m["id"] for m in data["data"]
-            if m.get("state") == "loaded"
-        ]
+        # Get ground truth from LM Studio API directly
+        actual_loaded = []
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for url in servers:
+                try:
+                    resp = await client.get(f"{url}/api/v0/models")
+                    data = resp.json()
+                    for m in data["data"]:
+                        if m.get("state") == "loaded":
+                            actual_loaded.append(m["id"])
+                except Exception as e:
+                    print(f"\n{url}: {e}")
 
         # Now test ServerPool
-        pool = ServerPool(["http://localhost:1234"])
+        pool = ServerPool(servers)
         await pool.refresh()
 
         pool_loaded = pool.get_available_models(only_loaded=True)

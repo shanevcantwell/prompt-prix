@@ -4,6 +4,9 @@ import pytest
 from typing import AsyncGenerator
 from unittest.mock import AsyncMock, MagicMock
 
+# Import from config to ensure .env is loaded (config.py calls load_dotenv())
+from prompt_prix import config  # noqa: F401
+
 
 # ─────────────────────────────────────────────────────────────────────
 # MOCK DATA

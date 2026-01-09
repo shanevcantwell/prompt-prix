@@ -3,8 +3,13 @@ Configuration constants and Pydantic models for prompt-prix.
 """
 
 import os
+from dotenv import load_dotenv
 from pydantic import BaseModel
 from typing import Optional, Union
+
+# Load .env at module import time - ensures env vars are available
+# for any code that imports from config (including tests)
+load_dotenv()
 
 
 # ─────────────────────────────────────────────────────────────────────

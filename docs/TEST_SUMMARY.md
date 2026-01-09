@@ -1,0 +1,572 @@
+# Test Suite Summary
+
+## Overview
+
+| Category | Files | Tests |
+|----------|-------|-------|
+| Unit | 0 | 0 |
+| Integration | 1 | 9 |
+| Other | 11 | 272 |
+| **Total** | **12** | **281** |
+
+
+## `tests/test_battery.py`
+
+- **`test_create_basic_test_case`**
+  - *Test creating a basic test case.*
+- **`test_create_full_test_case`**
+  - *Test creating a test case with all fields.*
+- **`test_empty_id_fails`**
+  - *Test that empty id raises ValueError.*
+- **`test_empty_user_fails`**
+  - *Test that empty user message raises ValueError.*
+- **`test_whitespace_only_id_fails`**
+  - *Test that whitespace-only id raises ValueError.*
+- **`test_to_messages`**
+  - *Test converting TestCase to OpenAI messages format.*
+- **`test_display_name_uses_name_if_set`**
+  - *Test display_name property.*
+- **`test_display_name_uses_id_if_no_name`**
+  - *Test display_name falls back to id.*
+- **`test_load_valid_file`**
+  - *Test loading a valid benchmark file.*
+- **`test_load_missing_file`**
+  - *Test loading a non-existent file raises FileNotFoundError.*
+- **`test_load_missing_prompts_key`**
+  - *Test loading file without prompts key raises ValueError.*
+- **`test_load_malformed_json`**
+  - *Test loading malformed JSON raises JSONDecodeError.*
+- **`test_load_empty_prompts_array`**
+  - *Test loading file with empty prompts array raises ValueError.*
+- **`test_validate_valid_file`**
+  - *Test validate returns success for valid file.*
+- **`test_validate_invalid_file`**
+  - *Test validate returns failure for invalid file.*
+- **`test_load_jsonl_file`**
+  - *Test loading JSONL format (one test per line).*
+- **`test_load_jsonl_autodetect`**
+  - *Test auto-detecting JSONL format from .json file.*
+- **`test_load_jsonl_with_empty_lines`**
+  - *Test JSONL with empty lines skipped.*
+- **`test_create_pending_result`**
+  - *Test creating a pending result.*
+- **`test_status_symbols`**
+  - *Test status symbols for all states.*
+- **`test_create_empty_battery_run`**
+  - *Test creating an empty battery run.*
+- **`test_get_set_result`**
+  - *Test getting and setting results.*
+- **`test_to_grid`**
+  - *Test converting to grid format.*
+- **`test_to_grid_latency_mode`**
+  - *Test grid with latency display mode.*
+- **`test_progress_tracking`**
+  - *Test progress calculation.*
+- **`test_run_completes_all_tests`**
+  - *Test that runner completes all (test, model) combinations.*
+- **`test_run_handles_errors`**
+  - *Test that runner handles model errors gracefully.*
+- **`test_run_yields_state_updates`**
+  - *Test that runner yields state updates for UI.*
+- **`test_run_records_latency`**
+  - *Test that runner records latency for completed tests.*
+- **`test_export_json_no_results`**
+  - *Test export returns error when no battery run exists.*
+- **`test_export_json_with_results`**
+  - *Test export creates file with results.*
+- **`test_export_csv_with_results`**
+  - *Test CSV export creates file with results.*
+- **`test_export_image_with_results`**
+  - *Test image export creates valid PNG file.*
+- **`test_export_image_no_results`**
+  - *Test image export returns error when no battery run exists.*
+- **`test_export_basename_from_source_file`**
+  - *Test export filename derives from source file.*
+- **`test_state_cleared_on_file_upload`**
+  - *Test that battery_run is cleared when new file is uploaded.*
+- **`test_state_cleared_on_file_removal`**
+  - *Test that state is cleared when file is removed.*
+- **`test_stop_flag_default_false`**
+  - *Test stop flag starts as False.*
+- **`test_request_stop_sets_flag`**
+  - *Test request_stop sets the flag.*
+- **`test_clear_stop_resets_flag`**
+  - *Test clear_stop resets the flag.*
+- **`test_get_cell_detail_strips_gpu_prefix`**
+  - *Test that get_cell_detail works with GPU-prefixed model names.*
+- **`test_get_cell_detail_handles_model_with_slashes`**
+  - *Test prefix stripping with complex model paths containing slashes.*
+- **`test_get_cell_detail_without_prefix_still_works`**
+  - *Test that non-prefixed model names still work (backwards compat).*
+- **`test_import_valid_promptfoo_config`**
+  - *Test importing a valid promptfoo YAML config.*
+- **`test_import_no_file`**
+  - *Test importing with no file returns error.*
+- **`test_import_empty_config`**
+  - *Test importing config with no prompts returns error.*
+- **`test_imported_file_is_valid_json`**
+  - *Test that imported temp file is valid Battery JSON.*
+
+## `tests/test_config.py`
+
+- **`test_message_creation_user`**
+  - *Test creating a user message.*
+- **`test_message_creation_assistant`**
+  - *Test creating an assistant message.*
+- **`test_message_creation_system`**
+  - *Test creating a system message.*
+- **`test_message_multimodal_content`**
+  - *Test creating a message with multimodal content (text + image).*
+- **`test_message_get_text_from_string`**
+  - *Test get_text returns content for string messages.*
+- **`test_message_get_text_from_multimodal`**
+  - *Test get_text extracts text from multimodal content.*
+- **`test_message_has_image_false_for_string`**
+  - *Test has_image returns False for string content.*
+- **`test_message_has_image_true_for_multimodal`**
+  - *Test has_image returns True when image_url present.*
+- **`test_message_has_image_false_for_text_only_list`**
+  - *Test has_image returns False for list without image.*
+- **`test_server_config_defaults`**
+  - *Test ServerConfig with default values.*
+- **`test_server_config_with_models`**
+  - *Test ServerConfig with models list.*
+- **`test_server_config_busy_state`**
+  - *Test ServerConfig busy state.*
+- **`test_model_config_basic`**
+  - *Test ModelConfig with just model_id.*
+- **`test_model_config_with_display_name`**
+  - *Test ModelConfig with display name.*
+- **`test_model_config_tab_name_uses_display_name`**
+  - *Test tab_name returns display_name when set.*
+- **`test_model_config_tab_name_fallback_to_model_id`**
+  - *Test tab_name returns model_id when display_name not set.*
+- **`test_model_context_creation`**
+  - *Test creating a ModelContext.*
+- **`test_model_context_add_user_message`**
+  - *Test adding user message to context.*
+- **`test_model_context_add_user_message_with_image`**
+  - *Test adding user message with image attachment.*
+- **`test_model_context_add_assistant_message`**
+  - *Test adding assistant message to context.*
+- **`test_model_context_to_openai_messages`**
+  - *Test converting context to OpenAI message format.*
+- **`test_model_context_to_display_format`**
+  - *Test converting context to display format.*
+- **`test_model_context_to_display_format_with_error`**
+  - *Test display format includes error when present.*
+- **`test_model_context_to_display_format_with_image`**
+  - *Test display format shows image indicator.*
+- **`test_build_multimodal_content_text_only`**
+  - *Test build_multimodal_content returns string when no image.*
+- **`test_build_multimodal_content_with_image`**
+  - *Test build_multimodal_content returns list with image.*
+- **`test_encode_image_to_data_url`**
+  - *Test encode_image_to_data_url creates valid data URL.*
+- **`test_encode_image_to_data_url_jpeg`**
+  - *Test encode_image_to_data_url handles JPEG files.*
+- **`test_session_state_creation`**
+  - *Test creating a SessionState.*
+- **`test_session_state_with_custom_settings`**
+  - *Test SessionState with custom settings.*
+- **`test_session_state_defaults`**
+  - *Test SessionState uses default values.*
+- **`test_load_servers_from_env_with_servers`**
+  - *Test loading servers from environment variables.*
+- **`test_load_servers_from_env_empty`**
+  - *Test loading servers when no env vars set.*
+- **`test_load_servers_from_env_skips_empty_values`**
+  - *Test that empty env var values are skipped.*
+- **`test_default_temperature_range`**
+  - *Test default temperature is in valid range.*
+- **`test_default_timeout_positive`**
+  - *Test default timeout is positive.*
+- **`test_default_max_tokens_positive`**
+  - *Test default max tokens is positive.*
+- **`test_manifest_refresh_interval_positive`**
+  - *Test manifest refresh interval is positive.*
+- **`test_gradio_port_not_hardcoded_in_environment`**
+  - *Test that GRADIO_PORT is not explicitly set in docker-compose.yml environment.*
+- **`test_port_mapping_uses_variable_substitution`**
+  - *Test that port mapping uses ${GRADIO_PORT} variable.*
+
+## `tests/test_core.py`
+
+- **`test_server_pool_initialization`**
+  - *Test ServerPool initializes with servers.*
+- **`test_server_pool_servers_have_empty_models`**
+  - *Test newly initialized servers have no models.*
+- **`test_server_pool_refresh_success`**
+  - *Test refreshing fetches both manifest and load state from servers.*
+- **`test_server_pool_refresh_server_down`**
+  - *Test refresh handles server failure gracefully.*
+- **`test_server_pool_find_server_found`**
+  - *Test finding server for a model in manifest.*
+- **`test_server_pool_find_server_not_found`**
+  - *Test returns None when model not available.*
+- **`test_server_pool_find_server_skips_busy`**
+  - *Test skips busy servers when finding available.*
+- **`test_server_pool_find_server_prefers_loaded`**
+  - *Test find_server prefers server where model is already loaded.*
+- **`test_server_pool_get_available_models`**
+  - *Test getting union of all manifest models.*
+- **`test_server_pool_get_available_models_only_loaded`**
+  - *Test getting only loaded models.*
+- **`test_server_pool_multiple_loaded_models_on_one_server`**
+  - *Test that multiple models can be loaded on a single server.*
+- **`test_server_pool_find_server_with_multiple_loaded`**
+  - *Test find_server works when multiple models are loaded.*
+- **`test_server_pool_refresh_multiple_loaded`**
+  - *Test refresh correctly identifies multiple loaded models.*
+- **`test_server_pool_acquire_release`**
+  - *Test acquiring and releasing server locks.*
+- **`test_stream_completion_success`**
+  - *Test streaming completion yields chunks correctly.*
+- **`test_stream_completion_timeout`**
+  - *Test streaming completion handles timeout.*
+- **`test_stream_completion_with_seed`**
+  - *Test streaming completion includes seed in payload when provided.*
+- **`test_stream_completion_without_seed`**
+  - *Test streaming completion excludes seed when not provided.*
+- **`test_stream_completion_with_repeat_penalty`**
+  - *Test streaming completion includes repeat_penalty in payload when provided.*
+- **`test_stream_completion_without_repeat_penalty`**
+  - *Test streaming completion excludes repeat_penalty when set to 1.0.*
+- **`test_stream_completion_omits_temperature_when_none`**
+  - *Test streaming completion excludes temperature when not provided.*
+- **`test_stream_completion_includes_temperature_when_provided`**
+  - *Test streaming completion includes temperature when explicitly set.*
+- **`test_tool_call_accumulated_not_fragmented`**
+  - *Bug #36: Tool call arguments should be accumulated, not fragmented.*
+- **`test_tool_call_multiple_calls_accumulated`**
+  - *Bug #36: Multiple tool calls should each be accumulated separately.*
+- **`test_get_completion_success`**
+  - *Test non-streaming completion returns full response.*
+- **`test_get_completion_http_error`**
+  - *Test completion handles HTTP errors with user-friendly message.*
+- **`test_comparison_session_init`**
+  - *Test ComparisonSession initialization.*
+- **`test_comparison_session_creates_contexts_for_all_models`**
+  - *Test session creates empty context for each model.*
+- **`test_comparison_session_send_single_prompt`**
+  - *Test sending prompt to single model.*
+- **`test_comparison_session_send_all_parallel`**
+  - *Test sending prompt to all models.*
+- **`test_comparison_session_halt_on_error`**
+  - *Test session halts on model error.*
+- **`test_comparison_session_get_context_display`**
+  - *Test getting display format for a model.*
+- **`test_comparison_session_get_all_contexts`**
+  - *Test getting all context displays.*
+- **`test_initialize_session_strips_gpu_prefix`**
+  - *Test that initialize_session works with GPU-prefixed model names.*
+- **`test_initialize_session_handles_complex_model_paths`**
+  - *Test prefix stripping with complex model paths containing slashes.*
+- **`test_initialize_session_without_prefix_still_works`**
+  - *Test that non-prefixed model names still work (backwards compat).*
+
+## `tests/test_export.py`
+
+- **`test_generate_markdown_report_basic`**
+  - *Test generating a basic markdown report.*
+- **`test_generate_markdown_report_with_error`**
+  - *Test markdown report includes model errors.*
+- **`test_generate_markdown_report_halted_session`**
+  - *Test markdown report shows halted status.*
+- **`test_generate_markdown_report_includes_system_prompt`**
+  - *Test markdown report includes system prompt.*
+- **`test_generate_markdown_report_empty_contexts`**
+  - *Test markdown report with no messages.*
+- **`test_generate_json_report_structure`**
+  - *Test JSON report has correct structure.*
+- **`test_generate_json_report_configuration`**
+  - *Test JSON report configuration section.*
+- **`test_generate_json_report_conversations`**
+  - *Test JSON report conversations section.*
+- **`test_generate_json_report_with_error`**
+  - *Test JSON report includes errors.*
+- **`test_generate_json_report_halted`**
+  - *Test JSON report halted status.*
+- **`test_generate_json_report_is_valid_json`**
+  - *Test JSON report is valid parseable JSON.*
+- **`test_generate_json_report_excludes_server_metadata`**
+  - *Bug #31: Server metadata should not appear in exported JSON.*
+- **`test_save_report_writes_file`**
+  - *Test save_report writes content to file.*
+- **`test_save_report_creates_utf8_file`**
+  - *Test save_report creates UTF-8 encoded file.*
+- **`test_save_report_overwrites_existing`**
+  - *Test save_report overwrites existing file.*
+- **`test_markdown_report_timestamp_format`**
+  - *Test markdown report has ISO format timestamp.*
+- **`test_json_report_timestamp_format`**
+  - *Test JSON report has ISO format timestamp.*
+
+## `tests/test_huggingface_adapter.py`
+
+- **`test_init_with_token_and_models`**
+  - *Adapter initializes with token and model list.*
+- **`test_init_with_env_token`**
+  - *Adapter reads token from HF_TOKEN env var if not provided.*
+- **`test_init_without_token_raises`**
+  - *Adapter raises if no token provided and HF_TOKEN not set.*
+- **`test_get_available_models_returns_user_list`**
+  - *get_available_models returns the user-provided model list.*
+- **`test_add_model`**
+  - *add_model adds to the model list.*
+- **`test_add_model_no_duplicates`**
+  - *add_model doesn't add duplicates.*
+- **`test_remove_model`**
+  - *remove_model removes from the model list.*
+- **`test_stream_completion_yields_content`**
+  - *stream_completion yields text chunks from HF API.*
+- **`test_stream_completion_handles_none_content`**
+  - *stream_completion skips chunks with None content.*
+- **`test_stream_completion_with_tools`**
+  - *stream_completion passes tools to API.*
+- **`test_real_completion`**
+  - *Test real completion against HF Inference API.*
+
+## `tests/test_integration.py`
+
+- **`test_refresh_populates_manifest_models`**
+  - *refresh() should populate manifest_models from /v1/models.*
+- **`test_refresh_populates_loaded_models`**
+  - *refresh() should populate loaded_models from /api/v0/models.*
+- **`test_get_available_models_returns_all`**
+  - *get_available_models(only_loaded=False) returns all manifest models.*
+- **`test_get_available_models_only_loaded_filters`**
+  - *get_available_models(only_loaded=True) returns only loaded models.*
+- **`test_find_server_for_manifest_model`**
+  - *find_server() should find server for any manifest model.*
+- **`test_find_server_for_loaded_model`**
+  - *find_server() should find server for loaded model.*
+- **`test_find_server_returns_none_for_unknown`**
+  - *find_server() should return None for unknown model.*
+- **`test_model_id_format_consistency`**
+  - *Model IDs from /v1/models should match those from /api/v0/models.*
+- **`test_only_loaded_returns_vram_models`**
+  - *The only_loaded filter should return exactly the models in VRAM.*
+
+## `tests/test_main.py`
+
+- **`test_parse_models_input_newline_separated`**
+  - *Test parsing newline-separated models.*
+- **`test_parse_models_input_comma_separated`**
+  - *Test parsing comma-separated models.*
+- **`test_parse_models_input_mixed`**
+  - *Test parsing mixed newline and comma separated.*
+- **`test_parse_models_input_strips_whitespace`**
+  - *Test whitespace is stripped from model names.*
+- **`test_parse_models_input_empty`**
+  - *Test empty input returns empty list.*
+- **`test_parse_models_input_skips_blank_lines`**
+  - *Test blank lines are skipped.*
+- **`test_parse_servers_input_newline_separated`**
+  - *Test parsing newline-separated servers.*
+- **`test_parse_servers_input_comma_separated`**
+  - *Test parsing comma-separated servers.*
+- **`test_parse_servers_input_empty`**
+  - *Test empty input returns empty list.*
+- **`test_load_system_prompt_from_file`**
+  - *Test loading system prompt from provided file.*
+- **`test_load_system_prompt_default_when_no_file`**
+  - *Test fallback prompt when no file provided.*
+- **`test_load_system_prompt_nonexistent_file`**
+  - *Test fallback prompt when file doesn't exist.*
+- **`test_parse_prompts_file_basic`**
+  - *Test parsing prompts from file content.*
+- **`test_parse_prompts_file_skips_empty_lines`**
+  - *Test empty lines are skipped.*
+- **`test_parse_prompts_file_strips_whitespace`**
+  - *Test whitespace is stripped.*
+- **`test_initialize_session_success`**
+  - *Test successful session initialization.*
+- **`test_initialize_session_missing_servers`**
+  - *Test initialization fails without servers.*
+- **`test_initialize_session_missing_models`**
+  - *Test initialization fails without models.*
+- **`test_initialize_session_model_not_found`**
+  - *Test initialization warns when model not on any server.*
+- **`test_send_single_prompt_success`**
+  - *Test sending a single prompt.*
+- **`test_send_single_prompt_no_session`**
+  - *Test sending prompt without initialized session.*
+- **`test_send_single_prompt_empty`**
+  - *Test sending empty prompt.*
+- **`test_clear_session_with_active_session`**
+  - *Test clearing an active session.*
+- **`test_clear_session_without_session`**
+  - *Test clearing when no session exists.*
+- **`test_export_markdown_no_session`**
+  - *Test export markdown without session.*
+- **`test_export_json_no_session`**
+  - *Test export JSON without session.*
+- **`test_export_markdown_with_session`**
+  - *Test export markdown with active session - returns file for download.*
+- **`test_export_json_with_session`**
+  - *Test export JSON with active session - returns file for download.*
+- **`test_streaming_no_user_message_duplication`**
+  - *Test that user message is not duplicated during streaming.*
+- **`test_streaming_intermediate_output_no_duplication`**
+  - *Test intermediate streaming updates don't duplicate messages.*
+- **`test_launch_beyond_compare_no_session`**
+  - *Test Beyond Compare fails without session.*
+- **`test_launch_beyond_compare_missing_model_selection`**
+  - *Test Beyond Compare fails when models not selected.*
+- **`test_launch_beyond_compare_same_model`**
+  - *Test Beyond Compare fails when same model selected twice.*
+- **`test_launch_beyond_compare_model_not_in_session`**
+  - *Test Beyond Compare fails when model not in session.*
+- **`test_launch_beyond_compare_no_content`**
+  - *Test Beyond Compare fails when no conversation content.*
+- **`test_launch_beyond_compare_executable_not_found`**
+  - *Test Beyond Compare handles missing executable gracefully.*
+- **`test_fetch_available_models_success`**
+  - *Test fetching models from servers.*
+- **`test_fetch_available_models_no_servers`**
+  - *Test fetch fails with no servers configured.*
+- **`test_fetch_available_models_server_down`**
+  - *Test fetch handles unreachable servers.*
+- **`test_fetch_only_loaded_filters_models`**
+  - *Test fetch with only_loaded=True filters to loaded models only.*
+- **`test_fetch_only_loaded_no_models_loaded`**
+  - *Test fetch with only_loaded=True when no models are loaded.*
+- **`test_fetch_without_only_loaded_returns_all`**
+  - *Test fetch with only_loaded=False returns all available models.*
+- **`test_fetch_only_loaded_multiple_servers`**
+  - *Test only_loaded with models loaded on different servers.*
+
+## `tests/test_parsers.py`
+
+- **`test_comma_separated`**
+  - *Test parsing comma-separated models.*
+- **`test_newline_separated`**
+  - *Test parsing newline-separated models.*
+- **`test_mixed_separators`**
+  - *Test parsing with mixed separators.*
+- **`test_empty_input`**
+  - *Test empty input returns empty list.*
+- **`test_whitespace_stripped`**
+  - *Test whitespace is stripped from items.*
+- **`test_newline_separated`**
+  - *Test parsing newline-separated servers.*
+- **`test_comma_separated`**
+  - *Test parsing comma-separated servers.*
+- **`test_basic_prefix`**
+  - *Test parsing basic prefixed model.*
+- **`test_different_index`**
+  - *Test parsing with different server index.*
+- **`test_model_with_slashes`**
+  - *Test parsing model ID containing slashes (GGUF paths).*
+- **`test_model_with_colon_in_name`**
+  - *Test model ID containing colons after the prefix.*
+- **`test_double_digit_index`**
+  - *Test parsing with double-digit server index.*
+- **`test_invalid_format_raises`**
+  - *Test that invalid format raises ValueError.*
+- **`test_missing_space_after_colon_raises`**
+  - *Test that missing space after colon raises ValueError.*
+
+## `tests/test_promptfoo.py`
+
+- **`test_parses_string_provider_ids`**
+  - *Parse simple string provider format.*
+- **`test_parses_dict_provider_format`**
+  - *Parse provider with id key and config.*
+- **`test_filters_only_huggingface_providers`**
+  - *Only extract huggingface: prefixed providers.*
+- **`test_handles_missing_providers_key`**
+  - *Return empty list when providers key missing.*
+- **`test_handles_empty_providers`**
+  - *Return empty list when providers is empty.*
+- **`test_handles_malformed_yaml`**
+  - *Raise error for invalid YAML.*
+- **`test_handles_missing_file`**
+  - *Raise error for missing file.*
+- **`test_extracts_all_provider_types`**
+  - *Return dict with all provider types when requested.*
+- **`test_parses_simple_prompts`**
+  - *Parse prompts array into test cases.*
+- **`test_parses_tests_with_vars`**
+  - *Parse tests array with variable substitution.*
+- **`test_parses_tests_with_assertions`**
+  - *Parse tests with assert conditions.*
+- **`test_generates_unique_ids`**
+  - *Each test case should have a unique id.*
+- **`test_handles_missing_prompts`**
+  - *Return empty list when prompts missing.*
+- **`test_parses_description_as_name`**
+  - *Use test description as name field.*
+
+## `tests/test_semantic_validator.py`
+
+- **`test_detects_sorry_but`**
+- **`test_detects_cannot`**
+- **`test_detects_im_not_able`**
+- **`test_detects_as_an_ai`**
+- **`test_detects_cannot_execute`**
+- **`test_no_refusal_in_normal_response`**
+- **`test_no_refusal_in_tool_call_response`**
+- **`test_no_refusal_in_code_response`**
+- **`test_case_insensitive`**
+- **`test_detects_tool_call_marker`**
+- **`test_detects_multiple_tool_calls`**
+- **`test_no_tool_call_in_text`**
+- **`test_no_tool_call_in_refusal`**
+- **`test_simple_text_response_passes`**
+  - *Text response to non-tool test should pass.*
+- **`test_refusal_fails_any_test`**
+  - *Refusal should fail regardless of test type.*
+- **`test_tool_required_passes_with_call`**
+  - *Tool test with tool_choice=required should pass when tool is called.*
+- **`test_tool_required_fails_without_call`**
+  - *Tool test with tool_choice=required should fail when no tool called.*
+- **`test_tool_none_passes_without_call`**
+  - *Tool test with tool_choice=none should pass when no tool called.*
+- **`test_tool_none_fails_with_call`**
+  - *Tool test with tool_choice=none should fail when tool is called.*
+- **`test_tool_auto_passes_either_way`**
+  - *Tool test with tool_choice=auto should pass with or without tool call.*
+- **`test_refusal_trumps_tool_presence`**
+  - *Even with a tool call, refusal patterns should fail the test.*
+
+## `tests/test_tool_parsers.py`
+
+- **`test_detects_openai_style_tool_call`**
+- **`test_detects_multiple_tool_calls`**
+- **`test_returns_none_for_no_tool_calls`**
+- **`test_handles_json_without_language_tag`**
+- **`test_detects_lfm_style_tool_call`**
+- **`test_detects_multiple_lfm_tool_calls`**
+- **`test_falls_back_to_openai_style`**
+- **`test_returns_none_for_no_tool_calls`**
+- **`test_detects_tool_call_tag`**
+- **`test_detects_function_call_tag`**
+- **`test_falls_back_to_openai_style`**
+- **`test_returns_liquidai_parser_for_lfm`**
+- **`test_returns_liquidai_parser_for_lfm_uppercase`**
+- **`test_returns_liquidai_parser_for_liquid`**
+- **`test_returns_hermes_parser_for_hermes`**
+- **`test_returns_hermes_parser_for_nous_hermes`**
+- **`test_returns_base_parser_for_unknown`**
+- **`test_returns_base_parser_for_none`**
+- **`test_detects_openai_style_without_model`**
+- **`test_detects_lfm_style_with_model`**
+- **`test_lfm_style_not_detected_without_model`**
+- **`test_no_tool_calls_returns_false`**
+- **`test_parses_and_returns_structured_data`**
+- **`test_parses_lfm_with_model_id`**
+
+## `tests/test_ui_helpers.py`
+
+- **`test_does_not_hide_panels`**
+  - *Regression test for #44: Panel hiding broke Gradio tab rendering.*
+- **`test_hides_tab_buttons_for_empty_status`**
+  - *Tab buttons should be hidden when status is empty.*
+- **`test_updates_tab_labels_with_model_names`**
+  - *Tab labels should be updated with truncated model names.*
+- **`test_applies_status_colors`**
+  - *Tab buttons should get colored backgrounds based on status.*
+- **`test_sets_black_text_color`**
+  - *Regression test for #42: Tab text should be black for readability.*
