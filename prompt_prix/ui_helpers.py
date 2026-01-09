@@ -59,7 +59,6 @@ function updateTabColors(tabStates) {
     const tabContainer = document.getElementById('model-tabs');
     if (!tabContainer) return tabStates;
     const buttons = tabContainer.querySelectorAll('button[role="tab"]');
-    const panels = tabContainer.querySelectorAll('[role="tabpanel"]');
 
     tabStates.forEach((item, index) => {
         if (index < buttons.length) {
@@ -75,12 +74,10 @@ function updateTabColors(tabStates) {
                 btn.textContent = displayName;
             }
 
-            // Show/hide tabs based on whether they have content
+            // Show/hide tab buttons based on whether they have content
+            // NOTE: Only hide buttons, not panels - Gradio manages panel visibility
             const hasContent = status && status !== '';
             btn.style.display = hasContent ? '' : 'none';
-            if (panels[index]) {
-                panels[index].style.display = hasContent ? '' : 'none';
-            }
 
             // Apply status colors
             if (status === 'pending') {
