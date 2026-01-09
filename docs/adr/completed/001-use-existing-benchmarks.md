@@ -15,17 +15,17 @@ This raised the question: should prompt-prix define its own eval format, or adop
 
 ## Decision
 
-**Adopt existing benchmark formats (BFCL, Inspect AI) rather than creating a bespoke schema.**
+**Adopt existing benchmark formats (promptfoo, Inspect AI) rather than creating a bespoke schema.**
 
 prompt-prix will:
-1. Accept prompts in standard formats used by BFCL and Inspect AI
+1. Accept prompts in standard formats used by promptfoo and Inspect AI
 2. Not define or maintain its own evaluation schema specification
 3. Treat any custom JSON (like `tool_competence_tests.json`) as sample input, not a specification
 
 ## Rationale
 
 ### Interoperability over Custom
-- BFCL (Berkeley Function Calling Leaderboard) already has community adoption
+- promptfoo has wide community adoption and mature YAML format
 - Inspect AI (UK AISI) has MIT license and `pip install inspect-ai`
 - Using standard formats means users can reuse their existing test suites
 
@@ -42,7 +42,7 @@ prompt-prix will:
 ## Consequences
 
 ### Positive
-- Users with existing BFCL/Inspect AI test suites can use them directly
+- Users with existing promptfoo/Inspect AI test suites can use them directly
 - No schema maintenance burden
 - Clear positioning: "visual comparison tool, not eval framework"
 
@@ -53,11 +53,11 @@ prompt-prix will:
 
 ### Migration
 - Move `tool_competence_tests.json` to `examples/` directory
-- Update documentation to reference BFCL/Inspect AI as upstream sources
+- Update documentation to reference promptfoo/Inspect AI as upstream sources
 - Consider building format detection/conversion utilities if demand arises
 
 ## References
 
-- [BFCL GitHub](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard)
+- [promptfoo](https://www.promptfoo.dev/)
 - [Inspect AI](https://inspect.ai-safety-institute.org.uk/)
 - [NESTful Paper](https://arxiv.org/abs/2409.03797)

@@ -19,7 +19,7 @@ Fan-out means:
 ## Rationale
 
 ### Differentiating Pattern
-Existing eval frameworks (BFCL, Inspect AI) focus on:
+Existing eval frameworks (promptfoo, Inspect AI) focus on:
 - Running benchmarks at scale
 - Computing aggregate metrics
 - Producing leaderboards
@@ -72,6 +72,6 @@ User prompt: "Get the weather in Tokyo"
 
 ### Integration with Benchmarks
 ```
-BFCL test case → prompt-prix → Fan-out to N models → Visual comparison
-                                (human judges which responses are best)
+Test case (promptfoo/JSON) → prompt-prix → Fan-out to N models → Visual comparison
+                                           (human judges which responses are best)
 ```
