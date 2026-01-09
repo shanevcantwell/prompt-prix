@@ -582,8 +582,8 @@ class TestBatteryExport:
         status, file_update = export_json()
 
         assert "✅" in status
-        # Returns gr.update(visible=True, value=filepath)
-        assert file_update["visible"] is True
+        # Returns gr.update(visible=False, value=filepath) - File hidden, JS triggers download
+        assert file_update["visible"] is False
         filepath = file_update["value"]
         assert filepath is not None
         assert os.path.exists(filepath)
@@ -618,8 +618,8 @@ class TestBatteryExport:
         status, file_update = export_csv()
 
         assert "✅" in status
-        # Returns gr.update(visible=True, value=filepath)
-        assert file_update["visible"] is True
+        # Returns gr.update(visible=False, value=filepath) - File hidden, JS triggers download
+        assert file_update["visible"] is False
         filepath = file_update["value"]
         assert filepath is not None
         assert filepath.endswith(".csv")
@@ -663,8 +663,8 @@ class TestBatteryExport:
         status, file_update = export_grid_image()
 
         assert "✅" in status
-        # Returns gr.update(visible=True, value=filepath)
-        assert file_update["visible"] is True
+        # Returns gr.update(visible=False, value=filepath) - File hidden, JS triggers download
+        assert file_update["visible"] is False
         filepath = file_update["value"]
         assert filepath is not None
         assert filepath.endswith(".png")

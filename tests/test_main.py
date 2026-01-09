@@ -417,8 +417,8 @@ class TestExportFunctions:
         status, file_update = main.export_markdown()
 
         assert "✅" in status or "Exported" in status
-        # New behavior: returns gr.update dict with filepath
-        assert file_update["visible"] is True
+        # Returns gr.update(visible=False, value=filepath) - File hidden, JS triggers download
+        assert file_update["visible"] is False
         filepath = file_update["value"]
         assert filepath.endswith(".md")
 
@@ -448,8 +448,8 @@ class TestExportFunctions:
         status, file_update = main.export_json()
 
         assert "✅" in status or "Exported" in status
-        # New behavior: returns gr.update dict with filepath
-        assert file_update["visible"] is True
+        # Returns gr.update(visible=False, value=filepath) - File hidden, JS triggers download
+        assert file_update["visible"] is False
         filepath = file_update["value"]
         assert filepath.endswith(".json")
 
