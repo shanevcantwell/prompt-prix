@@ -425,7 +425,11 @@ def export_grid_image():
     filepath = os.path.join(temp_dir, f"{basename}.png")
     img.save(filepath, 'PNG')
 
-    return f"✅ Exported grid image ({len(models)} models × {len(tests)} tests)", gr.update(visible=True, value=filepath)
+    # Verify file was created
+    if not os.path.exists(filepath):
+        return "❌ Failed to save image file", gr.update(visible=False, value=None)
+
+    return f"✅ Exported: {filepath}", gr.update(visible=True, value=filepath)
 
 
 def get_cell_detail(model: str, test: str) -> str:

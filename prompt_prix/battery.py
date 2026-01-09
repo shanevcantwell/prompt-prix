@@ -148,17 +148,21 @@ class TestResult(BaseModel):
 
     @property
     def latency_display(self) -> str:
-        """Formatted latency for grid display."""
+        """Formatted latency for grid display.
+
+        Shows status symbol + time (e.g., '✓ 1.2s', '❌ 2.1s').
+        """
         if self.status == TestStatus.PENDING:
             return "—"
         elif self.status == TestStatus.RUNNING:
             return "⏳"
         elif self.latency_ms is not None:
-            # Format as seconds with 1 decimal for readability
+            # Format as symbol + seconds with 1 decimal for readability
             seconds = self.latency_ms / 1000
-            return f"{seconds:.1f}s"
+            return f"{self.status_symbol} {seconds:.1f}s"
         else:
-            return "—"
+            # Completed without latency (shouldn't happen normally)
+            return self.status_symbol
 
     def get_display(self, mode: "GridDisplayMode") -> str:
         """Get display string for the specified mode."""

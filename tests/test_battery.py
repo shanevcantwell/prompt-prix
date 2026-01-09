@@ -415,8 +415,8 @@ class TestBatteryRun:
 
         grid = run.to_grid(GridDisplayMode.LATENCY)
         assert grid[0] == ["Test", "m1", "m2"]  # Header
-        assert grid[1] == ["t1", "1.5s", "2.5s"]  # t1 latencies
-        assert grid[2] == ["t2", "—", "—"]       # t2 pending
+        assert grid[1] == ["t1", "✓ 1.5s", "⚠ 2.5s"]  # t1: symbol + latencies
+        assert grid[2] == ["t2", "—", "—"]             # t2 pending
 
     def test_progress_tracking(self):
         """Test progress calculation."""
@@ -639,6 +639,55 @@ class TestBatteryExport:
         assert "Hello\nWorld" in rows[1][4]  # Newlines preserved in response
 
         state.battery_run = None
+
+    def test_export_image_with_results(self):
+        """Test image export creates valid PNG file."""
+        import os
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import export_grid_image
+
+        run = BatteryRun(tests=["t1", "t2"], models=["m1", "m2"])
+        run.set_result(TestResult(
+            test_id="t1", model_id="m1",
+            status=TestStatus.COMPLETED,
+            response="Test response",
+            latency_ms=500.0
+        ))
+        run.set_result(TestResult(
+            test_id="t1", model_id="m2",
+            status=TestStatus.ERROR,
+            error="Test error"
+        ))
+        state.battery_run = run
+
+        status, file_update = export_grid_image()
+
+        assert "✅" in status
+        # Returns gr.update(visible=True, value=filepath)
+        assert file_update["visible"] is True
+        filepath = file_update["value"]
+        assert filepath is not None
+        assert filepath.endswith(".png")
+        assert os.path.exists(filepath)
+
+        # Verify it's a valid PNG (check magic bytes)
+        with open(filepath, "rb") as f:
+            header = f.read(8)
+        assert header[:4] == b'\x89PNG', "File should have PNG magic bytes"
+
+        state.battery_run = None
+
+    def test_export_image_no_results(self):
+        """Test image export returns error when no battery run exists."""
+        from prompt_prix import state
+        from prompt_prix.tabs.battery.handlers import export_grid_image
+
+        state.battery_run = None
+        status, file_update = export_grid_image()
+
+        assert "❌" in status
+        assert file_update["visible"] is False
+        assert file_update["value"] is None
 
     def test_export_basename_from_source_file(self):
         """Test export filename derives from source file."""

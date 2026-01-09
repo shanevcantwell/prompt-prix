@@ -36,7 +36,8 @@ IDENTIFY → FILE → TEST-DRIVEN LOOP → COMMIT → LABEL → VERIFY & CLOSE
 Core rules:
 - File the issue before writing code, even for "quick fixes"
 - Write failing test before implementing fix
-- One issue = one atomic commit
+- One issue = one atomic commit—**never batch unrelated fixes**
+- Multiple bugs = multiple commits (enables bisect, independent revert)
 - Use `Ref #N` (not `Fix #N`) to avoid auto-close before verification
 - Label with `needs-verification` after commit
 - Close only after manual verification confirms fix
