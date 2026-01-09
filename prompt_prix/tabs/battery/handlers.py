@@ -28,15 +28,74 @@ def validate_file(file_obj) -> str:
     """
     Validate benchmark file before enabling Run button.
 
+    Supports JSON, JSONL, and promptfoo YAML formats.
+    YAML files are auto-converted to JSON for Battery consumption.
+
     Returns validation message string. Starts with ✅ if valid, ❌ if not.
     """
     if file_obj is None:
-        return "Upload a benchmark JSON file"
+        return "Upload a benchmark file"
 
+    file_path = Path(file_obj)
+
+    # Auto-detect and convert YAML (promptfoo) format
+    if file_path.suffix.lower() in ['.yaml', '.yml']:
+        return _validate_and_convert_yaml(file_obj)
+
+    # JSON/JSONL format
     from prompt_prix.benchmarks import CustomJSONLoader
-
     valid, message = CustomJSONLoader.validate(file_obj)
     return message
+
+
+def _validate_and_convert_yaml(file_obj) -> str:
+    """
+    Validate promptfoo YAML and convert to JSON for Battery.
+
+    Stores converted JSON path in state for run_handler to use.
+    """
+    try:
+        from prompt_prix.promptfoo import parse_tests
+
+        tests = parse_tests(Path(file_obj))
+
+        if not tests:
+            return "❌ No tests found in promptfoo config"
+
+        # Convert to JSON format for Battery consumption
+        tests_data = {
+            "test_suite": f"promptfoo_{Path(file_obj).stem}",
+            "prompts": [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "user": t.user,
+                    "system": t.system,
+                    "pass_criteria": t.pass_criteria,
+                }
+                for t in tests
+            ]
+        }
+
+        # Write to temp file
+        temp_file = tempfile.NamedTemporaryFile(
+            mode='w',
+            suffix='.json',
+            prefix='promptfoo_converted_',
+            delete=False,
+            encoding='utf-8'
+        )
+        json.dump(tests_data, temp_file, indent=2)
+        temp_file.close()
+
+        # Store converted path for run_handler
+        state.battery_converted_file = temp_file.name
+        state.battery_source_file = file_obj
+
+        return f"✅ Valid promptfoo config: {len(tests)} tests"
+
+    except Exception as e:
+        return f"❌ Failed to parse: {str(e)}"
 
 
 def import_promptfoo(file_obj) -> tuple[str, str | None, list[str]]:
@@ -101,6 +160,21 @@ def get_test_ids(file_obj) -> list[str]:
     if file_obj is None:
         return []
 
+    file_path = Path(file_obj)
+
+    # For YAML files, use the converted JSON
+    if file_path.suffix.lower() in ['.yaml', '.yml']:
+        if state.battery_converted_file:
+            file_obj = state.battery_converted_file
+        else:
+            # Not yet converted - try to parse directly
+            try:
+                from prompt_prix.promptfoo import parse_tests
+                tests = parse_tests(file_path)
+                return [t.id for t in tests]
+            except Exception:
+                return []
+
     from prompt_prix.benchmarks import CustomJSONLoader
 
     try:
@@ -141,9 +215,18 @@ async def run_handler(
     from prompt_prix.adapters import LMStudioAdapter
     from prompt_prix.battery import BatteryRunner
 
+    # For YAML files, use the converted JSON
+    actual_file = file_obj
+    if Path(file_obj).suffix.lower() in ['.yaml', '.yml']:
+        if state.battery_converted_file:
+            actual_file = state.battery_converted_file
+        else:
+            yield "❌ YAML file not converted - re-upload file", []
+            return
+
     # Load test cases
     try:
-        tests = CustomJSONLoader.load(file_obj)
+        tests = CustomJSONLoader.load(actual_file)
     except Exception as e:
         yield f"❌ Failed to load tests: {e}", []
         return

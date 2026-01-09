@@ -139,3 +139,27 @@ SAVE_SERVERS_JS = """
     return servers;
 }
 """
+
+# ─────────────────────────────────────────────────────────────────────
+# JAVASCRIPT: Auto-Download Export Files
+# ─────────────────────────────────────────────────────────────────────
+
+# Triggers immediate download when a file is ready, then hides the component.
+AUTO_DOWNLOAD_JS = """
+(fileData) => {
+    if (!fileData) return fileData;
+
+    // Find the download link and click it
+    setTimeout(() => {
+        const fileComponents = document.querySelectorAll('[data-testid="file"]');
+        fileComponents.forEach(comp => {
+            const link = comp.querySelector('a[download]');
+            if (link && link.href) {
+                link.click();
+            }
+        });
+    }, 100);
+
+    return fileData;
+}
+"""

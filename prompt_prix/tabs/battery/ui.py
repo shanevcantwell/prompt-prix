@@ -18,23 +18,10 @@ def render_tab():
         with gr.Row():
             with gr.Column(scale=1):
                 battery_file = gr.File(
-                    label="Test Suite (JSON/JSONL)",
-                    file_types=[".json", ".jsonl"],
+                    label="Test Suite (JSON/JSONL/YAML)",
+                    file_types=[".json", ".jsonl", ".yaml", ".yml"],
                     type="filepath"
                 )
-                with gr.Row():
-                    promptfoo_file = gr.File(
-                        label="or promptfoo config (YAML)",
-                        file_types=[".yaml", ".yml"],
-                        type="filepath",
-                        scale=2
-                    )
-                    import_promptfoo_btn = gr.Button(
-                        "📥 Import",
-                        variant="secondary",
-                        size="sm",
-                        scale=1
-                    )
                 battery_validation = gr.Textbox(
                     label="Validation",
                     value="Upload a benchmark file",
@@ -135,8 +122,6 @@ def render_tab():
 
     return SimpleNamespace(
         file=battery_file,
-        promptfoo_file=promptfoo_file,
-        import_promptfoo_btn=import_promptfoo_btn,
         validation=battery_validation,
         system_prompt=battery_system_prompt,
         judge_model=judge_model,

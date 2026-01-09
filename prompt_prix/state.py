@@ -26,6 +26,9 @@ battery_run: Optional["BatteryRun"] = None
 # Source filename for export naming
 battery_source_file: Optional[str] = None
 
+# Converted file path (for YAML → JSON conversion)
+battery_converted_file: Optional[str] = None
+
 # Cancellation flag - checked by long-running handlers
 stop_requested: bool = False
 

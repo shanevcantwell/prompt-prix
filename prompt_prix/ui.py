@@ -22,6 +22,7 @@ from prompt_prix.ui_helpers import (
     TAB_STATUS_JS,
     PERSISTENCE_LOAD_JS,
     SAVE_SERVERS_JS,
+    AUTO_DOWNLOAD_JS,
 )
 
 # Import tab-specific handlers
@@ -150,6 +151,7 @@ def create_app() -> gr.Blocks:
         def on_battery_file_change(file_obj):
             # Clear previous battery run state when file changes
             state.battery_run = None
+            state.battery_converted_file = None  # Clear converted file
 
             if file_obj is None:
                 state.battery_source_file = None
@@ -178,25 +180,6 @@ def create_app() -> gr.Blocks:
             fn=on_battery_file_change,
             inputs=[battery.file],
             outputs=[battery.validation, battery.run_btn, battery.detail_test, battery.grid]
-        )
-
-        def on_import_promptfoo(file_obj):
-            """Handle importing promptfoo config."""
-            validation, temp_file, test_ids = battery_handlers.import_promptfoo(file_obj)
-            is_valid = validation.startswith("✅")
-
-            return (
-                validation,
-                gr.update(value=temp_file) if temp_file else gr.update(),
-                gr.update(interactive=is_valid),
-                gr.update(choices=test_ids),
-                []  # Clear grid for new file
-            )
-
-        battery.import_promptfoo_btn.click(
-            fn=on_import_promptfoo,
-            inputs=[battery.promptfoo_file],
-            outputs=[battery.validation, battery.file, battery.run_btn, battery.detail_test, battery.grid]
         )
 
         battery.run_btn.click(
@@ -247,6 +230,14 @@ def create_app() -> gr.Blocks:
             fn=battery_handlers.export_grid_image,
             inputs=[],
             outputs=[battery.status, battery.export_file]
+        )
+
+        # Auto-download when export file is ready
+        battery.export_file.change(
+            fn=None,
+            inputs=[battery.export_file],
+            outputs=[battery.export_file],
+            js=AUTO_DOWNLOAD_JS
         )
 
         # ─────────────────────────────────────────────────────────────
@@ -315,6 +306,14 @@ def create_app() -> gr.Blocks:
             fn=compare_handlers.export_json,
             inputs=[],
             outputs=[compare.status, compare.export_file]
+        )
+
+        # Auto-download when export file is ready
+        compare.export_file.change(
+            fn=None,
+            inputs=[compare.export_file],
+            outputs=[compare.export_file],
+            js=AUTO_DOWNLOAD_JS
         )
 
         # ─────────────────────────────────────────────────────────────
