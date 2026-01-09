@@ -324,7 +324,7 @@ def export_grid_image():
         return "❌ No results to render", gr.update(visible=False, value=None)
 
     # Layout constants
-    cell_width = 100
+    cell_width = 120  # Wider to fit latency text
     cell_height = 30
     header_col_width = 200  # First column for test names
     padding = 5
@@ -392,29 +392,35 @@ def export_grid_image():
 
             if result:
                 status = result.status.value
+                # Format latency if available
+                latency_str = ""
+                if result.latency_ms is not None:
+                    latency_str = f" {result.latency_ms / 1000:.1f}s"
+
+                # Use ASCII symbols that render in any font
                 if status == "completed":
                     bg_color = colors['pass']
-                    symbol = "✓"
+                    cell_text = f"OK{latency_str}"
                 elif status == "semantic_failure":
                     bg_color = colors['fail']
-                    symbol = "❌"
+                    cell_text = f"FAIL{latency_str}"
                 elif status == "error":
                     bg_color = colors['error']
-                    symbol = "⚠"
+                    cell_text = "ERR"
                 else:
                     bg_color = colors['pending']
-                    symbol = "..."
+                    cell_text = "..."
             else:
                 bg_color = colors['pending']
-                symbol = "..."
+                cell_text = "..."
 
             draw.rectangle([x, y, x + cell_width - 1, y + cell_height - 1],
                            fill=bg_color, outline=colors['border'])
-            # Center the symbol
-            text_bbox = draw.textbbox((0, 0), symbol, font=font)
+            # Center the text
+            text_bbox = draw.textbbox((0, 0), cell_text, font=font)
             text_width = text_bbox[2] - text_bbox[0]
             text_x = x + (cell_width - text_width) // 2
-            draw.text((text_x, y + padding), symbol, fill=colors['text'], font=font)
+            draw.text((text_x, y + padding), cell_text, fill=colors['text'], font=font)
             x += cell_width
 
         y += cell_height
