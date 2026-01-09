@@ -22,6 +22,19 @@ def render_tab():
                     file_types=[".json", ".jsonl"],
                     type="filepath"
                 )
+                with gr.Row():
+                    promptfoo_file = gr.File(
+                        label="or promptfoo config (YAML)",
+                        file_types=[".yaml", ".yml"],
+                        type="filepath",
+                        scale=2
+                    )
+                    import_promptfoo_btn = gr.Button(
+                        "📥 Import",
+                        variant="secondary",
+                        size="sm",
+                        scale=1
+                    )
                 battery_validation = gr.Textbox(
                     label="Validation",
                     value="Upload a benchmark file",
@@ -123,6 +136,8 @@ def render_tab():
 
     return SimpleNamespace(
         file=battery_file,
+        promptfoo_file=promptfoo_file,
+        import_promptfoo_btn=import_promptfoo_btn,
         validation=battery_validation,
         system_prompt=battery_system_prompt,
         judge_model=judge_model,

@@ -845,3 +845,68 @@ class TestGetCellDetailWithPrefix:
         assert "Simple response" in result
 
         state.battery_run = None
+
+
+class TestImportPromptfoo:
+    """Tests for promptfoo import handler."""
+
+    def test_import_valid_promptfoo_config(self, tmp_path):
+        """Test importing a valid promptfoo YAML config."""
+        import yaml
+        from prompt_prix.tabs.battery.handlers import import_promptfoo
+
+        config = {
+            "prompts": ["What is 2+2?", "What is the capital of France?"]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        validation, temp_file, test_ids = import_promptfoo(str(config_file))
+
+        assert "✅" in validation
+        assert "2 tests" in validation
+        assert temp_file is not None
+        assert len(test_ids) == 2
+
+    def test_import_no_file(self):
+        """Test importing with no file returns error."""
+        from prompt_prix.tabs.battery.handlers import import_promptfoo
+
+        validation, temp_file, test_ids = import_promptfoo(None)
+
+        assert "Select a promptfoo" in validation
+        assert temp_file is None
+        assert test_ids == []
+
+    def test_import_empty_config(self, tmp_path):
+        """Test importing config with no prompts returns error."""
+        import yaml
+        from prompt_prix.tabs.battery.handlers import import_promptfoo
+
+        config = {"providers": ["openai:gpt-4"]}
+        config_file = tmp_path / "empty.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        validation, temp_file, test_ids = import_promptfoo(str(config_file))
+
+        assert "❌" in validation
+        assert "No tests found" in validation
+
+    def test_imported_file_is_valid_json(self, tmp_path):
+        """Test that imported temp file is valid Battery JSON."""
+        import yaml
+        from prompt_prix.tabs.battery.handlers import import_promptfoo
+        from prompt_prix.benchmarks.custom import CustomJSONLoader
+
+        config = {
+            "prompts": ["Test prompt 1", "Test prompt 2"]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        validation, temp_file, test_ids = import_promptfoo(str(config_file))
+
+        # Verify the temp file is valid for Battery
+        valid, message = CustomJSONLoader.validate(temp_file)
+        assert valid is True
+        assert "2 tests" in message

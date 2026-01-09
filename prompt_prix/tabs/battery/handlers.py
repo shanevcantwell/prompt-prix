@@ -39,6 +39,63 @@ def validate_file(file_obj) -> str:
     return message
 
 
+def import_promptfoo(file_obj) -> tuple[str, str | None, list[str]]:
+    """
+    Import tests from a promptfoo YAML config file.
+
+    Converts promptfoo format to internal TestCase format and writes
+    to a temp JSON file for Battery to use.
+
+    Returns:
+        (validation_message, temp_file_path, test_ids)
+    """
+    if file_obj is None:
+        return "Select a promptfoo YAML config file", None, []
+
+    try:
+        from prompt_prix.promptfoo import parse_tests
+
+        tests = parse_tests(Path(file_obj))
+
+        if not tests:
+            return "❌ No tests found in promptfoo config", None, []
+
+        # Convert to JSON format for Battery consumption
+        tests_data = {
+            "test_suite": f"promptfoo_import_{Path(file_obj).stem}",
+            "prompts": [
+                {
+                    "id": t.id,
+                    "name": t.name,
+                    "user": t.user,
+                    "system": t.system,
+                    "pass_criteria": t.pass_criteria,
+                }
+                for t in tests
+            ]
+        }
+
+        # Write to temp file
+        temp_file = tempfile.NamedTemporaryFile(
+            mode='w',
+            suffix='.json',
+            prefix='promptfoo_import_',
+            delete=False,
+            encoding='utf-8'
+        )
+        json.dump(tests_data, temp_file, indent=2)
+        temp_file.close()
+
+        # Store for export naming
+        state.battery_source_file = temp_file.name
+
+        test_ids = [t.id for t in tests]
+        return f"✅ Imported {len(tests)} tests from promptfoo config", temp_file.name, test_ids
+
+    except Exception as e:
+        return f"❌ Failed to import: {str(e)}", None, []
+
+
 def get_test_ids(file_obj) -> list[str]:
     """Extract test IDs from benchmark file for dropdown population."""
     if file_obj is None:

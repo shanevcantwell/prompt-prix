@@ -180,6 +180,25 @@ def create_app() -> gr.Blocks:
             outputs=[battery.validation, battery.run_btn, battery.detail_test, battery.grid]
         )
 
+        def on_import_promptfoo(file_obj):
+            """Handle importing promptfoo config."""
+            validation, temp_file, test_ids = battery_handlers.import_promptfoo(file_obj)
+            is_valid = validation.startswith("✅")
+
+            return (
+                validation,
+                gr.update(value=temp_file) if temp_file else gr.update(),
+                gr.update(interactive=is_valid),
+                gr.update(choices=test_ids),
+                []  # Clear grid for new file
+            )
+
+        battery.import_promptfoo_btn.click(
+            fn=on_import_promptfoo,
+            inputs=[battery.promptfoo_file],
+            outputs=[battery.validation, battery.file, battery.run_btn, battery.detail_test, battery.grid]
+        )
+
         battery.run_btn.click(
             fn=battery_handlers.run_handler,
             inputs=[
