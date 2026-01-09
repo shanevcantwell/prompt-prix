@@ -341,7 +341,7 @@ def export_markdown() -> tuple[str, dict]:
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(report)
 
-    return f"✅ Exported: {filename}", gr.update(visible=True, value=filepath)
+    return f"✅ Exported: {filename}", gr.update(visible=False, value=filepath)
 
 
 def export_json() -> tuple[str, dict]:
@@ -364,7 +364,7 @@ def export_json() -> tuple[str, dict]:
     with open(filepath, 'w', encoding='utf-8') as f:
         f.write(report)
 
-    return f"✅ Exported: {filename}", gr.update(visible=True, value=filepath)
+    return f"✅ Exported: {filename}", gr.update(visible=False, value=filepath)
 
 
 def launch_beyond_compare(model_a: str, model_b: str) -> str:
