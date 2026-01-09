@@ -144,21 +144,27 @@ SAVE_SERVERS_JS = """
 # JAVASCRIPT: Auto-Download Export Files
 # ─────────────────────────────────────────────────────────────────────
 
-# Triggers immediate download when a file is ready, then hides the component.
+# Triggers immediate download when a file is ready.
+# Uses fileData.url directly instead of DOM scraping (more reliable in Gradio 6.x).
 AUTO_DOWNLOAD_JS = """
 (fileData) => {
     if (!fileData) return fileData;
 
-    // Find the download link and click it
-    setTimeout(() => {
-        const fileComponents = document.querySelectorAll('[data-testid="file"]');
-        fileComponents.forEach(comp => {
-            const link = comp.querySelector('a[download]');
-            if (link && link.href) {
-                link.click();
-            }
-        });
-    }, 100);
+    // Gradio 6.x FileData: {path, url, orig_name, size, mime_type, ...}
+    // Use the URL directly to trigger download
+    const url = fileData.url;
+    const filename = fileData.orig_name || fileData.path?.split('/').pop() || 'download';
+
+    if (url) {
+        // Create hidden link and trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
 
     return fileData;
 }
