@@ -98,10 +98,8 @@ def render_tab():
             compare_export_md_btn = gr.Button("Export Markdown")
             compare_export_json_btn = gr.Button("Export JSON")
 
-        compare_export_preview = gr.Textbox(
-            label="Export Preview",
-            lines=10,
-            interactive=False,
+        compare_export_file = gr.File(
+            label="Download",
             visible=False
         )
 
@@ -119,5 +117,5 @@ def render_tab():
         model_outputs=model_outputs,
         export_md_btn=compare_export_md_btn,
         export_json_btn=compare_export_json_btn,
-        export_preview=compare_export_preview
+        export_file=compare_export_file
     )

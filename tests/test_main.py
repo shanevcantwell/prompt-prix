@@ -398,67 +398,66 @@ class TestExportFunctions:
         assert "No session" in status or "❌" in status
 
     def test_export_markdown_with_session(self, tmp_path):
-        """Test export markdown with active session."""
+        """Test export markdown with active session - returns file for download."""
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
 
-        # Change to tmp directory for file output
-        import os
-        original_dir = os.getcwd()
-        os.chdir(tmp_path)
+        pool = ServerPool([MOCK_SERVER_1])
+        main.state.server_pool = pool
+        main.state.session = ComparisonSession(
+            models=[MOCK_MODEL_1],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
 
-        try:
-            pool = ServerPool([MOCK_SERVER_1])
-            main.state.server_pool = pool
-            main.state.session = ComparisonSession(
-                models=[MOCK_MODEL_1],
-                server_pool=pool,
-                system_prompt="Test",
-                temperature=0.7,
-                timeout_seconds=300,
-                max_tokens=2048
-            )
+        status, file_update = main.export_markdown()
 
-            status, content = main.export_markdown()
+        assert "✅" in status or "Exported" in status
+        # New behavior: returns gr.update dict with filepath
+        assert file_update["visible"] is True
+        filepath = file_update["value"]
+        assert filepath.endswith(".md")
 
-            assert "✅" in status or "Exported" in status
-            assert "# LLM Comparison Report" in content
-        finally:
-            os.chdir(original_dir)
+        # Verify file content
+        with open(filepath, 'r') as f:
+            content = f.read()
+        assert "# LLM Comparison Report" in content
 
     def test_export_json_with_session(self, tmp_path):
-        """Test export JSON with active session."""
+        """Test export JSON with active session - returns file for download."""
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
         import json
 
-        # Change to tmp directory for file output
-        import os
-        original_dir = os.getcwd()
-        os.chdir(tmp_path)
+        pool = ServerPool([MOCK_SERVER_1])
+        main.state.server_pool = pool
+        main.state.session = ComparisonSession(
+            models=[MOCK_MODEL_1],
+            server_pool=pool,
+            system_prompt="Test",
+            temperature=0.7,
+            timeout_seconds=300,
+            max_tokens=2048
+        )
 
-        try:
-            pool = ServerPool([MOCK_SERVER_1])
-            main.state.server_pool = pool
-            main.state.session = ComparisonSession(
-                models=[MOCK_MODEL_1],
-                server_pool=pool,
-                system_prompt="Test",
-                temperature=0.7,
-                timeout_seconds=300,
-                max_tokens=2048
-            )
+        status, file_update = main.export_json()
 
-            status, content = main.export_json()
+        assert "✅" in status or "Exported" in status
+        # New behavior: returns gr.update dict with filepath
+        assert file_update["visible"] is True
+        filepath = file_update["value"]
+        assert filepath.endswith(".json")
 
-            assert "✅" in status or "Exported" in status
-            # Verify valid JSON
-            parsed = json.loads(content)
-            assert "configuration" in parsed
-        finally:
-            os.chdir(original_dir)
+        # Verify file content
+        with open(filepath, 'r') as f:
+            content = f.read()
+        parsed = json.loads(content)
+        assert "configuration" in parsed
 
 
 class TestStreamingOutputNoDuplication:

@@ -10,6 +10,8 @@ import subprocess
 import tempfile
 from datetime import datetime
 
+import gradio as gr
+
 from prompt_prix import state
 from prompt_prix.scheduler import ServerPool
 from prompt_prix.core import ComparisonSession
@@ -319,28 +321,50 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
     yield (status, final_tab_states) + tuple(contexts)
 
 
-def export_markdown() -> tuple[str, str]:
-    """Export current session as Markdown."""
+def export_markdown() -> tuple[str, dict]:
+    """Export current session as Markdown file for download."""
     session = state.session
     if session is None:
-        return "❌ No session to export", ""
+        return "❌ No session to export", gr.update(visible=False)
 
     report = generate_markdown_report(session.state)
     filename = f"prompt-prix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-    save_report(report, filename)
-    return f"✅ Exported to {filename}", report
+
+    # Write to temp file for download
+    filepath = tempfile.NamedTemporaryFile(
+        mode='w',
+        suffix='.md',
+        prefix=filename.replace('.md', '_'),
+        delete=False,
+        encoding='utf-8'
+    ).name
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(report)
+
+    return f"✅ Exported: {filename}", gr.update(visible=True, value=filepath)
 
 
-def export_json() -> tuple[str, str]:
-    """Export current session as JSON."""
+def export_json() -> tuple[str, dict]:
+    """Export current session as JSON file for download."""
     session = state.session
     if session is None:
-        return "❌ No session to export", ""
+        return "❌ No session to export", gr.update(visible=False)
 
     report = generate_json_report(session.state)
     filename = f"prompt-prix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    save_report(report, filename)
-    return f"✅ Exported to {filename}", report
+
+    # Write to temp file for download
+    filepath = tempfile.NamedTemporaryFile(
+        mode='w',
+        suffix='.json',
+        prefix=filename.replace('.json', '_'),
+        delete=False,
+        encoding='utf-8'
+    ).name
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(report)
+
+    return f"✅ Exported: {filename}", gr.update(visible=True, value=filepath)
 
 
 def launch_beyond_compare(model_a: str, model_b: str) -> str:

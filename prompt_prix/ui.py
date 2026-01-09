@@ -289,14 +289,14 @@ def create_app() -> gr.Blocks:
         compare.export_md_btn.click(
             fn=compare_handlers.export_markdown,
             inputs=[],
-            outputs=[compare.status, compare.export_preview]
-        ).then(fn=lambda: gr.update(visible=True), outputs=[compare.export_preview])
+            outputs=[compare.status, compare.export_file]
+        )
 
         compare.export_json_btn.click(
             fn=compare_handlers.export_json,
             inputs=[],
-            outputs=[compare.status, compare.export_preview]
-        ).then(fn=lambda: gr.update(visible=True), outputs=[compare.export_preview])
+            outputs=[compare.status, compare.export_file]
+        )
 
         # ─────────────────────────────────────────────────────────────
         # PERSISTENCE

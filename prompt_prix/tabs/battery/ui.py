@@ -93,7 +93,7 @@ def render_tab():
             elem_id="battery-grid"
         )
 
-        with gr.Accordion("📋 Response Detail", open=False):
+        with gr.Accordion("📋 Response Detail", open=False, visible=False):  # Hidden until #53
             with gr.Row():
                 detail_model = gr.Dropdown(
                     label="Model",
