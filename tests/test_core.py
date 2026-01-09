@@ -972,3 +972,158 @@ class TestCompareTabWithGPUPrefix:
 
         status = result[0]
         assert "not found" not in status.lower()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# COMPARISONSESSION ADAPTER INTERFACE TESTS (#73)
+# ─────────────────────────────────────────────────────────────────────
+
+class HostAdapterMock:
+    """
+    Mock adapter implementing ONLY the HostAdapter protocol.
+
+    This mock does NOT have ServerPool methods. Tests using this mock
+    will FAIL until ComparisonSession is refactored to use HostAdapter
+    interface instead of ServerPool.
+
+    Part of #73 Phase 6 - tests for adapter refactor.
+    """
+
+    def __init__(self, responses: dict[str, str] = None):
+        self.responses = responses or {}
+        self.calls = []
+        self.acquired = []
+        self.released = []
+
+    async def get_available_models(self) -> list[str]:
+        return list(self.responses.keys())
+
+    async def stream_completion(
+        self,
+        model_id: str,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        timeout_seconds: int,
+        tools=None
+    ):
+        self.calls.append((model_id, messages))
+        response = self.responses.get(model_id, "Default response")
+        for word in response.split():
+            yield word + " "
+
+    def get_concurrency_limit(self) -> int:
+        return 2
+
+    async def acquire(self, model_id: str) -> None:
+        self.acquired.append(model_id)
+
+    async def release(self, model_id: str) -> None:
+        self.released.append(model_id)
+
+
+class TestComparisonSessionWithHostAdapter:
+    """
+    Tests for ComparisonSession using the HostAdapter interface.
+
+    These tests document the expected behavior after #73 refactor.
+    They FAIL initially because ComparisonSession currently takes ServerPool.
+
+    Phase 6 of #73 adapter refactor.
+    """
+
+    @pytest.mark.asyncio
+    async def test_session_accepts_adapter_not_server_pool(self):
+        """ComparisonSession should accept adapter parameter, not server_pool.
+
+        This is the key test for #73 - the abstraction leak is using ServerPool.
+        After refactor, ComparisonSession should use adapter interface only.
+        """
+        from prompt_prix.core import ComparisonSession
+
+        adapter = HostAdapterMock(responses={"model-a": "Hello"})
+
+        # This should work with adapter parameter (not server_pool)
+        session = ComparisonSession(
+            adapter=adapter,
+            models=["model-a"],
+            system_prompt="You are helpful.",
+            timeout_seconds=60,
+            max_tokens=100
+        )
+
+        assert session.state.models == ["model-a"]
+
+    @pytest.mark.asyncio
+    async def test_session_uses_adapter_acquire_release(self):
+        """Session should call adapter.acquire/release for concurrency."""
+        from prompt_prix.core import ComparisonSession
+
+        adapter = HostAdapterMock(responses={"model-a": "Hello world"})
+
+        session = ComparisonSession(
+            adapter=adapter,
+            models=["model-a"],
+            system_prompt="You are helpful.",
+            timeout_seconds=60,
+            max_tokens=100
+        )
+
+        await session.send_prompt_to_model("model-a", "Hi", on_chunk=None)
+
+        assert "model-a" in adapter.acquired
+        assert "model-a" in adapter.released
+
+    @pytest.mark.asyncio
+    async def test_session_uses_adapter_stream_completion(self):
+        """Session should use adapter.stream_completion(), not core.stream_completion()."""
+        from prompt_prix.core import ComparisonSession
+
+        adapter = HostAdapterMock(responses={"model-a": "Response text"})
+
+        session = ComparisonSession(
+            adapter=adapter,
+            models=["model-a"],
+            system_prompt="Test",
+            timeout_seconds=60,
+            max_tokens=100
+        )
+
+        chunks = []
+
+        async def collect_chunks(model_id, chunk):
+            chunks.append(chunk)
+
+        await session.send_prompt_to_model("model-a", "Hello", on_chunk=collect_chunks)
+
+        # Verify adapter.stream_completion was called
+        assert len(adapter.calls) == 1
+        assert adapter.calls[0][0] == "model-a"  # model_id
+        # Verify chunks were received
+        assert len(chunks) > 0
+
+    @pytest.mark.asyncio
+    async def test_session_send_prompt_to_all_uses_adapter(self):
+        """send_prompt_to_all should work with adapter-based session."""
+        from prompt_prix.core import ComparisonSession
+
+        adapter = HostAdapterMock(responses={
+            "model-a": "Response A",
+            "model-b": "Response B"
+        })
+
+        session = ComparisonSession(
+            adapter=adapter,
+            models=["model-a", "model-b"],
+            system_prompt="Test",
+            timeout_seconds=60,
+            max_tokens=100
+        )
+
+        results = await session.send_prompt_to_all("Hello")
+
+        assert "model-a" in results
+        assert "model-b" in results
+        # Both models should have been acquired and released
+        assert len(adapter.acquired) == 2
+        assert len(adapter.released) == 2
