@@ -449,11 +449,11 @@ prompt-prix can consume test cases from established benchmark ecosystems:
 
 | Source | Format | Usage |
 |--------|--------|-------|
-| **BFCL** | JSON with function schemas | Export test cases, load in batch mode |
+| **promptfoo** | YAML with assertions | Full eval format with pass/fail criteria |
 | **Inspect AI** | Python test definitions | Export prompts, import as JSON |
 | **Custom JSON** | OpenAI-compatible messages | Direct load in prompt-prix |
 
-See [ADR-001](adr/001-use-existing-benchmarks.md) for rationale.
+See [ADR-001](adr/completed/001-use-existing-benchmarks.md) for rationale.
 
 ### API Layer: OpenAI-Compatible
 
@@ -471,7 +471,7 @@ Supported servers:
 - llama.cpp server
 - Any OpenAI-compatible proxy
 
-See [ADR-003](adr/003-openai-compatible-api.md) for rationale.
+See [ADR-003](adr/completed/003-openai-compatible-api.md) for rationale.
 
 ## Fan-Out Dispatcher Pattern
 
@@ -508,12 +508,12 @@ The dispatcher uses work-stealing for GPU efficiency:
 
 This maximizes utilization when models are distributed across multiple GPUs.
 
-See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
+See [ADR-002](adr/completed/002-fan-out-pattern-as-core.md) for rationale.
 
 ## Architecture Decision Records
 
 | ADR | Decision |
 |-----|----------|
-| [001](adr/001-use-existing-benchmarks.md) | Use existing benchmarks (BFCL, Inspect AI) instead of custom eval schema |
-| [002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
-| [003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |
+| [001](adr/completed/001-use-existing-benchmarks.md) | Use existing benchmarks (promptfoo, Inspect AI) instead of custom eval schema |
+| [002](adr/completed/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
+| [003](adr/completed/003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |

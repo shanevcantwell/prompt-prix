@@ -20,7 +20,7 @@ For prompt-prix, anything that flows through `ServerPool` or hits LM Studio APIs
 
 Mock to test handling of responses, not to simulate the external system:
 
-- Data parsing (JSON/JSONL/BFCL loaders)
+- Data parsing (JSON/JSONL/promptfoo loaders)
 - String utilities (`parse_prefixed_model()`, `parse_servers_input()`)
 - Export generation (given results, test markdown/JSON output)
 - Semantic validation patterns (refusal detection, tool call parsing)

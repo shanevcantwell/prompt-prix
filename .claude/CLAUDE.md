@@ -104,8 +104,8 @@ Output: Side-by-side visual comparison
 
 | Tool | Purpose |
 |------|---------|
-| BFCL | Function-calling benchmark |
-| Inspect AI | Evaluation framework |
+| promptfoo | Eval framework with assertions |
+| Inspect AI | Safety evaluation framework |
 | prompt-prix | Visual fan-out comparison |
 
 ---
@@ -162,7 +162,7 @@ See `docs/adr/004-compare-to-battery-export.md` for export workflow.
 
 ## Battery File Formats
 
-Supports JSON, JSONL, and BFCL formats. Required fields: `id`, `user`.
+Supports JSON, JSONL, and promptfoo YAML formats. Required fields: `id`, `user`.
 
 See `docs/BATTERY_FORMATS.md` for full schema and examples.
 

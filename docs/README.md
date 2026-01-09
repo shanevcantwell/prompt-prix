@@ -4,7 +4,7 @@ Welcome to the prompt-prix codebase documentation. This guide is designed to hel
 
 ## What is prompt-prix?
 
-**prompt-prix** is a visual fan-out UI for running the same evaluation prompts across multiple LLMs simultaneously and comparing results side-by-side. Rather than creating yet another eval framework, it serves as a **visual comparison layer** on top of existing benchmark ecosystems like [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) (Berkeley Function Calling Leaderboard) and [Inspect AI](https://inspect.ai-safety-institute.org.uk/).
+**prompt-prix** is a visual fan-out UI for running the same evaluation prompts across multiple LLMs simultaneously and comparing results side-by-side. Rather than creating yet another eval framework, it serves as a **visual comparison layer** that works with existing eval tools like [promptfoo](https://www.promptfoo.dev/) and [Inspect AI](https://inspect.ai-safety-institute.org.uk/).
 
 ### Core Concept: Fan-Out Pattern
 
@@ -19,14 +19,14 @@ This is not a replacement for proper evaluation frameworks—it's a way to quick
 
 1. **Model Selection** - Compare candidate models for agentic workflows using standardized benchmarks
 2. **Quick Comparison** - Fan out a single prompt to see how different models (or quantizations) respond
-3. **Benchmark Exploration** - Import test cases from BFCL, Inspect AI, or custom JSON and see results visually
+3. **Benchmark Exploration** - Import test cases from promptfoo YAML, Inspect AI, or custom JSON and see results visually
 4. **Multi-GPU Utilization** - Efficiently use multiple inference servers via work-stealing dispatcher
 
 ### Positioning in the Ecosystem
 
 | Tool | Purpose |
 |------|---------|
-| **BFCL** | Function-calling benchmark with leaderboard |
+| **promptfoo** | Eval framework with assertions and CI |
 | **Inspect AI** | Evaluation framework for safety testing |
 | **NESTful** | Academic benchmark for nested API calls |
 | **prompt-prix** | Visual fan-out UI for comparing model responses |
@@ -58,9 +58,9 @@ prompt-prix complements these tools by providing a visual layer for side-by-side
 
 | ADR | Decision |
 |-----|----------|
-| [ADR-001](adr/001-use-existing-benchmarks.md) | Use existing benchmarks instead of custom eval schema |
-| [ADR-002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
-| [ADR-003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as integration layer |
+| [ADR-001](adr/completed/001-use-existing-benchmarks.md) | Use existing benchmarks instead of custom eval schema |
+| [ADR-002](adr/completed/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
+| [ADR-003](adr/completed/003-openai-compatible-api.md) | OpenAI-compatible API as integration layer |
 
 ## Quick Start for Developers
 

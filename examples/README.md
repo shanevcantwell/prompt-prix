@@ -6,7 +6,7 @@ This directory contains sample input files for prompt-prix.
 
 See the [Battery File Formats](../.claude/CLAUDE.md#battery-file-formats) section for complete format documentation, including:
 - Required and optional fields
-- JSON vs JSONL vs BFCL formats
+- JSON vs JSONL vs promptfoo YAML formats
 - Validation rules
 
 ### Minimal Example
@@ -41,11 +41,11 @@ Load this file in prompt-prix's Battery tab to compare how different models hand
 
 ## Recommended Upstream Benchmarks
 
-For rigorous evaluation, consider these established benchmarks:
+For rigorous evaluation, consider these established frameworks:
 
-| Benchmark | Focus | Install |
+| Framework | Focus | Install |
 |-----------|-------|---------|
-| [BFCL](https://github.com/ShishirPatil/gorilla) | Function calling | `pip install bfcl-eval` |
+| [promptfoo](https://www.promptfoo.dev/) | Eval with assertions | `npm install -g promptfoo` |
 | [Inspect AI](https://inspect.ai-safety-institute.org.uk/) | Safety evaluation | `pip install inspect-ai` |
 
-See [ADR-001](../docs/adr/001-use-existing-benchmarks.md) for rationale on using existing benchmarks rather than custom formats.
+See [ADR-001](../docs/adr/completed/001-use-existing-benchmarks.md) for rationale on using existing frameworks rather than custom formats.

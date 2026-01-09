@@ -4,7 +4,7 @@
 
 **Audit local LLM function calling and agentic reliability.**
 
-You have a 24GB GPU. Should you run `gpt-oss-20b` or `lfm2.5-1.2b-instruct` for tool calling? BFCL gives you leaderboard scores for full-precision models on datacenter hardware. That doesn't answer your question.
+You have a 24GB GPU. Should you run `gpt-oss-20b` or `lfm2.5-1.2b-instruct` for tool calling? Leaderboard scores are for full-precision models on datacenter hardware. That doesn't answer your question.
 
 prompt-prix answers the question that matters: **Which model follows tool-use constraints reliably on YOUR hardware, TODAY?**
 
@@ -90,18 +90,18 @@ prompt-prix ships with `examples/tool_competence_tests.json`—15 tests covering
 | Schema compliance | Does it emit valid enum values, nested objects, required params? |
 | Tool judgment | Does it know when NOT to use tools? |
 
-Load your own tests in JSON/JSONL format, or import directly from [BFCL](https://github.com/ShishirPatil/gorilla).
+Load your own tests in JSON/JSONL format, or use [promptfoo](https://www.promptfoo.dev/) YAML for assertion-based testing.
 
 ## From Observability to Model Improvement
 
-The real power of BFCL-compatible formats: **your production traces become your test suite**.
+**Your production traces become your test suite.**
 
 ```
 Agentic system in production
     ↓
 Observability captures tool calls (LangSmith, Arize, custom)
     ↓
-Export traces as BFCL/JSON test cases
+Export traces as JSON/YAML test cases
     ↓
 prompt-prix auditions:
     • Base models → which handles YOUR patterns?
@@ -134,7 +134,7 @@ Results show ✓ (pass), ⚠ (semantic failure), or ❌ (error).
 
 | Tool | Purpose |
 |------|---------|
-| [BFCL](https://github.com/ShishirPatil/gorilla) | Function-calling leaderboard (datacenter benchmarks) |
+| [promptfoo](https://www.promptfoo.dev/) | Eval framework with assertions and CI integration |
 | [Inspect AI](https://inspect.ai-safety-institute.org.uk/) | Safety evaluation framework |
 | **prompt-prix** | Visual function-calling audit on YOUR hardware |
 
