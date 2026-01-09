@@ -26,7 +26,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-from prompt_prix.core import stream_completion
+import asyncio
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
 from prompt_prix import state as app_state
 from prompt_prix.semantic_validator import validate_response_semantic
@@ -300,23 +300,21 @@ class BatteryRunner:
 
     async def run(self) -> AsyncGenerator[BatteryRun, None]:
         """
-        Execute all tests across all models using model batching.
+        Execute all tests across all models.
 
-        Uses BatchRunner which:
-        - Groups tests by model (one batch per model)
-        - Runs all tests in a batch sequentially on one server
-        - Runs multiple batches in parallel on different servers
-        - Prefers servers where model is already loaded
+        Uses adapter directly for backend-agnostic execution:
+        - Concurrency managed via adapter.acquire/release
+        - Streaming via adapter.stream_completion
+        - No dependency on ServerPool or server URLs
 
         Yields:
             BatteryRun state snapshot periodically for UI updates
         """
-        from prompt_prix.scheduler import BatchRunner
+        # Concurrency limiter based on adapter
+        semaphore = asyncio.Semaphore(self.adapter.get_concurrency_limit())
 
-        runner = BatchRunner(self.adapter.pool)
-
-        async def execute_test(test_id: str, model_id: str, server_url: str) -> None:
-            """Execute a single test on a specific server with retry logic."""
+        async def execute_test(test_id: str, model_id: str) -> None:
+            """Execute a single test with retry logic."""
             test = self.tests_by_id[test_id]
 
             # Mark as running
@@ -342,8 +340,7 @@ class BatteryRunner:
                     raise CancelledError("Battery run cancelled by user")
 
                 response = ""
-                async for chunk in stream_completion(
-                    server_url=server_url,
+                async for chunk in self.adapter.stream_completion(
                     model_id=model_id,
                     messages=test.to_messages(),
                     temperature=self.temperature,
@@ -360,54 +357,73 @@ class BatteryRunner:
                 validate_response(response)
                 return response
 
-            try:
-                response = await stream_with_retry()
-                latency_ms = (time.time() - start_time) * 1000
+            async with semaphore:
+                await self.adapter.acquire(model_id)
+                try:
+                    response = await stream_with_retry()
+                    latency_ms = (time.time() - start_time) * 1000
 
-                # Semantic validation: check for refusals and expected tool calls
-                # Pass model_id for model-aware tool call parsing
-                is_valid, failure_reason = validate_response_semantic(
-                    test, response, model_id=model_id
-                )
+                    # Semantic validation: check for refusals and expected tool calls
+                    # Pass model_id for model-aware tool call parsing
+                    is_valid, failure_reason = validate_response_semantic(
+                        test, response, model_id=model_id
+                    )
 
-                if is_valid:
+                    if is_valid:
+                        self.state.set_result(TestResult(
+                            test_id=test_id,
+                            model_id=model_id,
+                            status=TestStatus.COMPLETED,
+                            response=response,
+                            latency_ms=latency_ms
+                        ))
+                    else:
+                        self.state.set_result(TestResult(
+                            test_id=test_id,
+                            model_id=model_id,
+                            status=TestStatus.SEMANTIC_FAILURE,
+                            response=response,
+                            latency_ms=latency_ms,
+                            failure_reason=failure_reason
+                        ))
+
+                except Exception as e:
+                    latency_ms = (time.time() - start_time) * 1000
+
+                    # Mark as error (fail loudly - record error, don't hide it)
                     self.state.set_result(TestResult(
                         test_id=test_id,
                         model_id=model_id,
-                        status=TestStatus.COMPLETED,
-                        response=response,
+                        status=TestStatus.ERROR,
+                        error=str(e),
                         latency_ms=latency_ms
                     ))
-                else:
-                    self.state.set_result(TestResult(
-                        test_id=test_id,
-                        model_id=model_id,
-                        status=TestStatus.SEMANTIC_FAILURE,
-                        response=response,
-                        latency_ms=latency_ms,
-                        failure_reason=failure_reason
-                    ))
 
-            except Exception as e:
-                latency_ms = (time.time() - start_time) * 1000
+                finally:
+                    await self.adapter.release(model_id)
 
-                # Mark as error (fail loudly - record error, don't hide it)
-                self.state.set_result(TestResult(
-                    test_id=test_id,
-                    model_id=model_id,
-                    status=TestStatus.ERROR,
-                    error=str(e),
-                    latency_ms=latency_ms
-                ))
+        # Create tasks for all (test, model) combinations
+        tasks = []
+        for model_id in self.models:
+            for test in self.tests:
+                tasks.append(asyncio.create_task(execute_test(test.id, model_id)))
 
-        # Run with BatchRunner - tests batched by model
-        test_ids = [t.id for t in self.tests]
-
-        async for progress in runner.run(self.models, test_ids, execute_test):
+        # Yield state as tasks complete
+        pending = set(tasks)
+        while pending:
             # Check for stop request
             if app_state.should_stop():
-                runner.request_stop()
+                for task in pending:
+                    task.cancel()
+                break
+
+            # Wait for any task to complete (with short timeout for responsiveness)
+            done, pending = await asyncio.wait(
+                pending, timeout=0.1, return_when=asyncio.FIRST_COMPLETED
+            )
             yield self.state
 
-        # Final yield with complete state
+        # Wait for remaining tasks and final yield
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         yield self.state

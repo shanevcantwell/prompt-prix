@@ -149,19 +149,24 @@ class MockServerPool:
 
 
 class MockAdapter:
-    """Mock adapter for testing BatteryRunner."""
+    """Mock adapter for testing BatteryRunner.
+
+    Implements full HostAdapter protocol plus backwards-compat .pool property.
+    """
 
     def __init__(self, responses: dict[str, str] = None, errors: dict[str, str] = None):
         self.responses = responses or {}
         self.errors = errors or {}
         self.calls = []
-        # Create mock pool with all response models available
+        self.acquired = []
+        self.released = []
+        # Create mock pool with all response models available (backwards compat)
         all_models = list(self.responses.keys()) + list(self.errors.keys())
         self._pool = MockServerPool(all_models)
 
     @property
     def pool(self):
-        """Expose mock pool for work-stealing dispatcher."""
+        """Expose mock pool for backwards compatibility."""
         return self._pool
 
     async def get_available_models(self):
@@ -185,6 +190,18 @@ class MockAdapter:
         # Simulate streaming by yielding chunks
         for word in response.split():
             yield word + " "
+
+    def get_concurrency_limit(self) -> int:
+        """Return concurrency limit for tests."""
+        return 2
+
+    async def acquire(self, model_id: str) -> None:
+        """Track acquire calls."""
+        self.acquired.append(model_id)
+
+    async def release(self, model_id: str) -> None:
+        """Track release calls."""
+        self.released.append(model_id)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -461,8 +478,6 @@ class TestBatteryRunner:
     @pytest.mark.asyncio
     async def test_run_handles_errors(self, sample_test_cases):
         """Test that runner handles model errors gracefully."""
-        from unittest.mock import patch, AsyncMock
-
         adapter = MockAdapter(
             responses={"model_a": "Success"},
             errors={"model_b": "Connection failed"}
@@ -474,22 +489,10 @@ class TestBatteryRunner:
             models=["model_a", "model_b"]
         )
 
-        # Mock stream_completion to use adapter's behavior
-        async def mock_stream(server_url, model_id, messages, **kwargs):
-            async for chunk in adapter.stream_completion(
-                model_id=model_id,
-                messages=messages,
-                temperature=kwargs.get("temperature", 0),
-                max_tokens=kwargs.get("max_tokens", 100),
-                timeout_seconds=kwargs.get("timeout_seconds", 30),
-                tools=kwargs.get("tools")
-            ):
-                yield chunk
-
-        with patch("prompt_prix.battery.stream_completion", mock_stream):
-            final_state = None
-            async for state in runner.run():
-                final_state = state
+        # BatteryRunner now uses adapter.stream_completion directly
+        final_state = None
+        async for state in runner.run():
+            final_state = state
 
         # Check model_a succeeded
         result_a = final_state.get_result("test_1", "model_a")
