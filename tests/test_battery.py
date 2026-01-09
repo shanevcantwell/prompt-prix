@@ -910,3 +910,192 @@ class TestImportPromptfoo:
         valid, message = CustomJSONLoader.validate(temp_file)
         assert valid is True
         assert "2 tests" in message
+
+
+# ─────────────────────────────────────────────────────────────────────
+# BATTERYRUNNER ADAPTER INTERFACE TESTS (#73)
+# ─────────────────────────────────────────────────────────────────────
+
+class HostAdapterMock:
+    """
+    Mock adapter implementing ONLY the HostAdapter protocol.
+
+    This mock does NOT have a .pool attribute. Tests using this mock
+    will FAIL until BatteryRunner is refactored to use HostAdapter
+    interface instead of accessing adapter.pool directly.
+
+    Part of #73 Phase 4 - tests for adapter refactor.
+    """
+
+    def __init__(self, responses: dict[str, str] = None, errors: dict[str, str] = None):
+        self.responses = responses or {}
+        self.errors = errors or {}
+        self.calls = []
+        self.acquired = []
+        self.released = []
+
+    # NOTE: No .pool property! This is intentional.
+
+    async def get_available_models(self) -> list[str]:
+        return list(self.responses.keys())
+
+    async def stream_completion(
+        self,
+        model_id: str,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        timeout_seconds: int,
+        tools=None
+    ):
+        self.calls.append((model_id, messages))
+
+        if model_id in self.errors:
+            raise RuntimeError(self.errors[model_id])
+
+        response = self.responses.get(model_id, "Default response")
+        for word in response.split():
+            yield word + " "
+
+    def get_concurrency_limit(self) -> int:
+        return 2
+
+    async def acquire(self, model_id: str) -> None:
+        self.acquired.append(model_id)
+
+    async def release(self, model_id: str) -> None:
+        self.released.append(model_id)
+
+
+class TestBatteryRunnerWithHostAdapter:
+    """
+    Tests for BatteryRunner using the HostAdapter interface.
+
+    These tests document the expected behavior after #73 refactor.
+    They FAIL initially because BatteryRunner currently accesses adapter.pool.
+
+    Phase 4 of #73 adapter refactor.
+    """
+
+    @pytest.fixture
+    def host_adapter_mock(self):
+        """Create a HostAdapter-compliant mock (no .pool)."""
+        return HostAdapterMock(responses={
+            "model_a": "Response A",
+            "model_b": "Response B"
+        })
+
+    @pytest.fixture
+    def simple_test_cases(self):
+        """Simple test cases for adapter tests."""
+        return [
+            TestCase(id="t1", user="Test prompt 1"),
+            TestCase(id="t2", user="Test prompt 2"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_runner_works_without_pool_attribute(
+        self, host_adapter_mock, simple_test_cases
+    ):
+        """BatteryRunner should work with adapter that has no .pool attribute.
+
+        This is the key test for #73 - the abstraction leak is accessing adapter.pool.
+        After refactor, BatteryRunner should use adapter methods directly.
+        """
+        runner = BatteryRunner(
+            adapter=host_adapter_mock,
+            tests=simple_test_cases,
+            models=["model_a"]
+        )
+
+        # This should NOT raise AttributeError: 'HostAdapterMock' has no attribute 'pool'
+        final_state = None
+        async for state in runner.run():
+            final_state = state
+
+        assert final_state is not None
+        assert final_state.completed_count == 2  # 2 tests × 1 model
+
+    @pytest.mark.asyncio
+    async def test_runner_calls_acquire_release(
+        self, host_adapter_mock, simple_test_cases
+    ):
+        """BatteryRunner should call adapter.acquire/release for concurrency."""
+        runner = BatteryRunner(
+            adapter=host_adapter_mock,
+            tests=simple_test_cases,
+            models=["model_a"]
+        )
+
+        async for _ in runner.run():
+            pass
+
+        # Verify acquire/release were called for each model execution
+        assert len(host_adapter_mock.acquired) > 0
+        assert len(host_adapter_mock.released) > 0
+        # Each acquire should have a matching release
+        assert len(host_adapter_mock.acquired) == len(host_adapter_mock.released)
+
+    @pytest.mark.asyncio
+    async def test_runner_uses_adapter_stream_completion(
+        self, host_adapter_mock, simple_test_cases
+    ):
+        """BatteryRunner should use adapter.stream_completion(), not core.stream_completion()."""
+        runner = BatteryRunner(
+            adapter=host_adapter_mock,
+            tests=simple_test_cases,
+            models=["model_a"]
+        )
+
+        async for _ in runner.run():
+            pass
+
+        # Verify adapter.stream_completion was called
+        assert len(host_adapter_mock.calls) == 2  # 2 tests
+        # Each call should be for model_a
+        for model_id, messages in host_adapter_mock.calls:
+            assert model_id == "model_a"
+
+    @pytest.mark.asyncio
+    async def test_runner_respects_concurrency_limit(
+        self, simple_test_cases
+    ):
+        """BatteryRunner should respect adapter.get_concurrency_limit()."""
+        import asyncio
+
+        concurrent_count = 0
+        max_concurrent = 0
+
+        class ConcurrencyTrackingAdapter(HostAdapterMock):
+            async def acquire(self, model_id: str) -> None:
+                nonlocal concurrent_count, max_concurrent
+                concurrent_count += 1
+                max_concurrent = max(max_concurrent, concurrent_count)
+                await super().acquire(model_id)
+
+            async def release(self, model_id: str) -> None:
+                nonlocal concurrent_count
+                concurrent_count -= 1
+                await super().release(model_id)
+
+            async def stream_completion(self, model_id, messages, **kwargs):
+                # Add delay to ensure concurrency is measurable
+                await asyncio.sleep(0.02)
+                yield "response"
+
+            def get_concurrency_limit(self) -> int:
+                return 1  # Strict limit of 1
+
+        adapter = ConcurrencyTrackingAdapter(responses={"model_a": "ok", "model_b": "ok"})
+
+        runner = BatteryRunner(
+            adapter=adapter,
+            tests=simple_test_cases,
+            models=["model_a", "model_b"]
+        )
+
+        async for _ in runner.run():
+            pass
+
+        # With limit of 1, max concurrent should never exceed 1
+        assert max_concurrent <= 1
