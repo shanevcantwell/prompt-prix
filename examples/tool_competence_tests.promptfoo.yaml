@@ -1,0 +1,732 @@
+# Tool Competence Tests - Promptfoo Format
+#
+# This file contains the same test cases as tool_competence_tests.json
+# but in promptfoo's native YAML format.
+#
+# Usage with promptfoo CLI:
+#   npx promptfoo eval -c tool_competence_tests.promptfoo.yaml
+#
+# See: https://www.promptfoo.dev/docs/configuration/guide/
+
+description: Tool competence evaluation suite v1.1
+
+prompts:
+  - |
+    {{system}}
+
+    User: {{user}}
+
+# Provider configuration - adjust for your setup
+providers:
+  - id: openai:gpt-4
+    label: gpt-4
+
+tests:
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 1: Basic Tool Call (Sanity Check)
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Basic Tool Call (Sanity Check)"
+    vars:
+      test_id: basic_tool_call
+      category: basic_invocation
+      severity: critical
+      system: "You have one tool: get_weather(city: string). Use it to answer the user."
+      user: "What's the weather in Tokyo?"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: get_weather
+                parameters:
+                  type: object
+                  properties:
+                    city:
+                      type: string
+                  required:
+                    - city
+          tool_choice: required
+    assert:
+      - type: is-valid-openai-tools-call
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc =>
+            tc.function?.name === 'get_weather' &&
+            tc.function?.arguments?.includes('Tokyo')
+          );
+      - type: llm-rubric
+        value: "Calls get_weather with city=Tokyo"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 2: Tool Selection (Pick the Right One)
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Tool Selection (Pick the Right One)"
+    vars:
+      test_id: tool_selection
+      category: tool_selection
+      severity: critical
+      system: "You have three tools. Pick the most appropriate one."
+      user: "Delete the file report.pdf"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: read_file
+                parameters:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+            - type: function
+              function:
+                name: write_file
+                parameters:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    content:
+                      type: string
+            - type: function
+              function:
+                name: delete_file
+                parameters:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+          tool_choice: required
+    assert:
+      - type: is-valid-openai-tools-call
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc =>
+            tc.function?.name === 'delete_file' &&
+            tc.function?.arguments?.includes('report.pdf')
+          );
+      - type: llm-rubric
+        value: "Calls delete_file with path containing report.pdf"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 3: Constraint Following (Forbidden Tool)
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Constraint Following (Forbidden Tool)"
+    vars:
+      test_id: constraint_following
+      category: constraint_compliance
+      severity: critical
+      system: "You have four tools. CONSTRAINT: Do NOT use execute_code - it is disabled due to security policy."
+      user: 'Run this Python: print("hello")'
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: execute_code
+                parameters:
+                  type: object
+                  properties:
+                    code:
+                      type: string
+            - type: function
+              function:
+                name: search_docs
+                parameters:
+                  type: object
+                  properties:
+                    query:
+                      type: string
+            - type: function
+              function:
+                name: ask_human
+                parameters:
+                  type: object
+                  properties:
+                    question:
+                      type: string
+            - type: function
+              function:
+                name: respond_to_user
+                parameters:
+                  type: object
+                  properties:
+                    message:
+                      type: string
+          tool_choice: required
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Must NOT call execute_code
+          const callsExecuteCode = result.some(tc => tc.function?.name === 'execute_code');
+          // Should call respond_to_user or ask_human instead
+          const callsAllowed = result.some(tc =>
+            tc.function?.name === 'respond_to_user' ||
+            tc.function?.name === 'ask_human'
+          );
+          return !callsExecuteCode && callsAllowed;
+      - type: llm-rubric
+        value: "Calls respond_to_user or ask_human explaining inability, NOT execute_code"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 4: Enum Constraint
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Enum Constraint"
+    vars:
+      test_id: enum_constraint
+      category: schema_compliance
+      severity: critical
+      system: "Route to the appropriate department."
+      user: "I need to return a broken laptop"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: route_ticket
+                parameters:
+                  type: object
+                  properties:
+                    department:
+                      type: string
+                      enum:
+                        - sales
+                        - support
+                        - billing
+                        - returns
+                    priority:
+                      type: string
+                      enum:
+                        - low
+                        - medium
+                        - high
+                  required:
+                    - department
+                    - priority
+          tool_choice: required
+    assert:
+      - type: is-valid-openai-tools-call
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc => {
+            if (tc.function?.name !== 'route_ticket') return false;
+            const args = JSON.parse(tc.function.arguments || '{}');
+            return args.department === 'returns' &&
+                   ['low', 'medium', 'high'].includes(args.priority);
+          });
+      - type: llm-rubric
+        value: "department=returns with valid priority enum value"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 5: Nested Object Schema
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Nested Object Schema"
+    vars:
+      test_id: nested_object
+      category: schema_compliance
+      severity: warning
+      system: "Create a calendar event."
+      user: "Schedule a meeting with Bob tomorrow at 3pm for 1 hour about Q4 planning"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: create_event
+                parameters:
+                  type: object
+                  properties:
+                    title:
+                      type: string
+                    attendees:
+                      type: array
+                      items:
+                        type: string
+                    time:
+                      type: object
+                      properties:
+                        start:
+                          type: string
+                        duration_minutes:
+                          type: integer
+                  required:
+                    - title
+                    - time
+          tool_choice: required
+    assert:
+      - type: is-valid-openai-tools-call
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc => {
+            if (tc.function?.name !== 'create_event') return false;
+            const args = JSON.parse(tc.function.arguments || '{}');
+            return args.title &&
+                   args.time &&
+                   typeof args.time.start === 'string' &&
+                   typeof args.time.duration_minutes === 'number';
+          });
+      - type: llm-rubric
+        value: "Valid nested time object with start and duration_minutes"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 6: Multiple Required Params
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Multiple Required Params"
+    vars:
+      test_id: multiple_required
+      category: schema_compliance
+      severity: critical
+      system: "Transfer money between accounts."
+      user: "Move $500 from checking to savings"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: transfer
+                parameters:
+                  type: object
+                  properties:
+                    from_account:
+                      type: string
+                    to_account:
+                      type: string
+                    amount:
+                      type: number
+                    currency:
+                      type: string
+                      default: USD
+                  required:
+                    - from_account
+                    - to_account
+                    - amount
+          tool_choice: required
+    assert:
+      - type: is-valid-openai-tools-call
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc => {
+            if (tc.function?.name !== 'transfer') return false;
+            const args = JSON.parse(tc.function.arguments || '{}');
+            return args.from_account &&
+                   args.to_account &&
+                   typeof args.amount === 'number';
+          });
+      - type: llm-rubric
+        value: "All three required params present with amount as number"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 7: No Tool Needed (Should Decline)
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "No Tool Needed (Should Decline)"
+    vars:
+      test_id: no_tool_needed
+      category: tool_judgment
+      severity: warning
+      system: "You have tools for file operations. Only use them when the user requests file operations."
+      user: "What is 2 + 2?"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: read_file
+                parameters:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+            - type: function
+              function:
+                name: write_file
+                parameters:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                    content:
+                      type: string
+          tool_choice: auto
+    assert:
+      - type: contains
+        value: "4"
+      - type: javascript
+        value: |
+          // Should be text response, not a tool call
+          try {
+            const parsed = JSON.parse(output);
+            // If it parses as tool call array, that's a failure
+            return !Array.isArray(parsed) || parsed.length === 0;
+          } catch {
+            // Not JSON = text response = correct
+            return true;
+          }
+      - type: llm-rubric
+        value: "Returns text response containing '4' without calling file tools"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 8: Tool Choice None (Must Not Call)
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Tool Choice None (Must Not Call)"
+    vars:
+      test_id: tool_choice_none
+      category: tool_judgment
+      severity: critical
+      system: "You have a calculator tool, but tool use has been disabled for this request."
+      user: "What is 15 * 7?"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: calculate
+                parameters:
+                  type: object
+                  properties:
+                    expression:
+                      type: string
+                  required:
+                    - expression
+          tool_choice: none
+    assert:
+      - type: contains
+        value: "105"
+      - type: javascript
+        value: |
+          try {
+            const parsed = JSON.parse(output);
+            return !Array.isArray(parsed) || parsed.length === 0;
+          } catch {
+            return true;
+          }
+      - type: llm-rubric
+        value: "Returns text answer '105' without attempting tool call"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 9: Ambiguous Routing
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Ambiguous Intent (Routing Test)"
+    vars:
+      test_id: ambiguous_routing
+      category: semantic_understanding
+      severity: warning
+      system: "Route to: researcher (web search), analyst (data processing), writer (content creation)"
+      user: "Find recent statistics about EV adoption and summarize them in a report"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: route
+                parameters:
+                  type: object
+                  properties:
+                    specialist:
+                      type: string
+                      enum:
+                        - researcher
+                        - analyst
+                        - writer
+                    task_summary:
+                      type: string
+                  required:
+                    - specialist
+                    - task_summary
+          tool_choice: required
+    assert:
+      - type: is-valid-openai-tools-call
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc => {
+            if (tc.function?.name !== 'route') return false;
+            const args = JSON.parse(tc.function.arguments || '{}');
+            return ['researcher', 'analyst', 'writer'].includes(args.specialist) &&
+                   args.task_summary && args.task_summary.length > 0;
+          });
+      - type: llm-rubric
+        value: "Any valid enum choice with coherent task_summary"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 10: Boolean + Optional Params
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Boolean + Optional Params"
+    vars:
+      test_id: boolean_optional
+      category: schema_compliance
+      severity: warning
+      system: "Search the database. Today's date is 2025-11-28."
+      user: "Find all active users created this year, include their email addresses"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: query_users
+                parameters:
+                  type: object
+                  properties:
+                    status:
+                      type: string
+                      enum:
+                        - active
+                        - inactive
+                        - all
+                    created_after:
+                      type: string
+                      description: "ISO date format YYYY-MM-DD"
+                    include_email:
+                      type: boolean
+                  required:
+                    - status
+          tool_choice: required
+    assert:
+      - type: is-valid-openai-tools-call
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc => {
+            if (tc.function?.name !== 'query_users') return false;
+            const args = JSON.parse(tc.function.arguments || '{}');
+            return args.status === 'active' &&
+                   args.include_email === true &&
+                   args.created_after?.startsWith('2025');
+          });
+      - type: llm-rubric
+        value: "status=active, include_email=true, created_after starts with 2025"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 11: Loop Recovery Constraint
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Loop Recovery Constraint Test"
+    vars:
+      test_id: loop_recovery
+      category: constraint_compliance
+      severity: critical
+      system: "Route tasks to specialists. BLOCKED: code_executor has failed 3 times consecutively. Do NOT route to it."
+      user: "Execute this Python script to calculate fibonacci numbers"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: route
+                parameters:
+                  type: object
+                  properties:
+                    specialist:
+                      type: string
+                      enum:
+                        - code_executor
+                        - data_analyst
+                        - researcher
+                        - chat
+                    reasoning:
+                      type: string
+                  required:
+                    - specialist
+                    - reasoning
+          tool_choice: required
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc => {
+            if (tc.function?.name !== 'route') return false;
+            const args = JSON.parse(tc.function.arguments || '{}');
+            // Must NOT route to code_executor
+            return args.specialist !== 'code_executor' &&
+                   ['data_analyst', 'researcher', 'chat'].includes(args.specialist);
+          });
+      - type: llm-rubric
+        value: "Routes to data_analyst, researcher, or chat - NOT code_executor"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 12: Missing Required Info
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Missing Required Info (Empty Handling)"
+    vars:
+      test_id: missing_required_info
+      category: error_handling
+      severity: warning
+      system: "Delete files when the user specifies which file."
+      user: "Delete the file"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: delete_file
+                parameters:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                  required:
+                    - path
+            - type: function
+              function:
+                name: ask_clarification
+                parameters:
+                  type: object
+                  properties:
+                    question:
+                      type: string
+                  required:
+                    - question
+          tool_choice: required
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc => tc.function?.name === 'ask_clarification');
+      - type: llm-rubric
+        value: "Calls ask_clarification to get filename instead of guessing"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 13: Type Coercion (String vs Number)
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Type Coercion (String vs Number)"
+    vars:
+      test_id: type_coercion
+      category: schema_compliance
+      severity: critical
+      system: "Transfer money between accounts."
+      user: "Send five hundred dollars to savings"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: transfer
+                parameters:
+                  type: object
+                  properties:
+                    to_account:
+                      type: string
+                    amount:
+                      type: number
+                  required:
+                    - to_account
+                    - amount
+          tool_choice: required
+    assert:
+      - type: is-valid-openai-tools-call
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.some(tc => {
+            if (tc.function?.name !== 'transfer') return false;
+            const args = JSON.parse(tc.function.arguments || '{}');
+            // amount must be number 500, not string "500" or "five hundred"
+            return args.amount === 500 && typeof args.amount === 'number';
+          });
+      - type: llm-rubric
+        value: "amount=500 as number type, not string"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 14: Parallel Tool Calls
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Parallel Tool Calls"
+    vars:
+      test_id: parallel_tool_calls
+      category: advanced
+      severity: warning
+      system: "You can call multiple tools in a single response when tasks are independent."
+      user: "Get the weather for Tokyo AND Paris"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: get_weather
+                parameters:
+                  type: object
+                  properties:
+                    city:
+                      type: string
+                  required:
+                    - city
+          tool_choice: required
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Must have exactly 2 tool calls
+          if (result.length !== 2) return false;
+          // Both must be get_weather
+          const cities = result.map(tc => {
+            const args = JSON.parse(tc.function?.arguments || '{}');
+            return args.city?.toLowerCase();
+          });
+          return cities.includes('tokyo') && cities.includes('paris');
+      - type: llm-rubric
+        value: "Two separate get_weather calls for Tokyo and Paris"
+
+  # ─────────────────────────────────────────────────────────────────────
+  # Test 15: Chained Dependency (Sequential)
+  # ─────────────────────────────────────────────────────────────────────
+  - description: "Chained Dependency (Sequential)"
+    vars:
+      test_id: chained_dependency
+      category: advanced
+      severity: warning
+      system: "You have tools for file operations. Some tasks require multiple steps."
+      user: "Read the file config.json and tell me what port it uses"
+    options:
+      provider:
+        config:
+          tools:
+            - type: function
+              function:
+                name: read_file
+                parameters:
+                  type: object
+                  properties:
+                    path:
+                      type: string
+                  required:
+                    - path
+            - type: function
+              function:
+                name: respond_to_user
+                parameters:
+                  type: object
+                  properties:
+                    message:
+                      type: string
+                  required:
+                    - message
+          tool_choice: required
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // First step should be read_file with config.json
+          return result.some(tc => {
+            if (tc.function?.name !== 'read_file') return false;
+            const args = JSON.parse(tc.function.arguments || '{}');
+            return args.path?.includes('config.json');
+          });
+      - type: llm-rubric
+        value: "Calls read_file with config.json as first step"
