@@ -15,10 +15,15 @@ class HostAdapter(Protocol):
     Implementations must provide:
     - Model discovery (get_available_models)
     - Streaming completion (stream_completion)
+    - Concurrency management (get_concurrency_limit, acquire, release)
 
     Design rationale (from CLAUDE.md):
     - Separation of Concerns: Protocol defines capability, adapters define implementation
-    - Provider-Agnostic: Same interface works for LM Studio, Ollama, vLLM, etc.
+    - Provider-Agnostic: Same interface works for LM Studio, Ollama, vLLM, HuggingFace, etc.
+
+    Concurrency model:
+    - Local backends (LM Studio): Limited by GPU/server count, requires acquire/release
+    - Cloud backends (HuggingFace): High concurrency, acquire/release are no-ops
     """
 
     async def get_available_models(self) -> list[str]:
@@ -55,5 +60,40 @@ class HostAdapter(Protocol):
 
         Raises:
             Exception on model error (fail loudly per CLAUDE.md)
+        """
+        ...
+
+    def get_concurrency_limit(self) -> int:
+        """
+        Maximum concurrent requests this adapter can handle.
+
+        Returns:
+            Number of concurrent requests allowed.
+            - Local backends: Typically 1 per server/GPU
+            - Cloud backends: Higher (e.g., 10+), rate limiting handled externally
+        """
+        ...
+
+    async def acquire(self, model_id: str) -> None:
+        """
+        Acquire a slot before making a request.
+
+        For local backends: Blocks until a server is available, handles model loading.
+        For cloud backends: No-op (cloud handles concurrency).
+
+        Args:
+            model_id: The model that will be used for the request
+        """
+        ...
+
+    async def release(self, model_id: str) -> None:
+        """
+        Release a slot after completing a request.
+
+        For local backends: Frees the server for other requests.
+        For cloud backends: No-op.
+
+        Args:
+            model_id: The model that was used for the request
         """
         ...

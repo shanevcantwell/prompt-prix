@@ -18,6 +18,11 @@ class LMStudioAdapter:
 
     Wraps ServerPool for server discovery and stream_completion for inference.
     Uses asyncio.Lock for thread-safety (state hygiene per CLAUDE.md).
+
+    Concurrency model:
+    - One concurrent request per server (GPU memory constraint)
+    - acquire/release manage server slots
+    - _active_servers tracks which server is handling each model
     """
 
     def __init__(self, server_pool: ServerPool):
@@ -29,11 +34,21 @@ class LMStudioAdapter:
         """
         self._pool = server_pool
         self._lock = asyncio.Lock()
+        self._active_servers: dict[str, str] = {}  # model_id → server_url
+        self._server_hints: dict[str, str] = {}    # model_id → preferred server_url
 
     @property
     def pool(self) -> ServerPool:
-        """Expose ServerPool for BatchRunner access."""
+        """Expose ServerPool for BatchRunner access (deprecated - use acquire/release)."""
         return self._pool
+
+    def set_server_hint(self, model_id: str, server_url: str) -> None:
+        """Set preferred server for a model (for GPU prefix routing)."""
+        self._server_hints[model_id] = server_url
+
+    def get_concurrency_limit(self) -> int:
+        """Return number of servers (one request per server)."""
+        return max(1, len(self._pool.servers))
 
     async def get_available_models(self) -> list[str]:
         """Return list of all models available across all servers."""
@@ -80,3 +95,42 @@ class LMStudioAdapter:
                 yield chunk
         finally:
             self._pool.release(server_url)
+
+    async def acquire(self, model_id: str) -> None:
+        """
+        Acquire a server slot for this model.
+
+        Finds an available server (respecting hints), acquires it,
+        and tracks it for later release.
+
+        Args:
+            model_id: The model that will be used
+
+        Raises:
+            RuntimeError: If no server is available for this model
+        """
+        async with self._lock:
+            await self._pool.refresh()
+            preferred = self._server_hints.get(model_id)
+            server_url = self._pool.find_server(model_id, preferred_url=preferred)
+
+        if server_url is None:
+            raise RuntimeError(f"No server available for model: {model_id}")
+
+        await self._pool.acquire(server_url)
+        self._active_servers[model_id] = server_url
+
+    async def release(self, model_id: str) -> None:
+        """
+        Release the server slot for this model.
+
+        Args:
+            model_id: The model to release
+        """
+        server_url = self._active_servers.pop(model_id, None)
+        if server_url:
+            self._pool.release(server_url)
+
+    def get_active_server(self, model_id: str) -> Optional[str]:
+        """Get the server URL currently handling this model (after acquire)."""
+        return self._active_servers.get(model_id)

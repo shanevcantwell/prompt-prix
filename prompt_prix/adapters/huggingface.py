@@ -22,6 +22,10 @@ class HuggingFaceAdapter:
     - No discovery: Models are user-provided (HF has no list endpoint)
     - Token from env: HF_TOKEN env var (Spaces-compatible)
     - Streaming: Uses InferenceClient.chat_completion with stream=True
+
+    Concurrency model:
+    - High concurrency (HF manages rate limiting)
+    - acquire/release are no-ops
     """
 
     def __init__(
@@ -113,3 +117,20 @@ class HuggingFaceAdapter:
         for chunk in response:
             if chunk.choices and chunk.choices[0].delta.content:
                 yield chunk.choices[0].delta.content
+
+    def get_concurrency_limit(self) -> int:
+        """
+        Return high concurrency limit.
+
+        HuggingFace handles rate limiting server-side.
+        We allow many concurrent requests.
+        """
+        return 10
+
+    async def acquire(self, model_id: str) -> None:
+        """No-op: HuggingFace manages concurrency server-side."""
+        pass
+
+    async def release(self, model_id: str) -> None:
+        """No-op: HuggingFace manages concurrency server-side."""
+        pass
