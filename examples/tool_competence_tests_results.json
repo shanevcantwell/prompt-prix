@@ -1,0 +1,749 @@
+{
+  "tests": [
+    "basic_tool_call",
+    "tool_selection",
+    "constraint_following",
+    "enum_constraint",
+    "nested_object",
+    "multiple_required",
+    "no_tool_needed",
+    "tool_choice_none",
+    "ambiguous_routing",
+    "boolean_optional",
+    "loop_recovery",
+    "missing_required_info",
+    "type_coercion",
+    "parallel_tool_calls",
+    "chained_dependency"
+  ],
+  "models": [
+    "granite-4.0-micro",
+    "lfm2.5-1.2b-instruct",
+    "liquidai.symlink/lfm2-vl-450m",
+    "nvidia/nemotron-3-nano",
+    "qwen3-30b-a3b-instruct-2507",
+    "zai-org/glm-4.6v-flash"
+  ],
+  "results": [
+    {
+      "test_id": "basic_tool_call",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `get_weather`\n```json\n{\"city\": \"Tokyo\"}\n```\n",
+      "latency_ms": 2875.659227371216,
+      "error": null
+    },
+    {
+      "test_id": "basic_tool_call",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[get_weather(city=\"Tokyo\")]<|tool_call_end|>[get_weather(city=\"Tokyo\")]<|tool_call_end|>",
+      "latency_ms": 1682.784080505371,
+      "error": null
+    },
+    {
+      "test_id": "basic_tool_call",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[get_weather(city=\"Tokyo\")]<|tool_call_end|>Checking the weather in Tokyo.",
+      "latency_ms": 1047.2564697265625,
+      "error": null
+    },
+    {
+      "test_id": "basic_tool_call",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 15760.737657546997,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "basic_tool_call",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `get_weather`\n```json\n{\"city\": \"Tokyo\"}\n```\n",
+      "latency_ms": 9008.703231811523,
+      "error": null
+    },
+    {
+      "test_id": "basic_tool_call",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will now call the get_weather function with the city set to Tokyo.\n\n**Tool Call:** `get_weather`\n```json\n{\"city\":\"Tokyo\"}\n```\n",
+      "latency_ms": 7375.203371047974,
+      "error": null
+    },
+    {
+      "test_id": "tool_selection",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `delete_file`\n```json\n{\"path\": \"report.pdf\"}\n```\n",
+      "latency_ms": 476.3302803039551,
+      "error": null
+    },
+    {
+      "test_id": "tool_selection",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[delete_file(path=\"report.pdf\")]<|tool_call_end|>I am deleting the file at path 'report.pdf'.",
+      "latency_ms": 152.98795700073242,
+      "error": null
+    },
+    {
+      "test_id": "tool_selection",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[delete_file(path=\"report.pdf\")]<|tool_call_end|>Deleting the file report.pdf",
+      "latency_ms": 94.16532516479492,
+      "error": null
+    },
+    {
+      "test_id": "tool_selection",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "completed",
+      "response": "\n\n\n**Tool Call:** `delete_file`\n```json\n{\"path\":\"report.pdf\"}\n```\n",
+      "latency_ms": 1736.9961738586426,
+      "error": null
+    },
+    {
+      "test_id": "tool_selection",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `delete_file`\n```json\n{\"path\": \"report.pdf\"}\n```\n",
+      "latency_ms": 549.2539405822754,
+      "error": null
+    },
+    {
+      "test_id": "tool_selection",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will call the delete_file function to delete the file report.pdf.\n\n**Tool Call:** `delete_file`\n```json\n{\"path\":\"report.pdf\"}\n```\n",
+      "latency_ms": 1264.8334503173828,
+      "error": null
+    },
+    {
+      "test_id": "constraint_following",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `execute_code`\n```json\n{\"code\": \"print(\\\"hello\\\")\"}\n```\n",
+      "latency_ms": 518.2220935821533,
+      "error": null
+    },
+    {
+      "test_id": "constraint_following",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[execute_code(code=\"print('hello')\")]<|tool_call_end|>",
+      "latency_ms": 114.03179168701172,
+      "error": null
+    },
+    {
+      "test_id": "constraint_following",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "semantic_failure",
+      "response": "I'm sorry, I don't have a tool to directly run Python code. However, I can help you with other tasks! For example, I can search for documentation related to Python, ask for human assistance, or respond to user messages. Let me know how I can assist you.",
+      "latency_ms": 237.05291748046875,
+      "error": null
+    },
+    {
+      "test_id": "constraint_following",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "semantic_failure",
+      "response": "\nThe snippet you provided would simply print the text:\n\n```\nhello\n```",
+      "latency_ms": 2822.9918479919434,
+      "error": null
+    },
+    {
+      "test_id": "constraint_following",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "semantic_failure",
+      "response": "I cannot execute code due to security restrictions. However, I can help you understand or debug your Python code if needed! Let me know how I can assist.",
+      "latency_ms": 672.1444129943848,
+      "error": null
+    },
+    {
+      "test_id": "constraint_following",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "semantic_failure",
+      "response": "\nI am unable to execute code directly due to security policies. However, the Python code you provided would print:\n```\nhello\n```",
+      "latency_ms": 2903.1476974487305,
+      "error": null
+    },
+    {
+      "test_id": "enum_constraint",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `route_ticket`\n```json\n{\"department\": \"returns\", \"priority\": \"high\"}\n```\n",
+      "latency_ms": 548.7220287322998,
+      "error": null
+    },
+    {
+      "test_id": "enum_constraint",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[route_ticket(department=\"returns\", priority=\"high\")]<|tool_call_end|>Submitting request to the returns department with high priority for returning the broken laptop.",
+      "latency_ms": 194.8995590209961,
+      "error": null
+    },
+    {
+      "test_id": "enum_constraint",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[route_ticket(department=\"returns\", priority=\"high\")]<|tool_call_end|>Okay, I'm routing a high-priority return ticket for your laptop.",
+      "latency_ms": 145.2620029449463,
+      "error": null
+    },
+    {
+      "test_id": "enum_constraint",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8176.807880401611,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "enum_constraint",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `route_ticket`\n```json\n{\"department\": \"returns\", \"priority\": \"high\"}\n```\n",
+      "latency_ms": 558.1324100494385,
+      "error": null
+    },
+    {
+      "test_id": "enum_constraint",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will help you with that. I need to call the route_ticket tool.\n\n**Tool Call:** `route_ticket`\n```json\n{\"department\":\"support\",\"priority\":\"high\"}\n```\n",
+      "latency_ms": 2910.355567932129,
+      "error": null
+    },
+    {
+      "test_id": "nested_object",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `create_event`\n```json\n{\"title\": \"Q4 Planning\", \"attendees\": [\"Bob\"], \"time\": {\"start\": \"2022-03-15T15:00:00\", \"duration_minutes\": 60}}\n```\n",
+      "latency_ms": 1122.457504272461,
+      "error": null
+    },
+    {
+      "test_id": "nested_object",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[create_event(title=\"Q4 Planning Meeting\", time={\"start\": \"tomorrow 3:00 PM\", \"duration_minutes\": 60}, attendees=[\"Bob\"])]<|tool_call_end|>Creating a calendar event titled \"Q4 Planning Meeting\" with Bob as an attendee, scheduled for tomorrow at 3:00 PM and lasting 1 hour.",
+      "latency_ms": 341.13621711730957,
+      "error": null
+    },
+    {
+      "test_id": "nested_object",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "semantic_failure",
+      "response": "<|tool_call_start|>[create_event(title=\"Q4 Planning Meeting\", attendees=['Bob'], time={'start': '2024-04-05T15:00:00Z', 'duration_minutes': 60}]<|tool_call_end|>Scheduling a meeting with Bob for 1 hour on 2024-04-05 at 3:00 PM.",
+      "latency_ms": 278.9266109466553,
+      "error": null
+    },
+    {
+      "test_id": "nested_object",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8074.949741363525,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "nested_object",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `create_event`\n```json\n{\"title\": \"Q4 Planning Meeting\", \"attendees\": [\"Bob\"], \"time\": {\"start\": \"2023-10-05T15:00:00\", \"duration_minutes\": 60}}\n```\n",
+      "latency_ms": 1115.1080131530762,
+      "error": null
+    },
+    {
+      "test_id": "nested_object",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will create a calendar event for a meeting with Bob tomorrow at 3pm for 1 hour about Q4 planning.\n\n**Tool Call:** `create_event`\n```json\n{\"title\":\"Meeting with Bob about Q4 planning\",\"attendees\":[\"Bob\"],\"time.start\":\"2025-08-26T15:00:00\",\"duration_minutes\":60}\n```\n",
+      "latency_ms": 6352.033853530884,
+      "error": null
+    },
+    {
+      "test_id": "multiple_required",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `transfer`\n```json\n{\"from_account\": \"checking\", \"to_account\": \"savings\", \"amount\": 500}\n```\n",
+      "latency_ms": 711.1177444458008,
+      "error": null
+    },
+    {
+      "test_id": "multiple_required",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "semantic_failure",
+      "response": "I'm sorry, but I can't move funds between accounts. Based on the available API, I can only transfer money within a single account using the transfer tool. Please let me know if you'd like help with that.",
+      "latency_ms": 213.99784088134766,
+      "error": null
+    },
+    {
+      "test_id": "multiple_required",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[transfer(from_account=\"checking\", to_account=\"savings\", amount=500)]<|tool_call_end|>Moving $500 from checking to savings.",
+      "latency_ms": 145.60675621032715,
+      "error": null
+    },
+    {
+      "test_id": "multiple_required",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8092.483043670654,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "multiple_required",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `transfer`\n```json\n{\"from_account\": \"checking\", \"to_account\": \"savings\", \"amount\": 500, \"currency\": \"USD\"}\n```\n",
+      "latency_ms": 757.3342323303223,
+      "error": null
+    },
+    {
+      "test_id": "multiple_required",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will now call the transfer function to move $500 from checking to savings.\n\n**Tool Call:** `transfer`\n```json\n{\"from_account\":\"checking\",\"to_account\":\"savings\",\"amount\":500,\"currency\":\"USD\"}\n```\n",
+      "latency_ms": 1862.9860877990723,
+      "error": null
+    },
+    {
+      "test_id": "no_tool_needed",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "The sum of 2 + 2 is **4**.",
+      "latency_ms": 327.27551460266113,
+      "error": null
+    },
+    {
+      "test_id": "no_tool_needed",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "semantic_failure",
+      "response": "I'm sorry, but I can't calculate arithmetic operations. The available API functions allow me to read from or write to files, not perform mathematical calculations. If you need help with file operations, just let me know!",
+      "latency_ms": 209.1529369354248,
+      "error": null
+    },
+    {
+      "test_id": "no_tool_needed",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[read_file(path=\"C:/Users/John/Documents/2023/2024/Projects.txt\")]<|tool_call_end|>Reading the file at C:/Users/John/Documents/2023/2024/Projects.txt.",
+      "latency_ms": 201.63321495056152,
+      "error": null
+    },
+    {
+      "test_id": "no_tool_needed",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "completed",
+      "response": "\nThe answer to 2 + 2 is 4.",
+      "latency_ms": 1787.9624366760254,
+      "error": null
+    },
+    {
+      "test_id": "no_tool_needed",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "2 + 2 equals 4.",
+      "latency_ms": 348.0393886566162,
+      "error": null
+    },
+    {
+      "test_id": "no_tool_needed",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\n4",
+      "latency_ms": 757.5311660766602,
+      "error": null
+    },
+    {
+      "test_id": "tool_choice_none",
+      "model_id": "granite-4.0-micro",
+      "status": "semantic_failure",
+      "response": "\n**Tool Call:** `calculate`\n```json\n{\"expression\": \"15 * 7\"}\n```\n",
+      "latency_ms": 479.60495948791504,
+      "error": null
+    },
+    {
+      "test_id": "tool_choice_none",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "semantic_failure",
+      "response": "<|tool_call_start|>[calculate(expression=\"15 * 7\")]<|tool_call_end|>Calculating the product of 15 and 7 using the provided expression.",
+      "latency_ms": 146.73328399658203,
+      "error": null
+    },
+    {
+      "test_id": "tool_choice_none",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "semantic_failure",
+      "response": "<|tool_call_start|>[calculate(expression=\"15 * 7\")]<|tool_call_end|>",
+      "latency_ms": 87.16893196105957,
+      "error": null
+    },
+    {
+      "test_id": "tool_choice_none",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8062.306880950928,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "tool_choice_none",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "semantic_failure",
+      "response": "\n**Tool Call:** `calculate`\n```json\n{\"expression\": \"15 * 7\"}\n```\n",
+      "latency_ms": 497.19691276550293,
+      "error": null
+    },
+    {
+      "test_id": "tool_choice_none",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\n<|begin_of_box|>105<|end_of_box|>",
+      "latency_ms": 1579.0526866912842,
+      "error": null
+    },
+    {
+      "test_id": "ambiguous_routing",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `route`\n```json\n{\"specialist\": \"researcher\", \"task_summary\": \"Find recent statistics about EV adoption\"}\n```\n",
+      "latency_ms": 679.9695491790771,
+      "error": null
+    },
+    {
+      "test_id": "ambiguous_routing",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "semantic_failure",
+      "response": "I'm sorry, but I can't generate or summarize reports on EV adoption. Based on the available API, I can help with route planning using specialized tasks for researchers, analysts, or writers. Let me know if you'd like assistance with those functions.",
+      "latency_ms": 240.13233184814453,
+      "error": null
+    },
+    {
+      "test_id": "ambiguous_routing",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "semantic_failure",
+      "response": "I don't have access to real-time data or external databases to retrieve recent EV adoption statistics. However, if you'd like assistance with tasks like sending an email to a researcher, analyst, or writer, I can help with that using the available tools. Let me know how I can assist!",
+      "latency_ms": 221.9552993774414,
+      "error": null
+    },
+    {
+      "test_id": "ambiguous_routing",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8161.441087722778,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "ambiguous_routing",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `route`\n```json\n{\"specialist\": \"researcher\", \"task_summary\": \"Find recent statistics about EV adoption and summarize them in a report\"}\n```\n",
+      "latency_ms": 749.5598793029785,
+      "error": null
+    },
+    {
+      "test_id": "ambiguous_routing",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will search for recent statistics on EV adoption to summarize them in a report. I am now calling the route function.\n\n**Tool Call:** `route`\n```json\n{\"specialist\":\"researcher\",\"task_summary\":\"Find recent statistics about EV adoption and summarize them in a report.\"}\n```\n",
+      "latency_ms": 7003.154754638672,
+      "error": null
+    },
+    {
+      "test_id": "boolean_optional",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `query_users`\n```json\n{\"status\": \"active\", \"created_after\": \"2025-01-01\", \"include_email\": true}\n```\n",
+      "latency_ms": 776.4763832092285,
+      "error": null
+    },
+    {
+      "test_id": "boolean_optional",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[query_users(status=\"active\", created_after=\"2025-01-01\", include_email=True)]<|tool_call_end|>I am querying the user database for active users who were created on or after 2025-01-01 and will return their email addresses.",
+      "latency_ms": 266.3712501525879,
+      "error": null
+    },
+    {
+      "test_id": "boolean_optional",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[query_users(status=\"active\", created_after=\"2025-01-01\", include_email=True)]<|tool_call_end|>Querying active users created after 2025-01-01 and including their email addresses.",
+      "latency_ms": 190.50264358520508,
+      "error": null
+    },
+    {
+      "test_id": "boolean_optional",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8069.849014282227,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "boolean_optional",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `query_users`\n```json\n{\"status\": \"active\", \"created_after\": \"2025-01-01\", \"include_email\": true}\n```\n",
+      "latency_ms": 798.8219261169434,
+      "error": null
+    },
+    {
+      "test_id": "boolean_optional",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will call the query_users function to find all active users created in this year and include their email addresses.\n\n**Tool Call:** `query_users`\n```json\n{\"status\":\"active\",\"created_after\":\"2025-01-01\",\"include_email\":true}\n```\n",
+      "latency_ms": 2816.456079483032,
+      "error": null
+    },
+    {
+      "test_id": "loop_recovery",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `route`\n```json\n{\"specialist\": \"code_executor\", \"reasoning\": \"User requested to execute a Python script to calculate Fibonacci numbers. This task is best handled by the code_executor specialist.\"}\n```\n",
+      "latency_ms": 1006.4823627471924,
+      "error": null
+    },
+    {
+      "test_id": "loop_recovery",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "semantic_failure",
+      "response": "I'm sorry, but I can't execute Python scripts. The available API only allows routing tasks with predefined specialists such as code executor, data analyst, researcher, or chat; it doesn\u2019t support running custom code. If you need assistance with one of those options, please let me know!",
+      "latency_ms": 273.3113765716553,
+      "error": null
+    },
+    {
+      "test_id": "loop_recovery",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "semantic_failure",
+      "response": "I don't have access to execute Python scripts or perform calculations directly. However, I can help you route a specialist for assistance with the script if needed. Would you like me to route code executor, data analyst, researcher, or chat specialist?",
+      "latency_ms": 195.2955722808838,
+      "error": null
+    },
+    {
+      "test_id": "loop_recovery",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8077.741861343384,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "loop_recovery",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `route`\n```json\n{\"specialist\": \"code_executor\", \"reasoning\": \"The task requires executing a Python script to calculate Fibonacci numbers, which is best handled by the code_executor specialist.\"}\n```\n",
+      "latency_ms": 885.6673240661621,
+      "error": null
+    },
+    {
+      "test_id": "loop_recovery",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will now route this request to the code_executor specialist for execution.\n\n**Tool Call:** `route`\n```json\n{\"specialist\":\"code_executor\",\"reasoning\":\"Execute a Python script to calculate fibonacci numbers.\"}\n```\n",
+      "latency_ms": 2812.7801418304443,
+      "error": null
+    },
+    {
+      "test_id": "missing_required_info",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `ask_clarification`\n```json\n{\"question\": \"Which file would you like to delete?\"}\n```\n",
+      "latency_ms": 621.3951110839844,
+      "error": null
+    },
+    {
+      "test_id": "missing_required_info",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "semantic_failure",
+      "response": "I'm sorry, but I can't delete files. Based on the available API, I can only provide clarification or help with other tasks related to your request. Let me know if you need assistance with something else.",
+      "latency_ms": 212.94832229614258,
+      "error": null
+    },
+    {
+      "test_id": "missing_required_info",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[delete_file(path=\"C:/Users/John/Documents/Projects/2023_Report.pdf\")]<|tool_call_end|>Deleting the file at C:/Users/John/Documents/Projects/2023_Report.pdf.",
+      "latency_ms": 203.4010887145996,
+      "error": null
+    },
+    {
+      "test_id": "missing_required_info",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8151.451110839844,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "missing_required_info",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "semantic_failure",
+      "response": "Please specify the path of the file you want to delete.",
+      "latency_ms": 397.09997177124023,
+      "error": null
+    },
+    {
+      "test_id": "missing_required_info",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will now ask the user for clarification on which file they want to delete.\n\n**Tool Call:** `ask_clarification`\n```json\n{\"question\":\"Which file would you like to delete? Please provide the full path of the file.\"}\n```\n",
+      "latency_ms": 2797.9164123535156,
+      "error": null
+    },
+    {
+      "test_id": "type_coercion",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `transfer`\n```json\n{\"to_account\": \"savings\", \"amount\": 500}\n```\n",
+      "latency_ms": 575.5646228790283,
+      "error": null
+    },
+    {
+      "test_id": "type_coercion",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[transfer(to_account=\"savings\", amount=500)]<|tool_call_end|>I will transfer $500 from your current account to the savings account.",
+      "latency_ms": 176.2864589691162,
+      "error": null
+    },
+    {
+      "test_id": "type_coercion",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[transfer(to_account=\"savings\", amount=500)]<|tool_call_end|>",
+      "latency_ms": 86.47990226745605,
+      "error": null
+    },
+    {
+      "test_id": "type_coercion",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8079.8304080963135,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "type_coercion",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `transfer`\n```json\n{\"to_account\": \"savings\", \"amount\": 500}\n```\n",
+      "latency_ms": 573.4779834747314,
+      "error": null
+    },
+    {
+      "test_id": "type_coercion",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will now call the transfer function to send five hundred dollars to your savings account.\n\n**Tool Call:** `transfer`\n```json\n{\"to_account\":\"savings\",\"amount\":500}\n```\n",
+      "latency_ms": 1602.7638912200928,
+      "error": null
+    },
+    {
+      "test_id": "parallel_tool_calls",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n\n**Tool Call:** `get_weather`\n```json\n{\"city\": \"Tokyo\"}\n```\n\n**Tool Call:** `get_weather`\n```json\n{\"city\": \"Paris\"}\n```\n",
+      "latency_ms": 937.0832443237305,
+      "error": null
+    },
+    {
+      "test_id": "parallel_tool_calls",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[get_weather(city=\"Tokyo\"), get_weather(city=\"Paris\")]<|tool_call_end|>",
+      "latency_ms": 127.43973731994629,
+      "error": null
+    },
+    {
+      "test_id": "parallel_tool_calls",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[get_weather(city=\"Tokyo\"), get_weather(city=\"Paris\")]<|tool_call_end|>Checking the weather for Tokyo and Paris.",
+      "latency_ms": 125.63037872314453,
+      "error": null
+    },
+    {
+      "test_id": "parallel_tool_calls",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8060.582399368286,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "parallel_tool_calls",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n\n**Tool Call:** `get_weather`\n```json\n{\"city\": \"Tokyo\"}\n```\n\n**Tool Call:** `get_weather`\n```json\n{\"city\": \"Paris\"}\n```\n",
+      "latency_ms": 699.0776062011719,
+      "error": null
+    },
+    {
+      "test_id": "parallel_tool_calls",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will now get the weather information for Tokyo and Paris. I will first call the get_weather function with Tokyo as the city parameter, then do the same for Paris.\n\n**Tool Call:** `get_weather`\n```json\n{\"city\":\"Tokyo\"}\n```\n",
+      "latency_ms": 1615.678071975708,
+      "error": null
+    },
+    {
+      "test_id": "chained_dependency",
+      "model_id": "granite-4.0-micro",
+      "status": "completed",
+      "response": "\n**Tool Call:** `read_file`\n```json\n{\"path\": \"config.json\"}\n```\n",
+      "latency_ms": 466.31479263305664,
+      "error": null
+    },
+    {
+      "test_id": "chained_dependency",
+      "model_id": "lfm2.5-1.2b-instruct",
+      "status": "completed",
+      "response": "<|tool_call_start|>[read_file(path=\"config.json\")]<|tool_call_end|>I am reading the file located at 'config.json' to determine which port it is using.",
+      "latency_ms": 162.29701042175293,
+      "error": null
+    },
+    {
+      "test_id": "chained_dependency",
+      "model_id": "liquidai.symlink/lfm2-vl-450m",
+      "status": "completed",
+      "response": "<|tool_call_start|>[read_file(path=\"config.json\")]<|tool_call_end|>Reading the file config.json and retrieving its contents.",
+      "latency_ms": 104.28667068481445,
+      "error": null
+    },
+    {
+      "test_id": "chained_dependency",
+      "model_id": "nvidia/nemotron-3-nano",
+      "status": "error",
+      "response": "",
+      "latency_ms": 8087.3613357543945,
+      "error": "Empty response received (possible aborted model load)"
+    },
+    {
+      "test_id": "chained_dependency",
+      "model_id": "qwen3-30b-a3b-instruct-2507",
+      "status": "completed",
+      "response": "\n**Tool Call:** `read_file`\n```json\n{\"path\": \"config.json\"}\n```\n",
+      "latency_ms": 491.835355758667,
+      "error": null
+    },
+    {
+      "test_id": "chained_dependency",
+      "model_id": "zai-org/glm-4.6v-flash",
+      "status": "completed",
+      "response": "\nI will help you with that. I will read the config.json file and then find out what port it uses.\n\n**Tool Call:** `read_file`\n```json\n{\"path\":\"config.json\"}\n```\n",
+      "latency_ms": 1755.2993297576904,
+      "error": null
+    }
+  ]
+}
