@@ -33,15 +33,18 @@ class TestServerPoolIntegration:
         """refresh() should populate manifest_models from /v1/models."""
         await pool.refresh()
 
-        # Check that at least one server has models
-        total_models = 0
+        # Each configured server should have models (0 = server down or misconfigured)
+        failed_servers = []
         for url in servers:
             if url in pool.servers:
                 server = pool.servers[url]
-                total_models += len(server.manifest_models)
-                print(f"\n{url}: {len(server.manifest_models)} manifest models")
+                count = len(server.manifest_models)
+                print(f"\n{url}: {count} manifest models")
+                if count == 0:
+                    failed_servers.append(url)
 
-        assert total_models > 0, "No models found across any server"
+        assert not failed_servers, \
+            f"Server(s) returned 0 models (down or misconfigured): {failed_servers}"
 
     @pytest.mark.asyncio
     async def test_refresh_populates_loaded_models(self, pool, servers):
