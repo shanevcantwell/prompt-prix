@@ -403,7 +403,7 @@ def export_json():
     with open(filepath, "w") as f:
         json.dump(export_data, f, indent=2)
 
-    return f"✅ Exported {len(export_data['results'])} results", gr.update(visible=True, value=filepath)
+    return f"✅ Exported {len(export_data['results'])} results", gr.update(visible=False, value=filepath)
 
 
 def export_csv():
@@ -443,7 +443,7 @@ def export_csv():
                     ])
                     row_count += 1
 
-    return f"✅ Exported {row_count} results", gr.update(visible=True, value=filepath)
+    return f"✅ Exported {row_count} results", gr.update(visible=False, value=filepath)
 
 
 def export_grid_image():
@@ -575,7 +575,7 @@ def export_grid_image():
     if not os.path.exists(filepath):
         return "❌ Failed to save image file", gr.update(visible=False, value=None)
 
-    return f"✅ Exported: {filepath}", gr.update(visible=True, value=filepath)
+    return f"✅ Exported: {filepath}", gr.update(visible=False, value=filepath)
 
 
 def get_cell_detail(model: str, test: str) -> str:
