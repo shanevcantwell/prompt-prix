@@ -44,7 +44,7 @@ def _normalize_tools_for_openai(tools: list[dict]) -> list[dict]:
     """
     Normalize tool definitions to OpenAI format.
 
-    BFCL flat format:
+    Flat format:
         {"name": "...", "description": "...", "parameters": {...}}
 
     OpenAI nested format:

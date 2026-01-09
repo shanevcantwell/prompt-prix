@@ -2,8 +2,8 @@
 Benchmark loaders and test case models.
 
 Supports loading test cases from various formats:
-- CustomJSONLoader: For tool_competence_tests.json format
-- Future: BFCL, Inspect AI formats
+- CustomJSONLoader: For JSON/JSONL format
+- Future: promptfoo YAML, Inspect AI formats
 """
 
 from .base import TestCase
