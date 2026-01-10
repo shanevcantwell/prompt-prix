@@ -61,21 +61,22 @@ def create_app() -> gr.Blocks:
             with gr.Row():
                 with gr.Column(scale=2):
                     models_input = gr.Textbox(
-                        label="HuggingFace Models (one per line)",
-                        value="meta-llama/Llama-3.2-3B-Instruct\nQwen/Qwen2.5-3B-Instruct",
+                        label="Available Models (one per line)",
+                        value="meta-llama/Llama-3.2-3B-Instruct\nmistralai/Mistral-7B-Instruct-v0.3",
                         lines=3,
                         placeholder="meta-llama/Llama-3.2-3B-Instruct",
-                        elem_id="models-input"
+                        elem_id="models-input",
+                        info="HuggingFace model IDs"
                     )
                 with gr.Column(scale=2):
                     models_selector = gr.CheckboxGroup(
-                        label="Select Models to Use",
+                        label="Models to Test",
                         choices=[],
                         value=[],
                         elem_id="models-selector"
                     )
                     sync_models_btn = gr.Button(
-                        "↔️ Sync from Input",
+                        "🔄 Load Models",
                         variant="secondary",
                         size="sm"
                     )
