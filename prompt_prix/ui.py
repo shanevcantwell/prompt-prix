@@ -191,15 +191,6 @@ def create_app() -> gr.Blocks:
             outputs=[battery.status, battery.grid]
         )
 
-        battery.quick_prompt_btn.click(
-            fn=battery_handlers.quick_prompt_handler,
-            inputs=[
-                battery.quick_prompt, models_selector, servers_input,
-                timeout_slider, max_tokens_slider, battery.system_prompt
-            ],
-            outputs=[battery.quick_prompt_output]
-        )
-
         battery.stop_btn.click(fn=handle_stop, inputs=[], outputs=[battery.status])
 
         battery.display_mode.change(

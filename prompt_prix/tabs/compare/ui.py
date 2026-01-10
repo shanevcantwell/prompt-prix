@@ -56,7 +56,6 @@ def render_tab():
                     )
 
             with gr.Column(scale=1):
-                gr.Markdown("**Prompt**")
                 compare_prompt = gr.Textbox(
                     label="User Message",
                     placeholder="Enter your prompt here...",

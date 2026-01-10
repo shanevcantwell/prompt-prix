@@ -41,23 +41,6 @@ def render_tab():
                     visible=False  # Hidden until #19 LLM-as-judge implemented
                 )
 
-            with gr.Column(scale=1):
-                gr.Markdown("**Quick Prompt**")
-                quick_prompt = gr.Textbox(
-                    label="Manual Prompt",
-                    placeholder="Enter a prompt to test against selected models",
-                    lines=3
-                )
-                quick_prompt_btn = gr.Button(
-                    "⚡ Run Prompt",
-                    variant="secondary",
-                    size="sm"
-                )
-                quick_prompt_output = gr.Markdown(
-                    value="*Results will appear here*",
-                    label="Quick Prompt Results"
-                )
-
         with gr.Row():
             battery_run_btn = gr.Button(
                 "▶️ Run Battery",
@@ -125,9 +108,6 @@ def render_tab():
         validation=battery_validation,
         system_prompt=battery_system_prompt,
         judge_model=judge_model,
-        quick_prompt=quick_prompt,
-        quick_prompt_btn=quick_prompt_btn,
-        quick_prompt_output=quick_prompt_output,
         run_btn=battery_run_btn,
         stop_btn=battery_stop_btn,
         status=battery_status,
