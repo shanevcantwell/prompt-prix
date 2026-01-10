@@ -216,18 +216,19 @@ async def run_handler(
     # Clear any previous stop request so we can run again
     state.clear_stop()
 
-    # Fail-fast validation
-    if file_obj is None:
-        yield "❌ No benchmark file uploaded", []
-        return
-
-    if not models_selected:
-        yield "❌ No models selected", []
-        return
-
+    import pandas as pd
     from prompt_prix.benchmarks import CustomJSONLoader
     from prompt_prix.adapters import LMStudioAdapter
     from prompt_prix.battery import BatteryRunner
+
+    # Fail-fast validation
+    if file_obj is None:
+        yield "❌ No benchmark file uploaded", pd.DataFrame()
+        return
+
+    if not models_selected:
+        yield "❌ No models selected", pd.DataFrame()
+        return
 
     # For YAML files, use the converted JSON
     actual_file = file_obj
@@ -235,14 +236,14 @@ async def run_handler(
         if state.battery_converted_file:
             actual_file = state.battery_converted_file
         else:
-            yield "❌ YAML file not converted - re-upload file", []
+            yield "❌ YAML file not converted - re-upload file", pd.DataFrame()
             return
 
     # Load test cases
     try:
         tests = CustomJSONLoader.load(actual_file)
     except Exception as e:
-        yield f"❌ Failed to load tests: {e}", []
+        yield f"❌ Failed to load tests: {e}", pd.DataFrame()
         return
 
     # Parse prefixed selections and build server hints
@@ -264,10 +265,13 @@ async def run_handler(
     # Validate servers and models (use stripped model IDs for server lookup)
     pool, error = await _init_pool_and_validate(servers_text, list(stripped_for_validation))
     if error:
-        yield error, []
+        yield error, pd.DataFrame()
         return
 
     adapter = LMStudioAdapter(pool)
+
+    # Clear previous state to avoid stale columns (#81)
+    state.battery_run = None
 
     # Create and run battery (temperature omitted - use per-model defaults)
     # Pass server hints for orchestrated fan-out dispatch (GPU prefix routing)
@@ -283,6 +287,12 @@ async def run_handler(
 
     # Store state for later detail retrieval
     state.battery_run = runner.state
+
+    # Yield initial empty grid with correct columns before starting
+    initial_headers = ["Test"] + prefixed_models
+    initial_rows = [[t.id] + ["—"] * len(prefixed_models) for t in tests]
+    initial_grid = pd.DataFrame(initial_rows, columns=initial_headers)
+    yield "Starting...", initial_grid
 
     # Stream state updates to UI
     async for battery_state in runner.run():
@@ -655,12 +665,17 @@ def get_cell_detail(model: str, test: str) -> str:
     return f"**Status:** ✓ Completed\n\n**Latency:** {latency}\n\n---\n\n{result.response}"
 
 
-def refresh_grid(display_mode_str: str) -> list:
-    """Refresh the battery grid with the selected display mode."""
+def refresh_grid(display_mode_str: str):
+    """Refresh the battery grid with the selected display mode.
+
+    Returns:
+        pandas DataFrame with grid data, or empty DataFrame if no results.
+    """
+    import pandas as pd
     from prompt_prix.battery import GridDisplayMode
 
     if not state.battery_run:
-        return []
+        return pd.DataFrame()
 
     if "Latency" in display_mode_str:
         mode = GridDisplayMode.LATENCY

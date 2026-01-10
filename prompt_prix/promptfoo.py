@@ -17,6 +17,16 @@ import yaml
 from prompt_prix.benchmarks.base import TestCase
 
 
+def _slugify(text: str) -> str:
+    """Convert text to safe ID.
+
+    Example: 'Basic Tool Call (Sanity Check)' -> 'basic-tool-call-sanity-check'
+    """
+    text = text.lower()
+    text = re.sub(r'[^a-z0-9]+', '-', text)
+    return text.strip('-')[:50]  # Cap length for readability
+
+
 def parse_providers(
     config_path: Path,
     filter_prefix: Optional[str] = "huggingface"
@@ -103,13 +113,32 @@ def parse_tests(config_path: Path) -> list[TestCase]:
         return []
 
     test_cases = []
+    seen_ids: set[str] = set()  # Track used IDs to prevent collisions
+
+    def unique_id(base_id: str, fallback_idx: int) -> str:
+        """Ensure ID is unique by appending suffix if needed."""
+        if not base_id:
+            base_id = f"promptfoo_{fallback_idx}"
+        if base_id not in seen_ids:
+            seen_ids.add(base_id)
+            return base_id
+        # Append numeric suffix for duplicates
+        suffix = 2
+        while f"{base_id}-{suffix}" in seen_ids:
+            suffix += 1
+        unique = f"{base_id}-{suffix}"
+        seen_ids.add(unique)
+        return unique
 
     # If no tests defined, create one test per prompt
     if not tests:
         for idx, prompt in enumerate(prompts):
             prompt_text = prompt if isinstance(prompt, str) else str(prompt)
+            # Use slugified prompt text as ID, fall back to numbered ID
+            base_id = _slugify(prompt_text[:80]) if prompt_text else ""
+            test_id = unique_id(base_id, idx + 1)
             test_cases.append(TestCase(
-                id=f"promptfoo_{idx + 1}",
+                id=test_id,
                 user=prompt_text,
                 name=f"Test {idx + 1}"
             ))
@@ -148,15 +177,19 @@ def parse_tests(config_path: Path) -> list[TestCase]:
                 if criteria_parts:
                     pass_criteria = "; ".join(criteria_parts)
 
-            # Get description as name
-            name = ""
+            # Get description as name and use it for ID (#75)
+            description = ""
             if isinstance(test, dict):
-                name = test.get("description", "")
+                description = test.get("description", "")
+
+            # Use slugified description as ID, ensuring uniqueness
+            base_id = _slugify(description) if description else ""
+            test_id = unique_id(base_id, test_idx)
 
             test_cases.append(TestCase(
-                id=f"promptfoo_{test_idx}",
+                id=test_id,
                 user=prompt_text,
-                name=name or f"Test {test_idx}",
+                name=description or f"Test {test_idx}",
                 pass_criteria=pass_criteria
             ))
 

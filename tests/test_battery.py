@@ -397,18 +397,20 @@ class TestBatteryRun:
         assert retrieved.status == TestStatus.COMPLETED
 
     def test_to_grid(self):
-        """Test converting to grid format."""
+        """Test converting to grid format (returns pandas DataFrame)."""
         run = BatteryRun(tests=["t1", "t2"], models=["m1", "m2"])
         run.set_result(TestResult(test_id="t1", model_id="m1", status=TestStatus.COMPLETED))
         run.set_result(TestResult(test_id="t1", model_id="m2", status=TestStatus.ERROR))
 
         grid = run.to_grid()
-        assert grid[0] == ["Test", "m1", "m2"]  # Header
-        assert grid[1] == ["t1", "✓", "⚠"]      # t1: m1=completed, m2=error (technical issue)
-        assert grid[2] == ["t2", "—", "—"]      # t2 pending
+        # DataFrame has explicit column headers
+        assert list(grid.columns) == ["Test", "m1", "m2"]
+        # Check row data
+        assert list(grid.iloc[0]) == ["t1", "✓", "⚠"]  # t1: m1=completed, m2=error (technical issue)
+        assert list(grid.iloc[1]) == ["t2", "—", "—"]  # t2 pending
 
     def test_to_grid_latency_mode(self):
-        """Test grid with latency display mode."""
+        """Test grid with latency display mode (returns pandas DataFrame)."""
         from prompt_prix.battery import GridDisplayMode
 
         run = BatteryRun(tests=["t1", "t2"], models=["m1", "m2"])
@@ -422,9 +424,11 @@ class TestBatteryRun:
         ))
 
         grid = run.to_grid(GridDisplayMode.LATENCY)
-        assert grid[0] == ["Test", "m1", "m2"]  # Header
-        assert grid[1] == ["t1", "✓ 1.5s", "⚠ 2.5s"]  # t1: symbol + latencies
-        assert grid[2] == ["t2", "—", "—"]             # t2 pending
+        # DataFrame has explicit column headers
+        assert list(grid.columns) == ["Test", "m1", "m2"]
+        # Check row data
+        assert list(grid.iloc[0]) == ["t1", "✓ 1.5s", "⚠ 2.5s"]  # t1: symbol + latencies
+        assert list(grid.iloc[1]) == ["t2", "—", "—"]             # t2 pending
 
     def test_progress_tracking(self):
         """Test progress calculation."""

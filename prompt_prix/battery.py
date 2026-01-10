@@ -199,22 +199,23 @@ class BatteryRun(BaseModel):
 
     def to_grid(
         self, display_mode: GridDisplayMode = GridDisplayMode.SYMBOLS
-    ) -> list[list[str]]:
+    ) -> "pd.DataFrame":
         """
-        Convert to gr.Dataframe format.
+        Convert to gr.Dataframe format using pandas DataFrame.
 
         Args:
             display_mode: How to display results (symbols or latency)
 
         Returns:
-            List of rows where:
-            - First row is headers: ["Test", model1, model2, ...]
-            - Data rows are: [test_name, value1, value2, ...]
+            pandas DataFrame with explicit column headers.
+            Columns: ["Test", model1, model2, ...]
+            Rows: [test_name, value1, value2, ...]
         """
-        # Header row
-        grid = [["Test"] + self.models]
+        import pandas as pd
 
-        # Data rows
+        headers = ["Test"] + self.models
+        rows = []
+
         for test_id in self.tests:
             row = [test_id]
             for model_id in self.models:
@@ -223,9 +224,9 @@ class BatteryRun(BaseModel):
                     row.append(result.get_display(display_mode))
                 else:
                     row.append("—")  # No result yet
-            grid.append(row)
+            rows.append(row)
 
-        return grid
+        return pd.DataFrame(rows, columns=headers)
 
     @property
     def completed_count(self) -> int:
