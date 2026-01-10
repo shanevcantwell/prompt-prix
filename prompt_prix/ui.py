@@ -17,6 +17,14 @@ from prompt_prix.config import DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_TOKENS
 # Vetted HuggingFace models for the demo
 # These are known to work with the Inference API
 HF_MODELS = [
+    "LiquidAI/LFM2-1.2B-Tool-GGUF",
+    "LiquidAI/LFM2.5-1.2B-Base-GGUF",
+    "LiquidAI/LFM2.5-1.2B-Instruct-GGUF",
+    "LiquidAI/LFM2.5-VL-1.6B-GGUF",
+    "LiquidAI/LFM2-VL-450M-GGUF",
+    "ibm-granite/granite-4.0-micro",
+    "ibm-granite/granite-4.0-h-micro",
+    "mradermacher/Qwen3-0.9B-A0.6B-Tool-GGUF",
     "meta-llama/Llama-3.2-3B-Instruct",
     "mistralai/Mistral-7B-Instruct-v0.3",
     "microsoft/Phi-3-mini-4k-instruct",
