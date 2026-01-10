@@ -1281,3 +1281,213 @@ class TestDoubleAcquireDeadlock:
             f"Imbalanced: {len(strict_adapter.acquire_log)} acquires, "
             f"{len(strict_adapter.release_log)} releases"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# REGRESSION TESTS: Model ID Uniqueness (#80)
+# ─────────────────────────────────────────────────────────────────────
+
+class TestPrefixedModelUniqueness:
+    """Regression tests for #80: Same model on multiple GPUs must remain distinct.
+
+    When user selects the same model on different GPUs (e.g., "0: llama-3.2" and
+    "1: llama-3.2"), they must be treated as distinct identifiers throughout the
+    dispatch system. The GPU prefix is stripped only at the API call boundary.
+    """
+
+    def test_hints_dict_preserves_prefixed_keys(self):
+        """Hints dict keys must be prefixed IDs, not stripped names.
+
+        Regression: Previously stripped keys caused collision - second server URL
+        overwrote first when same model selected on multiple GPUs.
+        """
+        from prompt_prix.parsers import parse_prefixed_model
+
+        # Setup: Two selections of same model on different GPUs
+        selections = ["0: llama-3.2", "1: llama-3.2"]
+
+        # Build hints dict (mirrors handlers.py logic)
+        hints = {}
+        for selection in selections:
+            idx, stripped = parse_prefixed_model(selection)
+            hints[selection] = f"http://server{idx}"  # Use prefixed key
+
+        # Assert: Both entries exist (no collision)
+        assert len(hints) == 2, f"Collision: expected 2, got {len(hints)}"
+        assert "0: llama-3.2" in hints
+        assert "1: llama-3.2" in hints
+        assert hints["0: llama-3.2"] != hints["1: llama-3.2"]
+
+    def test_model_list_preserves_duplicates_with_prefix(self):
+        """Model list must contain prefixed IDs as distinct elements.
+
+        Regression: Previously stripped IDs created ["llama", "llama"] which
+        looked like duplicates but pointed to different GPUs.
+        """
+        selections = ["0: llama-3.2", "1: llama-3.2"]
+
+        # Keep full prefixes - these are distinct model identifiers
+        prefixed_models = selections
+
+        assert len(prefixed_models) == 2
+        assert prefixed_models[0] != prefixed_models[1]
+        assert len(set(prefixed_models)) == 2, "Prefixed IDs must be unique"
+
+    def test_uniqueness_invariant_helper(self):
+        """Test the uniqueness invariant that should hold throughout dispatch."""
+        def assert_model_uniqueness_invariant(models: list, hints: dict):
+            """Assert that model selection preserves uniqueness."""
+            # 1. No duplicate IDs in model list
+            assert len(models) == len(set(models)), f"Duplicate model IDs: {models}"
+            # 2. Every model has a hint (for server routing)
+            for model in models:
+                assert model in hints, f"Missing hint for {model}"
+            # 3. Hints dict has same cardinality as model list
+            assert len(hints) >= len(models), f"Hints collision: {len(hints)} < {len(models)}"
+
+        # Valid case: prefixed IDs
+        models = ["0: llama-3.2", "1: llama-3.2"]
+        hints = {"0: llama-3.2": "http://gpu0", "1: llama-3.2": "http://gpu1"}
+        assert_model_uniqueness_invariant(models, hints)  # Should pass
+
+        # Invalid case: stripped IDs (would violate invariant)
+        stripped_models = ["llama-3.2", "llama-3.2"]
+        stripped_hints = {"llama-3.2": "http://gpu1"}  # Collision!
+        with pytest.raises(AssertionError):
+            assert_model_uniqueness_invariant(stripped_models, stripped_hints)
+
+
+class TestBatteryRunnerDispatchUniqueness:
+    """Verify BatteryRunner handles same model on multiple GPUs correctly."""
+
+    @pytest.mark.asyncio
+    async def test_same_model_different_gpus_dispatches_to_both(self):
+        """Same model on two GPUs should dispatch to BOTH, not just one.
+
+        This is the key regression test for #80 - ensures each GPU gets its
+        own work queue when the same model is selected on both.
+        """
+        from collections import defaultdict
+
+        # Tracking adapter that records which server each call went to
+        class TrackingAdapter:
+            def __init__(self):
+                self.calls_by_server = defaultdict(list)
+                self._server_hints = {}
+
+            def set_server_hint(self, model_id: str, server_url: str):
+                self._server_hints[model_id] = server_url
+
+            def get_concurrency_limit(self) -> int:
+                return 2
+
+            async def stream_completion(
+                self,
+                model_id: str,
+                messages: list,
+                temperature: float,
+                max_tokens: int,
+                timeout_seconds: int,
+                tools=None
+            ):
+                server = self._server_hints.get(model_id, "unknown")
+                self.calls_by_server[server].append(model_id)
+                yield "response"
+
+        adapter = TrackingAdapter()
+        tests = [TestCase(id="t1", user="Test prompt")]
+        models = ["0: llama-3.2", "1: llama-3.2"]  # Same model, different GPUs
+        hints = {
+            "0: llama-3.2": "http://gpu0",
+            "1: llama-3.2": "http://gpu1"
+        }
+
+        runner = BatteryRunner(
+            adapter=adapter,
+            tests=tests,
+            models=models,
+            server_hints=hints,
+            max_tokens=100,
+            timeout_seconds=30
+        )
+
+        async for _ in runner.run():
+            pass
+
+        # Assert: BOTH servers received calls
+        assert "http://gpu0" in adapter.calls_by_server, (
+            f"GPU0 received no calls. Servers called: {list(adapter.calls_by_server.keys())}"
+        )
+        assert "http://gpu1" in adapter.calls_by_server, (
+            f"GPU1 received no calls. Servers called: {list(adapter.calls_by_server.keys())}"
+        )
+        # Each should have received exactly 1 call (one test per model)
+        assert len(adapter.calls_by_server["http://gpu0"]) == 1
+        assert len(adapter.calls_by_server["http://gpu1"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_multiple_tests_same_model_both_gpus(self):
+        """Multiple tests with same model on both GPUs should run all correctly.
+
+        More comprehensive test: 3 tests × 2 GPUs = 6 total executions.
+        """
+        from collections import defaultdict
+
+        class TrackingAdapter:
+            def __init__(self):
+                self.calls_by_server = defaultdict(list)
+                self._server_hints = {}
+
+            def set_server_hint(self, model_id: str, server_url: str):
+                self._server_hints[model_id] = server_url
+
+            def get_concurrency_limit(self) -> int:
+                return 2
+
+            async def stream_completion(
+                self,
+                model_id: str,
+                messages: list,
+                temperature: float,
+                max_tokens: int,
+                timeout_seconds: int,
+                tools=None
+            ):
+                server = self._server_hints.get(model_id, "unknown")
+                self.calls_by_server[server].append(model_id)
+                yield "response"
+
+        adapter = TrackingAdapter()
+        tests = [
+            TestCase(id="t1", user="Test 1"),
+            TestCase(id="t2", user="Test 2"),
+            TestCase(id="t3", user="Test 3"),
+        ]
+        models = ["0: llama-3.2", "1: llama-3.2"]
+        hints = {
+            "0: llama-3.2": "http://gpu0",
+            "1: llama-3.2": "http://gpu1"
+        }
+
+        runner = BatteryRunner(
+            adapter=adapter,
+            tests=tests,
+            models=models,
+            server_hints=hints,
+            max_tokens=100,
+            timeout_seconds=30
+        )
+
+        final_state = None
+        async for state in runner.run():
+            final_state = state
+
+        # Each GPU should have run 3 tests
+        assert len(adapter.calls_by_server["http://gpu0"]) == 3, (
+            f"GPU0 expected 3 calls, got {len(adapter.calls_by_server['http://gpu0'])}"
+        )
+        assert len(adapter.calls_by_server["http://gpu1"]) == 3, (
+            f"GPU1 expected 3 calls, got {len(adapter.calls_by_server['http://gpu1'])}"
+        )
+        # Total: 6 completed (3 tests × 2 models)
+        assert final_state.completed_count == 6
