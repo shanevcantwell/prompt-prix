@@ -27,6 +27,7 @@ from tenacity import (
 )
 
 import asyncio
+from collections import defaultdict
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
 from prompt_prix import state as app_state
 from prompt_prix.semantic_validator import validate_response_semantic
@@ -269,6 +270,7 @@ class BatteryRunner:
         adapter: "LMStudioAdapter",
         tests: list["TestCase"],
         models: list[str],
+        server_hints: Optional[dict[str, str]] = None,
         max_tokens: int = 2048,
         timeout_seconds: int = 300,
         temperature: Optional[float] = None
@@ -280,6 +282,8 @@ class BatteryRunner:
             adapter: LMStudioAdapter for model inference (DI)
             tests: List of TestCase objects to run
             models: List of model IDs to test against
+            server_hints: Dict mapping model_id → server_url for GPU routing.
+                         When provided, enables orchestrated fan-out dispatch.
             max_tokens: Maximum tokens per response
             timeout_seconds: Timeout per request
             temperature: Sampling temperature. None = use per-model defaults.
@@ -288,6 +292,7 @@ class BatteryRunner:
         self.tests = tests
         self.tests_by_id = {t.id: t for t in tests}  # Lookup for execute_fn
         self.models = models
+        self.server_hints = server_hints or {}
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
@@ -302,16 +307,18 @@ class BatteryRunner:
         """
         Execute all tests across all models.
 
-        Uses adapter directly for backend-agnostic execution:
-        - Concurrency limited via semaphore (adapter.get_concurrency_limit)
-        - Streaming via adapter.stream_completion (handles resources internally)
-        - No dependency on ServerPool or server URLs
+        When server_hints is provided, uses orchestrated fan-out dispatch:
+        - Groups tasks by server URL (from user's GPU prefix selection)
+        - Runs per-server queues in parallel (GPUs work simultaneously)
+        - Each queue runs sequentially (no VRAM thrashing within GPU)
+
+        Without server_hints, falls back to semaphore-based dispatch.
 
         Yields:
             BatteryRun state snapshot periodically for UI updates
         """
-        # Concurrency limiter based on adapter
-        semaphore = asyncio.Semaphore(self.adapter.get_concurrency_limit())
+        # Queue for coordinating state updates across parallel server queues
+        update_queue: asyncio.Queue = asyncio.Queue()
 
         async def execute_test(test_id: str, model_id: str) -> None:
             """Execute a single test with retry logic."""
@@ -323,6 +330,7 @@ class BatteryRunner:
                 model_id=model_id,
                 status=TestStatus.RUNNING
             ))
+            await update_queue.put("running")
 
             start_time = time.time()
 
@@ -357,70 +365,130 @@ class BatteryRunner:
                 validate_response(response)
                 return response
 
-            # Note: adapter.stream_completion handles acquire/release internally
-            async with semaphore:
-                try:
-                    response = await stream_with_retry()
-                    latency_ms = (time.time() - start_time) * 1000
+            try:
+                response = await stream_with_retry()
+                latency_ms = (time.time() - start_time) * 1000
 
-                    # Semantic validation: check for refusals and expected tool calls
-                    # Pass model_id for model-aware tool call parsing
-                    is_valid, failure_reason = validate_response_semantic(
-                        test, response, model_id=model_id
-                    )
+                # Semantic validation: check for refusals and expected tool calls
+                # Pass model_id for model-aware tool call parsing
+                is_valid, failure_reason = validate_response_semantic(
+                    test, response, model_id=model_id
+                )
 
-                    if is_valid:
-                        self.state.set_result(TestResult(
-                            test_id=test_id,
-                            model_id=model_id,
-                            status=TestStatus.COMPLETED,
-                            response=response,
-                            latency_ms=latency_ms
-                        ))
-                    else:
-                        self.state.set_result(TestResult(
-                            test_id=test_id,
-                            model_id=model_id,
-                            status=TestStatus.SEMANTIC_FAILURE,
-                            response=response,
-                            latency_ms=latency_ms,
-                            failure_reason=failure_reason
-                        ))
-
-                except Exception as e:
-                    latency_ms = (time.time() - start_time) * 1000
-
-                    # Mark as error (fail loudly - record error, don't hide it)
+                if is_valid:
                     self.state.set_result(TestResult(
                         test_id=test_id,
                         model_id=model_id,
-                        status=TestStatus.ERROR,
-                        error=str(e),
+                        status=TestStatus.COMPLETED,
+                        response=response,
                         latency_ms=latency_ms
                     ))
+                else:
+                    self.state.set_result(TestResult(
+                        test_id=test_id,
+                        model_id=model_id,
+                        status=TestStatus.SEMANTIC_FAILURE,
+                        response=response,
+                        latency_ms=latency_ms,
+                        failure_reason=failure_reason
+                    ))
 
-        # Create tasks for all (test, model) combinations
-        tasks = []
-        for model_id in self.models:
-            for test in self.tests:
-                tasks.append(asyncio.create_task(execute_test(test.id, model_id)))
+            except Exception as e:
+                latency_ms = (time.time() - start_time) * 1000
 
-        # Yield state as tasks complete
-        pending = set(tasks)
-        while pending:
-            # Check for stop request
-            if app_state.should_stop():
-                for task in pending:
-                    task.cancel()
-                break
+                # Mark as error (fail loudly - record error, don't hide it)
+                self.state.set_result(TestResult(
+                    test_id=test_id,
+                    model_id=model_id,
+                    status=TestStatus.ERROR,
+                    error=str(e),
+                    latency_ms=latency_ms
+                ))
 
-            # Wait for any task to complete (with short timeout for responsiveness)
-            done, pending = await asyncio.wait(
-                pending, timeout=0.1, return_when=asyncio.FIRST_COMPLETED
-            )
-            yield self.state
+            await update_queue.put("done")
 
-        # Wait for remaining tasks and final yield
-        if tasks:
+        async def run_server_queue(server_url: str, queue: list[tuple[str, str]]) -> None:
+            """Run all tests for a server sequentially (no VRAM thrashing)."""
+            # Set server hint for this queue's models
+            for _, model_id in queue:
+                self.adapter.set_server_hint(model_id, server_url)
+
+            # Execute tests sequentially within this server's queue
+            for test_id, model_id in queue:
+                if app_state.should_stop():
+                    break
+                await execute_test(test_id, model_id)
+
+        # Use orchestrated fan-out when server_hints provided
+        if self.server_hints:
+            # Group tasks by server URL
+            server_queues: dict[str, list[tuple[str, str]]] = defaultdict(list)
+            for model_id in self.models:
+                server_url = self.server_hints.get(model_id)
+                if not server_url:
+                    logger.warning(f"No server hint for model {model_id}, using first available")
+                    # Fall back to first server for unhinted models
+                    server_url = list(self.server_hints.values())[0] if self.server_hints else "default"
+                for test in self.tests:
+                    server_queues[server_url].append((test.id, model_id))
+
+            # Calculate total tasks for completion tracking
+            total_tasks = sum(len(q) for q in server_queues.values())
+
+            # Start all server queues in parallel
+            queue_tasks = [
+                asyncio.create_task(run_server_queue(url, queue))
+                for url, queue in server_queues.items()
+            ]
+
+            # Yield state updates as tests complete
+            completed = 0
+            yield self.state  # Initial state
+
+            while completed < total_tasks:
+                if app_state.should_stop():
+                    for task in queue_tasks:
+                        task.cancel()
+                    break
+
+                try:
+                    # Wait for update with timeout for responsiveness
+                    await asyncio.wait_for(update_queue.get(), timeout=0.1)
+                    completed += 0.5  # "running" and "done" each count as 0.5
+                except asyncio.TimeoutError:
+                    pass
+                yield self.state
+
+            # Wait for all queues to finish
+            await asyncio.gather(*queue_tasks, return_exceptions=True)
+
+        else:
+            # Fallback: semaphore-based dispatch (original behavior)
+            semaphore = asyncio.Semaphore(self.adapter.get_concurrency_limit())
+
+            async def execute_with_semaphore(test_id: str, model_id: str) -> None:
+                async with semaphore:
+                    await execute_test(test_id, model_id)
+
+            # Create tasks for all (test, model) combinations
+            tasks = []
+            for model_id in self.models:
+                for test in self.tests:
+                    tasks.append(asyncio.create_task(execute_with_semaphore(test.id, model_id)))
+
+            # Yield state as tasks complete
+            pending = set(tasks)
+            while pending:
+                if app_state.should_stop():
+                    for task in pending:
+                        task.cancel()
+                    break
+
+                done, pending = await asyncio.wait(
+                    pending, timeout=0.1, return_when=asyncio.FIRST_COMPLETED
+                )
+                yield self.state
+
             await asyncio.gather(*tasks, return_exceptions=True)
+
         yield self.state

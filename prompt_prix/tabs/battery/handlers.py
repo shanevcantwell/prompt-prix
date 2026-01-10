@@ -252,10 +252,12 @@ async def run_handler(
     adapter = LMStudioAdapter(pool)
 
     # Create and run battery (temperature omitted - use per-model defaults)
+    # Pass server hints for orchestrated fan-out dispatch (GPU prefix routing)
     runner = BatteryRunner(
         adapter=adapter,
         tests=tests,
         models=stripped_models,
+        server_hints=hints,
         max_tokens=max_tokens,
         timeout_seconds=timeout
     )
