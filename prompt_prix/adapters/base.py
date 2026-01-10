@@ -15,15 +15,17 @@ class HostAdapter(Protocol):
     Implementations must provide:
     - Model discovery (get_available_models)
     - Streaming completion (stream_completion)
-    - Concurrency management (get_concurrency_limit, acquire, release)
+    - Concurrency limit (get_concurrency_limit)
 
     Design rationale (from CLAUDE.md):
     - Separation of Concerns: Protocol defines capability, adapters define implementation
     - Provider-Agnostic: Same interface works for LM Studio, Ollama, vLLM, HuggingFace, etc.
 
-    Concurrency model:
-    - Local backends (LM Studio): Limited by GPU/server count, requires acquire/release
-    - Cloud backends (HuggingFace): High concurrency, acquire/release are no-ops
+    Resource management:
+    - stream_completion() handles all resource management internally
+    - Callers just call stream_completion() - no acquire/release needed
+    - This follows the pattern of database pools and HTTP clients
+    - Concurrency limiting is done by callers using get_concurrency_limit() with a semaphore
     """
 
     async def get_available_models(self) -> list[str]:
@@ -47,6 +49,10 @@ class HostAdapter(Protocol):
         """
         Stream completion chunks from the model.
 
+        Resource management is handled internally by the adapter.
+        Callers should use get_concurrency_limit() with a semaphore to
+        limit concurrent calls, but do not need to manage resources.
+
         Args:
             model_id: Model identifier
             messages: OpenAI-format messages [{"role": "...", "content": "..."}]
@@ -67,33 +73,12 @@ class HostAdapter(Protocol):
         """
         Maximum concurrent requests this adapter can handle.
 
+        Callers should use this with asyncio.Semaphore to limit concurrent
+        stream_completion() calls.
+
         Returns:
             Number of concurrent requests allowed.
             - Local backends: Typically 1 per server/GPU
             - Cloud backends: Higher (e.g., 10+), rate limiting handled externally
-        """
-        ...
-
-    async def acquire(self, model_id: str) -> None:
-        """
-        Acquire a slot before making a request.
-
-        For local backends: Blocks until a server is available, handles model loading.
-        For cloud backends: No-op (cloud handles concurrency).
-
-        Args:
-            model_id: The model that will be used for the request
-        """
-        ...
-
-    async def release(self, model_id: str) -> None:
-        """
-        Release a slot after completing a request.
-
-        For local backends: Frees the server for other requests.
-        For cloud backends: No-op.
-
-        Args:
-            model_id: The model that was used for the request
         """
         ...

@@ -23,9 +23,9 @@ class HuggingFaceAdapter:
     - Token from env: HF_TOKEN env var (Spaces-compatible)
     - Streaming: Uses InferenceClient.chat_completion with stream=True
 
-    Concurrency model:
-    - High concurrency (HF manages rate limiting)
-    - acquire/release are no-ops
+    Resource management:
+    - stream_completion() is self-contained (no external resources to manage)
+    - High concurrency limit (HF manages rate limiting server-side)
     """
 
     def __init__(
@@ -127,10 +127,3 @@ class HuggingFaceAdapter:
         """
         return 10
 
-    async def acquire(self, model_id: str) -> None:
-        """No-op: HuggingFace manages concurrency server-side."""
-        pass
-
-    async def release(self, model_id: str) -> None:
-        """No-op: HuggingFace manages concurrency server-side."""
-        pass

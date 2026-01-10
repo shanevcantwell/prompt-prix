@@ -662,12 +662,14 @@ class TestComparisonSession:
     def test_comparison_session_init(self, mock_servers, mock_models):
         """Test ComparisonSession initialization."""
         from prompt_prix.scheduler import ServerPool
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
         from prompt_prix.core import ComparisonSession
 
         pool = ServerPool(mock_servers)
+        adapter = LMStudioAdapter(pool)
         session = ComparisonSession(
             models=mock_models,
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test prompt",
             temperature=0.5,
             timeout_seconds=60,
@@ -682,12 +684,14 @@ class TestComparisonSession:
     def test_comparison_session_creates_contexts_for_all_models(self, mock_servers, mock_models):
         """Test session creates empty context for each model."""
         from prompt_prix.scheduler import ServerPool
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
         from prompt_prix.core import ComparisonSession
 
         pool = ServerPool(mock_servers)
+        adapter = LMStudioAdapter(pool)
         session = ComparisonSession(
             models=mock_models,
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -704,6 +708,7 @@ class TestComparisonSession:
     async def test_comparison_session_send_single_prompt(self, mock_servers, mock_models):
         """Test sending prompt to single model."""
         from prompt_prix.scheduler import ServerPool
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
         from prompt_prix.core import ComparisonSession
 
         # Setup mocks - manifest endpoints
@@ -720,17 +725,24 @@ class TestComparisonSession:
         respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
             return_value=httpx.Response(200, json=MOCK_LOAD_STATE_EMPTY)
         )
+        # Use streaming format for chat completions (stream=True)
+        from tests.conftest import MOCK_STREAMING_CHUNKS
+        streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
         respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json=MOCK_COMPLETION_RESPONSE)
+            return_value=httpx.Response(200, text=streaming_content)
+        )
+        respx.post(f"{MOCK_SERVER_2}/v1/chat/completions").mock(
+            return_value=httpx.Response(200, text=streaming_content)
         )
 
         pool = ServerPool(mock_servers)
+        adapter = LMStudioAdapter(pool)
         # Pre-populate the server state to avoid infinite retry loop
         await pool.refresh()
 
         session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -774,9 +786,11 @@ class TestComparisonSession:
         # Pre-populate the server state to avoid infinite retry loop
         await pool.refresh()
 
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
+        adapter = LMStudioAdapter(pool)
         session = ComparisonSession(
             models=mock_models,
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -823,9 +837,11 @@ class TestComparisonSession:
         # Pre-populate the server state to avoid infinite retry loop
         await pool.refresh()
 
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
+        adapter = LMStudioAdapter(pool)
         session = ComparisonSession(
             models=mock_models,
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -842,11 +858,13 @@ class TestComparisonSession:
         """Test getting display format for a model."""
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         pool = ServerPool(mock_servers)
+        adapter = LMStudioAdapter(pool)
         session = ComparisonSession(
             models=mock_models,
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -866,11 +884,13 @@ class TestComparisonSession:
         """Test getting all context displays."""
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         pool = ServerPool(mock_servers)
+        adapter = LMStudioAdapter(pool)
         session = ComparisonSession(
             models=mock_models,
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -983,8 +1003,7 @@ class HostAdapterMock:
     Mock adapter implementing ONLY the HostAdapter protocol.
 
     This mock does NOT have ServerPool methods. Tests using this mock
-    will FAIL until ComparisonSession is refactored to use HostAdapter
-    interface instead of ServerPool.
+    verify that ComparisonSession uses HostAdapter interface correctly.
 
     Part of #73 Phase 6 - tests for adapter refactor.
     """
@@ -992,8 +1011,6 @@ class HostAdapterMock:
     def __init__(self, responses: dict[str, str] = None):
         self.responses = responses or {}
         self.calls = []
-        self.acquired = []
-        self.released = []
 
     async def get_available_models(self) -> list[str]:
         return list(self.responses.keys())
@@ -1014,12 +1031,6 @@ class HostAdapterMock:
 
     def get_concurrency_limit(self) -> int:
         return 2
-
-    async def acquire(self, model_id: str) -> None:
-        self.acquired.append(model_id)
-
-    async def release(self, model_id: str) -> None:
-        self.released.append(model_id)
 
 
 class TestComparisonSessionWithHostAdapter:
@@ -1055,8 +1066,13 @@ class TestComparisonSessionWithHostAdapter:
         assert session.state.models == ["model-a"]
 
     @pytest.mark.asyncio
-    async def test_session_uses_adapter_acquire_release(self):
-        """Session should call adapter.acquire/release for concurrency."""
+    async def test_session_uses_adapter_stream_completion_for_prompts(self):
+        """Session should use adapter.stream_completion for sending prompts.
+
+        Note: For ComparisonSession, stream_completion handles acquire/release
+        internally (LMStudioAdapter design). ComparisonSession doesn't call
+        acquire/release separately.
+        """
         from prompt_prix.core import ComparisonSession
 
         adapter = HostAdapterMock(responses={"model-a": "Hello world"})
@@ -1071,8 +1087,9 @@ class TestComparisonSessionWithHostAdapter:
 
         await session.send_prompt_to_model("model-a", "Hi", on_chunk=None)
 
-        assert "model-a" in adapter.acquired
-        assert "model-a" in adapter.released
+        # Verify stream_completion was called (not acquire/release separately)
+        assert len(adapter.calls) == 1
+        assert adapter.calls[0][0] == "model-a"
 
     @pytest.mark.asyncio
     async def test_session_uses_adapter_stream_completion(self):
@@ -1124,6 +1141,7 @@ class TestComparisonSessionWithHostAdapter:
 
         assert "model-a" in results
         assert "model-b" in results
-        # Both models should have been acquired and released
-        assert len(adapter.acquired) == 2
-        assert len(adapter.released) == 2
+        # Both models should have had stream_completion called
+        model_ids_called = [call[0] for call in adapter.calls]
+        assert "model-a" in model_ids_called
+        assert "model-b" in model_ids_called

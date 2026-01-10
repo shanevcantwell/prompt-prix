@@ -53,9 +53,11 @@ class TaskExecutor:
 
     Handles:
     - Concurrent execution respecting adapter limits
-    - acquire/release lifecycle for resource management
-    - Error handling with guaranteed release
+    - Error handling
     - Duration tracking
+
+    Resource management is handled internally by adapters (stream_completion).
+    Concurrency is managed via semaphore based on adapter.get_concurrency_limit().
 
     Usage:
         executor = TaskExecutor(adapter)
@@ -107,14 +109,14 @@ class TaskExecutor:
 
     async def _execute_single(self, task: Task) -> TaskResult:
         """
-        Execute a single task with acquire/release lifecycle.
+        Execute a single task.
 
-        Always releases even on error.
+        Resource management is handled internally by adapter.stream_completion().
+        Concurrency is limited by semaphore.
         """
         start_time = time.perf_counter()
 
         async with self._semaphore:
-            await self.adapter.acquire(task.model_id)
             try:
                 response_chunks = []
                 async for chunk in self.adapter.stream_completion(
@@ -146,6 +148,3 @@ class TaskExecutor:
                     duration_ms=duration_ms,
                     error=str(e)
                 )
-
-            finally:
-                await self.adapter.release(task.model_id)

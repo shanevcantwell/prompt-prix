@@ -210,20 +210,23 @@ class ComparisonSession:
     Manages a multi-model comparison session.
     Handles prompt dispatch, context tracking, and failure handling.
 
+    Uses HostAdapter protocol for backend-agnostic operation.
+    Concurrency is managed externally via semaphores based on adapter.get_concurrency_limit().
+
     Note: temperature is optional and defaults to None. When None, temperature
-    is omitted from API requests so LM Studio uses per-model defaults.
+    is omitted from API requests so backend uses per-model defaults.
     """
 
     def __init__(
         self,
         models: list[str],
-        server_pool: ServerPool,
+        adapter,  # HostAdapter protocol
         system_prompt: str,
         timeout_seconds: int,
         max_tokens: int,
         temperature: Optional[float] = None
     ):
-        self.server_pool = server_pool
+        self.adapter = adapter
         self.state = SessionState(
             models=models,
             system_prompt=system_prompt,
@@ -249,49 +252,23 @@ class ComparisonSession:
         context = self.state.contexts[model_id]
         context.add_user_message(prompt)
 
-        # Find available server
-        server_url = None
-        while server_url is None:
-            await self.server_pool.refresh()
-            server_url = self.server_pool.find_server(model_id)
-            if server_url is None:
-                await asyncio.sleep(1.0)  # Wait and retry
+        messages = context.to_openai_messages(self.state.system_prompt)
 
-        # Acquire server
-        await self.server_pool.acquire(server_url)
-
-        try:
-            messages = context.to_openai_messages(self.state.system_prompt)
-
+        # Stream completion through adapter
+        full_response = ""
+        async for chunk in self.adapter.stream_completion(
+            model_id=model_id,
+            messages=messages,
+            temperature=self.state.temperature,
+            max_tokens=self.state.max_tokens,
+            timeout_seconds=self.state.timeout_seconds
+        ):
+            full_response += chunk
             if on_chunk:
-                # Streaming mode
-                full_response = ""
-                async for chunk in stream_completion(
-                    server_url=server_url,
-                    model_id=model_id,
-                    messages=messages,
-                    temperature=self.state.temperature,
-                    max_tokens=self.state.max_tokens,
-                    timeout_seconds=self.state.timeout_seconds
-                ):
-                    full_response += chunk
-                    await on_chunk(model_id, chunk)
-            else:
-                # Non-streaming mode
-                full_response = await get_completion(
-                    server_url=server_url,
-                    model_id=model_id,
-                    messages=messages,
-                    temperature=self.state.temperature,
-                    max_tokens=self.state.max_tokens,
-                    timeout_seconds=self.state.timeout_seconds
-                )
+                await on_chunk(model_id, chunk)
 
-            context.add_assistant_message(full_response)
-            return full_response
-
-        finally:
-            self.server_pool.release(server_url)
+        context.add_assistant_message(full_response)
+        return full_response
 
     async def send_prompt_to_all(
         self,

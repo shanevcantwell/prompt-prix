@@ -4,6 +4,25 @@
 
 ---
 
+## Development Environment
+
+**Always use the venv for Python commands:**
+
+```bash
+# Run tests
+.venv/bin/python -m pytest tests/
+
+# Install packages
+.venv/bin/pip install <package>
+
+# Run the app
+.venv/bin/python -m prompt_prix
+```
+
+Do NOT use system Python (`python`, `pip`). The system is externally managed and will reject package installs.
+
+---
+
 ## Communication Style
 
 - Calm and level, professional tone
@@ -132,7 +151,7 @@ Output: Side-by-side visual comparison
 | Module | Purpose |
 |--------|---------|
 | `core.py` | ComparisonSession, streaming |
-| `scheduler.py` | ServerPool, BatchRunner |
+| `scheduler.py` | ServerPool |
 | `battery.py` | BatteryRunner orchestrator |
 | `semantic_validator.py` | Refusal detection, tool call validation |
 | `adapters/` | LMStudio provider |

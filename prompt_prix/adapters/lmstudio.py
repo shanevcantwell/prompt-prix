@@ -19,10 +19,10 @@ class LMStudioAdapter:
     Wraps ServerPool for server discovery and stream_completion for inference.
     Uses asyncio.Lock for thread-safety (state hygiene per CLAUDE.md).
 
-    Concurrency model:
+    Resource management:
+    - stream_completion() handles server acquire/release internally
     - One concurrent request per server (GPU memory constraint)
-    - acquire/release manage server slots
-    - _active_servers tracks which server is handling each model
+    - Server hints allow GPU prefix routing (prefer specific server for a model)
     """
 
     def __init__(self, server_pool: ServerPool):
@@ -34,13 +34,7 @@ class LMStudioAdapter:
         """
         self._pool = server_pool
         self._lock = asyncio.Lock()
-        self._active_servers: dict[str, str] = {}  # model_id → server_url
-        self._server_hints: dict[str, str] = {}    # model_id → preferred server_url
-
-    @property
-    def pool(self) -> ServerPool:
-        """Expose ServerPool for BatchRunner access (deprecated - use acquire/release)."""
-        return self._pool
+        self._server_hints: dict[str, str] = {}  # model_id → preferred server_url
 
     def set_server_hint(self, model_id: str, server_url: str) -> None:
         """Set preferred server for a model (for GPU prefix routing)."""
@@ -71,11 +65,12 @@ class LMStudioAdapter:
         Finds an available server with the model, acquires it,
         streams the completion, then releases the server.
         """
-        # Find available server
+        # Find available server (respecting hints for GPU prefix routing)
         server_url = None
         async with self._lock:
             await self._pool.refresh()
-            server_url = self._pool.find_server(model_id)
+            preferred = self._server_hints.get(model_id)
+            server_url = self._pool.find_server(model_id, preferred_url=preferred)
 
         if server_url is None:
             raise RuntimeError(f"No server available for model: {model_id}")
@@ -96,41 +91,3 @@ class LMStudioAdapter:
         finally:
             self._pool.release(server_url)
 
-    async def acquire(self, model_id: str) -> None:
-        """
-        Acquire a server slot for this model.
-
-        Finds an available server (respecting hints), acquires it,
-        and tracks it for later release.
-
-        Args:
-            model_id: The model that will be used
-
-        Raises:
-            RuntimeError: If no server is available for this model
-        """
-        async with self._lock:
-            await self._pool.refresh()
-            preferred = self._server_hints.get(model_id)
-            server_url = self._pool.find_server(model_id, preferred_url=preferred)
-
-        if server_url is None:
-            raise RuntimeError(f"No server available for model: {model_id}")
-
-        await self._pool.acquire(server_url)
-        self._active_servers[model_id] = server_url
-
-    async def release(self, model_id: str) -> None:
-        """
-        Release the server slot for this model.
-
-        Args:
-            model_id: The model to release
-        """
-        server_url = self._active_servers.pop(model_id, None)
-        if server_url:
-            self._pool.release(server_url)
-
-    def get_active_server(self, model_id: str) -> Optional[str]:
-        """Get the server URL currently handling this model (after acquire)."""
-        return self._active_servers.get(model_id)

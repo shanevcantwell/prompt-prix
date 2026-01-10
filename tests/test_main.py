@@ -265,9 +265,11 @@ class TestSendSinglePrompt:
         pool = ServerPool([MOCK_SERVER_1])
         await pool.refresh()
         main.state.server_pool = pool
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -307,9 +309,11 @@ class TestSendSinglePrompt:
         # Setup minimal session
         pool = ServerPool([MOCK_SERVER_1])
         main.state.server_pool = pool
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -332,13 +336,15 @@ class TestClearSession:
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         # Setup session
         pool = ServerPool([MOCK_SERVER_1])
         main.state.server_pool = pool
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -402,12 +408,14 @@ class TestExportFunctions:
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         pool = ServerPool([MOCK_SERVER_1])
         main.state.server_pool = pool
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -432,13 +440,15 @@ class TestExportFunctions:
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
         import json
 
         pool = ServerPool([MOCK_SERVER_1])
         main.state.server_pool = pool
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -487,9 +497,11 @@ class TestStreamingOutputNoDuplication:
         pool = ServerPool([MOCK_SERVER_1])
         await pool.refresh()
         main.state.server_pool = pool
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -536,9 +548,11 @@ class TestStreamingOutputNoDuplication:
         pool = ServerPool([MOCK_SERVER_1])
         await pool.refresh()
         main.state.server_pool = pool
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -577,11 +591,13 @@ class TestLaunchBeyondCompare:
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         pool = ServerPool([MOCK_SERVER_1])
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -599,11 +615,13 @@ class TestLaunchBeyondCompare:
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         pool = ServerPool([MOCK_SERVER_1])
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -619,11 +637,13 @@ class TestLaunchBeyondCompare:
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         pool = ServerPool([MOCK_SERVER_1])
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1],  # Only one model
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -639,11 +659,13 @@ class TestLaunchBeyondCompare:
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         pool = ServerPool([MOCK_SERVER_1])
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -660,11 +682,13 @@ class TestLaunchBeyondCompare:
         from prompt_prix import main
         from prompt_prix.scheduler import ServerPool
         from prompt_prix.core import ComparisonSession
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
 
         pool = ServerPool([MOCK_SERVER_1])
+        adapter = LMStudioAdapter(pool)
         main.state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
-            server_pool=pool,
+            adapter=adapter,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,

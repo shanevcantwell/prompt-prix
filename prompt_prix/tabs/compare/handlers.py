@@ -15,6 +15,7 @@ import gradio as gr
 from prompt_prix import state
 from prompt_prix.scheduler import ServerPool
 from prompt_prix.core import ComparisonSession
+from prompt_prix.adapters.lmstudio import LMStudioAdapter
 from prompt_prix.export import generate_markdown_report, generate_json_report, save_report
 from prompt_prix.parsers import parse_servers_input, parse_prefixed_model
 
@@ -78,9 +79,10 @@ async def initialize_session(
             f"⚠️ Models not found on any server: {', '.join(missing)}",
         ) + _empty_tabs()
 
+    adapter = LMStudioAdapter(state.server_pool)
     state.session = ComparisonSession(
         models=stripped_models,
-        server_pool=state.server_pool,
+        adapter=adapter,
         system_prompt=system_prompt,
         timeout_seconds=timeout,
         max_tokens=max_tokens
@@ -195,7 +197,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
     for model_id in session.state.models:
         session.state.contexts[model_id].add_user_message(prompt.strip(), image_path=image_path)
 
-    await session.server_pool.refresh()
+    await state.server_pool.refresh()
 
     pending = len(session.state.models)
     yield (f"⏳ Generating responses... (0/{pending} complete)", build_tab_states()) + tuple(build_output())
@@ -244,7 +246,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
             streaming_responses[model_id] = f"[ERROR: {e}]"
             completed_models.add(model_id)
         finally:
-            session.server_pool.release(server_url)
+            state.server_pool.release(server_url)
 
     def find_work_for_server(server_url: str) -> str | None:
         """Find a model from queue that should run on this server.
@@ -252,7 +254,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
         Bug #32 fix: Respects server hints from GPU prefix selection.
         If a model has a hint for a different server, skip it.
         """
-        server = session.server_pool.servers[server_url]
+        server = state.server_pool.servers[server_url]
         for model_id in model_queue:
             # Check if this model has a server hint
             hint = state.get_server_hint(model_id)
@@ -267,23 +269,23 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
         # Bug #32: First, assign hinted models to their preferred servers
         for model_id in list(model_queue):
             hint = state.get_server_hint(model_id)
-            if hint and hint in session.server_pool.servers:
-                server = session.server_pool.servers[hint]
+            if hint and hint in state.server_pool.servers:
+                server = state.server_pool.servers[hint]
                 if not server.is_busy and model_id in server.manifest_models:
                     model_queue.remove(model_id)
-                    await session.server_pool.acquire(hint)
+                    await state.server_pool.acquire(hint)
                     task = asyncio.create_task(run_model_on_server(model_id, hint))
                     active_tasks[hint] = task
 
         # Then handle remaining models (no hint or hint server busy)
-        for server_url, server in session.server_pool.servers.items():
+        for server_url, server in state.server_pool.servers.items():
             if server.is_busy:
                 continue
 
             model_id = find_work_for_server(server_url)
             if model_id:
                 model_queue.remove(model_id)
-                await session.server_pool.acquire(server_url)
+                await state.server_pool.acquire(server_url)
                 task = asyncio.create_task(run_model_on_server(model_id, server_url))
                 active_tasks[server_url] = task
 
@@ -297,7 +299,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
                 del active_tasks[server_url]
 
         if model_queue and not active_tasks:
-            await session.server_pool.refresh()
+            await state.server_pool.refresh()
 
     if active_tasks:
         await asyncio.gather(*active_tasks.values(), return_exceptions=True)

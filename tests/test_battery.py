@@ -1,5 +1,6 @@
 """Tests for battery feature (benchmark test suite execution)."""
 
+import asyncio
 import json
 import pytest
 from pathlib import Path
@@ -151,16 +152,14 @@ class MockServerPool:
 class MockAdapter:
     """Mock adapter for testing BatteryRunner.
 
-    Implements full HostAdapter protocol plus backwards-compat .pool property.
+    Implements HostAdapter protocol. Resource management is internal to stream_completion.
     """
 
     def __init__(self, responses: dict[str, str] = None, errors: dict[str, str] = None):
         self.responses = responses or {}
         self.errors = errors or {}
         self.calls = []
-        self.acquired = []
-        self.released = []
-        # Create mock pool with all response models available (backwards compat)
+        # Create mock pool with all response models available
         all_models = list(self.responses.keys()) + list(self.errors.keys())
         self._pool = MockServerPool(all_models)
 
@@ -194,14 +193,6 @@ class MockAdapter:
     def get_concurrency_limit(self) -> int:
         """Return concurrency limit for tests."""
         return 2
-
-    async def acquire(self, model_id: str) -> None:
-        """Track acquire calls."""
-        self.acquired.append(model_id)
-
-    async def release(self, model_id: str) -> None:
-        """Track release calls."""
-        self.released.append(model_id)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -924,8 +915,7 @@ class HostAdapterMock:
     Mock adapter implementing ONLY the HostAdapter protocol.
 
     This mock does NOT have a .pool attribute. Tests using this mock
-    will FAIL until BatteryRunner is refactored to use HostAdapter
-    interface instead of accessing adapter.pool directly.
+    verify that BatteryRunner uses HostAdapter interface correctly.
 
     Part of #73 Phase 4 - tests for adapter refactor.
     """
@@ -934,8 +924,6 @@ class HostAdapterMock:
         self.responses = responses or {}
         self.errors = errors or {}
         self.calls = []
-        self.acquired = []
-        self.released = []
 
     # NOTE: No .pool property! This is intentional.
 
@@ -962,12 +950,6 @@ class HostAdapterMock:
 
     def get_concurrency_limit(self) -> int:
         return 2
-
-    async def acquire(self, model_id: str) -> None:
-        self.acquired.append(model_id)
-
-    async def release(self, model_id: str) -> None:
-        self.released.append(model_id)
 
 
 class TestBatteryRunnerWithHostAdapter:
@@ -1020,26 +1002,6 @@ class TestBatteryRunnerWithHostAdapter:
         assert final_state.completed_count == 2  # 2 tests × 1 model
 
     @pytest.mark.asyncio
-    async def test_runner_calls_acquire_release(
-        self, host_adapter_mock, simple_test_cases
-    ):
-        """BatteryRunner should call adapter.acquire/release for concurrency."""
-        runner = BatteryRunner(
-            adapter=host_adapter_mock,
-            tests=simple_test_cases,
-            models=["model_a"]
-        )
-
-        async for _ in runner.run():
-            pass
-
-        # Verify acquire/release were called for each model execution
-        assert len(host_adapter_mock.acquired) > 0
-        assert len(host_adapter_mock.released) > 0
-        # Each acquire should have a matching release
-        assert len(host_adapter_mock.acquired) == len(host_adapter_mock.released)
-
-    @pytest.mark.asyncio
     async def test_runner_uses_adapter_stream_completion(
         self, host_adapter_mock, simple_test_cases
     ):
@@ -1070,21 +1032,16 @@ class TestBatteryRunnerWithHostAdapter:
         max_concurrent = 0
 
         class ConcurrencyTrackingAdapter(HostAdapterMock):
-            async def acquire(self, model_id: str) -> None:
+            async def stream_completion(self, model_id, messages, **kwargs):
                 nonlocal concurrent_count, max_concurrent
                 concurrent_count += 1
                 max_concurrent = max(max_concurrent, concurrent_count)
-                await super().acquire(model_id)
-
-            async def release(self, model_id: str) -> None:
-                nonlocal concurrent_count
-                concurrent_count -= 1
-                await super().release(model_id)
-
-            async def stream_completion(self, model_id, messages, **kwargs):
-                # Add delay to ensure concurrency is measurable
-                await asyncio.sleep(0.02)
-                yield "response"
+                try:
+                    # Add delay to ensure concurrency is measurable
+                    await asyncio.sleep(0.02)
+                    yield "response"
+                finally:
+                    concurrent_count -= 1
 
             def get_concurrency_limit(self) -> int:
                 return 1  # Strict limit of 1
@@ -1102,3 +1059,225 @@ class TestBatteryRunnerWithHostAdapter:
 
         # With limit of 1, max concurrent should never exceed 1
         assert max_concurrent <= 1
+
+
+# ─────────────────────────────────────────────────────────────────────
+# DOUBLE-ACQUIRE DEADLOCK TESTS (#76)
+# ─────────────────────────────────────────────────────────────────────
+
+class StrictLMStudioMock:
+    """
+    Mock that simulates LMStudioAdapter's ACTUAL behavior.
+
+    Key difference from HostAdapterMock:
+    - stream_completion() calls acquire/release INTERNALLY (like LMStudioAdapter does)
+    - acquire() enforces single-acquire semantics (times out on double-acquire)
+
+    This mock exposes the double-acquire bug in BatteryRunner:
+    1. BatteryRunner calls adapter.acquire(model_id)
+    2. BatteryRunner calls adapter.stream_completion(...)
+    3. stream_completion internally calls acquire() again
+    4. DEADLOCK - second acquire blocks because first still holds
+
+    The real LMStudioAdapter.stream_completion (lmstudio.py:78-92) does:
+        await self._pool.acquire(server_url)
+        try:
+            async for chunk in stream_completion(...):
+                yield chunk
+        finally:
+            self._pool.release(server_url)
+    """
+
+    def __init__(self, responses: dict[str, str] = None):
+        self.responses = responses or {}
+        self.calls = []
+        self.acquired_models: set[str] = set()  # Currently held locks
+        self.acquire_log = []
+        self.release_log = []
+        self._lock = asyncio.Lock()
+        self._acquire_timeout = 0.5  # 500ms timeout to detect deadlock
+
+    async def get_available_models(self) -> list[str]:
+        return list(self.responses.keys())
+
+    def get_concurrency_limit(self) -> int:
+        return 2
+
+    async def acquire(self, model_id: str) -> None:
+        """
+        Acquire lock for model, FAIL if already acquired.
+
+        This simulates the real ServerPool.acquire behavior where
+        trying to acquire an already-held lock will block/deadlock.
+        """
+        self.acquire_log.append(model_id)
+
+        # Use timeout to detect deadlock instead of hanging forever
+        try:
+            await asyncio.wait_for(self._try_acquire(model_id), timeout=self._acquire_timeout)
+        except asyncio.TimeoutError:
+            raise RuntimeError(
+                f"DEADLOCK: acquire({model_id}) timed out - model already acquired. "
+                f"Acquired models: {self.acquired_models}"
+            )
+
+    async def _try_acquire(self, model_id: str) -> None:
+        """Try to acquire, waiting if already held."""
+        # Spin-wait (simulates blocking on semaphore)
+        while model_id in self.acquired_models:
+            await asyncio.sleep(0.01)
+        self.acquired_models.add(model_id)
+
+    async def release(self, model_id: str) -> None:
+        """Release lock for model."""
+        self.release_log.append(model_id)
+        self.acquired_models.discard(model_id)
+
+    async def stream_completion(
+        self,
+        model_id: str,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        timeout_seconds: int,
+        tools=None
+    ):
+        """
+        Stream completion WITH internal acquire/release.
+
+        This mimics LMStudioAdapter.stream_completion() which handles
+        its own acquire/release internally.
+        """
+        self.calls.append((model_id, messages))
+
+        # THIS IS THE KEY - stream_completion acquires internally
+        # If caller ALSO acquired, this is double-acquire = deadlock
+        await self.acquire(model_id)
+        try:
+            response = self.responses.get(model_id, "Default response")
+            for word in response.split():
+                yield word + " "
+        finally:
+            await self.release(model_id)
+
+
+class TestDoubleAcquireDeadlock:
+    """
+    Tests that expose the double-acquire deadlock bug.
+
+    BatteryRunner currently does:
+        await self.adapter.acquire(model_id)  # FIRST ACQUIRE
+        try:
+            response = await stream_with_retry()  # calls stream_completion
+            ...
+        finally:
+            await self.adapter.release(model_id)
+
+    But LMStudioAdapter.stream_completion() ALSO does:
+        await self._pool.acquire(server_url)  # SECOND ACQUIRE - DEADLOCK
+        try:
+            async for chunk in ...:
+                yield chunk
+        finally:
+            self._pool.release(server_url)
+
+    These tests use StrictLMStudioMock which simulates this behavior.
+    They will FAIL until BatteryRunner removes its explicit acquire/release.
+    """
+
+    @pytest.fixture
+    def strict_adapter(self):
+        return StrictLMStudioMock(responses={
+            "model_a": "Response A",
+            "model_b": "Response B"
+        })
+
+    @pytest.fixture
+    def simple_tests(self):
+        return [
+            TestCase(id="t1", user="Test prompt 1"),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_single_task_no_deadlock(self, strict_adapter, simple_tests):
+        """
+        Single test should complete without deadlock.
+
+        EXPECTED TO FAIL with current code because:
+        - BatteryRunner.acquire(model_a) - holds lock
+        - BatteryRunner calls stream_completion(model_a)
+        - stream_completion tries acquire(model_a) - DEADLOCK
+
+        After fix: BatteryRunner should NOT call acquire/release because
+        stream_completion handles it internally (like ComparisonSession does).
+        """
+        runner = BatteryRunner(
+            adapter=strict_adapter,
+            tests=simple_tests,
+            models=["model_a"]
+        )
+
+        # This will timeout/fail if double-acquire occurs
+        final_state = None
+        async for state in runner.run():
+            final_state = state
+
+        assert final_state is not None
+        assert final_state.completed_count == 1
+        # Verify no ERROR status from deadlock
+        for result in final_state.results.values():
+            assert result.status != TestStatus.ERROR, f"Unexpected error: {result.error}"
+
+    @pytest.mark.asyncio
+    async def test_multiple_models_no_deadlock(self, strict_adapter):
+        """
+        Multiple models should complete without deadlock.
+
+        Tests that the fix works for concurrent execution across models.
+        """
+        tests = [
+            TestCase(id="t1", user="Test prompt 1"),
+            TestCase(id="t2", user="Test prompt 2"),
+        ]
+
+        runner = BatteryRunner(
+            adapter=strict_adapter,
+            tests=tests,
+            models=["model_a", "model_b"]
+        )
+
+        final_state = None
+        async for state in runner.run():
+            final_state = state
+
+        assert final_state is not None
+        assert final_state.completed_count == 4  # 2 tests × 2 models
+        # Verify all completed successfully
+        error_results = [r for r in final_state.results.values() if r.status == TestStatus.ERROR]
+        assert len(error_results) == 0, f"Errors: {[r.error for r in error_results]}"
+
+    @pytest.mark.asyncio
+    async def test_acquire_release_balance(self, strict_adapter, simple_tests):
+        """
+        Adapter should have balanced acquire/release after run.
+
+        This verifies no resource leaks from the double-acquire bug.
+        """
+        runner = BatteryRunner(
+            adapter=strict_adapter,
+            tests=simple_tests,
+            models=["model_a"]
+        )
+
+        async for _ in runner.run():
+            pass
+
+        # After run completes, no models should be held
+        assert len(strict_adapter.acquired_models) == 0, (
+            f"Resource leak: still holding {strict_adapter.acquired_models}"
+        )
+        # Acquire and release counts should match
+        assert len(strict_adapter.acquire_log) == len(strict_adapter.release_log), (
+            f"Imbalanced: {len(strict_adapter.acquire_log)} acquires, "
+            f"{len(strict_adapter.release_log)} releases"
+        )

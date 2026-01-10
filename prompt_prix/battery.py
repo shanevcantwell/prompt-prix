@@ -303,8 +303,8 @@ class BatteryRunner:
         Execute all tests across all models.
 
         Uses adapter directly for backend-agnostic execution:
-        - Concurrency managed via adapter.acquire/release
-        - Streaming via adapter.stream_completion
+        - Concurrency limited via semaphore (adapter.get_concurrency_limit)
+        - Streaming via adapter.stream_completion (handles resources internally)
         - No dependency on ServerPool or server URLs
 
         Yields:
@@ -357,8 +357,8 @@ class BatteryRunner:
                 validate_response(response)
                 return response
 
+            # Note: adapter.stream_completion handles acquire/release internally
             async with semaphore:
-                await self.adapter.acquire(model_id)
                 try:
                     response = await stream_with_retry()
                     latency_ms = (time.time() - start_time) * 1000
@@ -398,9 +398,6 @@ class BatteryRunner:
                         error=str(e),
                         latency_ms=latency_ms
                     ))
-
-                finally:
-                    await self.adapter.release(model_id)
 
         # Create tasks for all (test, model) combinations
         tasks = []

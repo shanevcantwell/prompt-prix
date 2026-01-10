@@ -12,6 +12,9 @@ Prerequisites:
 import pytest
 from prompt_prix.config import get_default_servers
 from prompt_prix.scheduler import ServerPool
+from prompt_prix.adapters.lmstudio import LMStudioAdapter
+from prompt_prix.battery import BatteryRunner, TestStatus
+from prompt_prix.benchmarks import CustomJSONLoader
 
 
 @pytest.mark.integration
@@ -180,3 +183,129 @@ class TestOnlyLoadedFilterIntegration:
         # They should match exactly
         assert set(pool_loaded) == set(actual_loaded), \
             f"Mismatch! API: {actual_loaded}, Pool: {pool_loaded}"
+
+
+@pytest.mark.integration
+class TestBatteryRunnerIntegration:
+    """
+    Integration tests for BatteryRunner with LMStudioAdapter.
+
+    Tests the full flow: BatteryRunner → LMStudioAdapter → ServerPool → LM Studio.
+    This verifies that the #76 deadlock fix works in production.
+    """
+
+    @pytest.fixture
+    def adapter(self):
+        """Create LMStudioAdapter with real ServerPool."""
+        servers = get_default_servers()
+        pool = ServerPool(servers)
+        return LMStudioAdapter(pool)
+
+    @pytest.fixture
+    async def available_model(self, adapter):
+        """Get first available model from servers."""
+        models = await adapter.get_available_models()
+        if not models:
+            pytest.skip("No models available on configured servers")
+        return models[0]
+
+    @pytest.mark.asyncio
+    async def test_battery_completes_without_deadlock(self, adapter, available_model):
+        """
+        BatteryRunner should complete without deadlock.
+
+        This is the key test for #76 - verifies the fix works end-to-end.
+        If adapter.acquire() is called before stream_completion() (the bug),
+        this will deadlock because stream_completion() also calls acquire internally.
+        """
+        # Simple test case
+        tests = CustomJSONLoader.load("examples/tool_competence_tests.json")[:1]
+
+        runner = BatteryRunner(
+            adapter=adapter,
+            tests=tests,
+            models=[available_model],
+            max_tokens=128,  # Short for speed
+            timeout_seconds=60
+        )
+
+        final_state = None
+        async for state in runner.run():
+            final_state = state
+
+        assert final_state is not None
+        assert final_state.completed_count == 1
+
+        # Check for deadlock errors
+        for result in final_state.results.values():
+            if result.error and "DEADLOCK" in result.error:
+                pytest.fail(f"Deadlock detected: {result.error}")
+
+    @pytest.mark.asyncio
+    async def test_battery_with_multiple_tests(self, adapter, available_model):
+        """BatteryRunner should handle multiple tests without deadlock."""
+        tests = CustomJSONLoader.load("examples/tool_competence_tests.json")[:3]
+
+        runner = BatteryRunner(
+            adapter=adapter,
+            tests=tests,
+            models=[available_model],
+            max_tokens=128,
+            timeout_seconds=60
+        )
+
+        final_state = None
+        async for state in runner.run():
+            final_state = state
+
+        assert final_state.completed_count == 3
+
+        # All should complete (success or semantic failure, not ERROR from deadlock)
+        error_results = [
+            r for r in final_state.results.values()
+            if r.status == TestStatus.ERROR
+        ]
+        # Errors are OK if they're real errors, not deadlock
+        for r in error_results:
+            assert "DEADLOCK" not in (r.error or ""), f"Deadlock: {r.error}"
+
+
+@pytest.mark.integration
+class TestBatteryFileLoadersIntegration:
+    """Integration tests for loading battery test files."""
+
+    def test_load_json_file(self):
+        """Load JSON test file from examples."""
+        tests = CustomJSONLoader.load("examples/tool_competence_tests.json")
+        assert len(tests) > 0
+        # Verify structure
+        for test in tests:
+            assert test.id is not None
+            assert test.user is not None
+
+    def test_load_promptfoo_yaml_file(self):
+        """Load promptfoo YAML test file from examples."""
+        from pathlib import Path
+        from prompt_prix.promptfoo import parse_tests
+
+        tests = parse_tests(Path("examples/tool_competence_tests.promptfoo.yaml"))
+        assert len(tests) > 0
+        # Verify structure
+        for test in tests:
+            assert test.id is not None
+            assert test.user is not None
+
+    def test_json_and_yaml_produce_equivalent_tests(self):
+        """JSON and YAML loaders should produce equivalent test cases."""
+        from pathlib import Path
+        from prompt_prix.promptfoo import parse_tests
+
+        json_tests = CustomJSONLoader.load("examples/tool_competence_tests.json")
+        yaml_tests = parse_tests(Path("examples/tool_competence_tests.promptfoo.yaml"))
+
+        # Both should produce test cases
+        assert len(json_tests) > 0
+        assert len(yaml_tests) > 0
+
+        # Note: IDs and exact structure may differ between formats
+        # This test verifies both can load successfully

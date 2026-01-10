@@ -27,8 +27,6 @@ class TestTaskExecutor:
             yield "world!"
 
         adapter.stream_completion = mock_stream
-        adapter.acquire = AsyncMock()
-        adapter.release = AsyncMock()
         return adapter
 
     @pytest.mark.asyncio
@@ -74,29 +72,8 @@ class TestTaskExecutor:
         assert task_ids == {"t1", "t2"}
 
     @pytest.mark.asyncio
-    async def test_acquire_release_called(self, mock_adapter):
-        """Executor calls acquire/release for each task."""
-        from prompt_prix.executor import TaskExecutor, Task
-
-        executor = TaskExecutor(mock_adapter)
-        task = Task(
-            id="test-1",
-            model_id="model-a",
-            messages=[{"role": "user", "content": "Hello"}],
-            temperature=0.7,
-            max_tokens=100,
-            timeout_seconds=60
-        )
-
-        async for _ in executor.execute([task]):
-            pass
-
-        mock_adapter.acquire.assert_called_once_with("model-a")
-        mock_adapter.release.assert_called_once_with("model-a")
-
-    @pytest.mark.asyncio
-    async def test_release_called_on_error(self, mock_adapter):
-        """Release is called even when task fails."""
+    async def test_error_handling(self, mock_adapter):
+        """Errors in stream_completion are captured in TaskResult."""
         from prompt_prix.executor import TaskExecutor, Task
 
         # Make stream_completion raise an error
@@ -123,40 +100,27 @@ class TestTaskExecutor:
         assert results[0].status == "error"
         assert "Model error" in results[0].error
 
-        # Release should still be called
-        mock_adapter.release.assert_called_once_with("model-a")
-
     @pytest.mark.asyncio
     async def test_respects_concurrency_limit(self, mock_adapter):
         """Executor respects adapter.get_concurrency_limit()."""
         from prompt_prix.executor import TaskExecutor, Task
 
-        # Track concurrent executions
+        # Track concurrent stream_completion calls
         concurrent_count = 0
         max_concurrent = 0
 
-        original_acquire = mock_adapter.acquire
-
-        async def tracking_acquire(model_id):
+        async def tracking_stream(*args, **kwargs):
             nonlocal concurrent_count, max_concurrent
             concurrent_count += 1
             max_concurrent = max(max_concurrent, concurrent_count)
-            await original_acquire(model_id)
+            try:
+                await asyncio.sleep(0.05)  # Delay to ensure concurrency is measurable
+                yield "response"
+            finally:
+                concurrent_count -= 1
 
-        async def tracking_release(model_id):
-            nonlocal concurrent_count
-            concurrent_count -= 1
-
-        mock_adapter.acquire = tracking_acquire
-        mock_adapter.release = tracking_release
+        mock_adapter.stream_completion = tracking_stream
         mock_adapter.get_concurrency_limit.return_value = 2
-
-        # Add delay to stream to ensure concurrency is measurable
-        async def slow_stream(*args, **kwargs):
-            await asyncio.sleep(0.05)
-            yield "response"
-
-        mock_adapter.stream_completion = slow_stream
 
         executor = TaskExecutor(mock_adapter)
         tasks = [
