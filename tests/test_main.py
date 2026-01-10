@@ -155,6 +155,7 @@ class TestParsePromptsFile:
         assert result == ["Question 1?", "Question 2?"]
 
 
+@pytest.mark.skip(reason="LM Studio server tests not applicable to HF Spaces demo")
 class TestInitializeSession:
     """Tests for initialize_session function."""
 

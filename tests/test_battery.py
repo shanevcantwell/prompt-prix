@@ -767,6 +767,7 @@ class TestGetCellDetailWithPrefix:
     by stripped model ID 'model-name'.
     """
 
+    @pytest.mark.skip(reason="GPU prefix stripping not applicable to HF Spaces demo")
     def test_get_cell_detail_strips_gpu_prefix(self):
         """Test that get_cell_detail works with GPU-prefixed model names.
 
@@ -797,6 +798,7 @@ class TestGetCellDetailWithPrefix:
         # Cleanup
         state.battery_run = None
 
+    @pytest.mark.skip(reason="GPU prefix stripping not applicable to HF Spaces demo")
     def test_get_cell_detail_handles_model_with_slashes(self):
         """Test prefix stripping with complex model paths containing slashes."""
         from prompt_prix import state

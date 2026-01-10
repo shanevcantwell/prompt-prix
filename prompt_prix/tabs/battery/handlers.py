@@ -12,8 +12,6 @@ from pathlib import Path
 import gradio as gr
 
 from prompt_prix import state
-from prompt_prix.handlers import _init_pool_and_validate
-from prompt_prix.parsers import parse_prefixed_model
 
 
 def _strip_gpu_prefix(model_id: str) -> str:
@@ -201,24 +199,23 @@ def get_test_ids(file_obj) -> list[str]:
 async def run_handler(
     file_obj,
     models_selected: list[str],
-    servers_text: str,
     timeout: int,
     max_tokens: int,
     system_prompt: str
 ):
     """
-    Run battery tests across selected models.
+    Run battery tests across selected models using HuggingFace Inference API.
 
     Yields (status, grid_data) tuples for streaming UI updates.
 
-    Note: Temperature is not passed; LM Studio uses per-model defaults.
+    Note: Uses HF_TOKEN from environment for authentication.
     """
     # Clear any previous stop request so we can run again
     state.clear_stop()
 
     import pandas as pd
     from prompt_prix.benchmarks import CustomJSONLoader
-    from prompt_prix.adapters import LMStudioAdapter
+    from prompt_prix.adapters import HuggingFaceAdapter
     from prompt_prix.battery import BatteryRunner
 
     # Fail-fast validation
@@ -228,6 +225,12 @@ async def run_handler(
 
     if not models_selected:
         yield "❌ No models selected", pd.DataFrame()
+        return
+
+    # Validate HF_TOKEN
+    import os
+    if not os.environ.get("HF_TOKEN"):
+        yield "❌ HF_TOKEN environment variable not set", pd.DataFrame()
         return
 
     # For YAML files, use the converted JSON
@@ -246,41 +249,21 @@ async def run_handler(
         yield f"❌ Failed to load tests: {e}", pd.DataFrame()
         return
 
-    # Parse prefixed selections and build server hints
-    # Key insight: prefixed ID (e.g., "0: llama-3.2") is the unique identifier
-    # Same model on multiple GPUs must remain distinct throughout the system
-    hints = {}
-    prefixed_models = []
-    stripped_for_validation = set()  # Unique stripped names for pool validation
-    for selection in models_selected:
-        idx, stripped_id = parse_prefixed_model(selection)
-        url = state.get_server_url(idx)
-        if url:
-            hints[selection] = url  # Use full prefixed ID as key (no collision)
-        prefixed_models.append(selection)  # Keep full prefixed ID
-        stripped_for_validation.add(stripped_id)
-
-    state.set_server_hints(hints)
-
-    # Validate servers and models (use stripped model IDs for server lookup)
-    pool, error = await _init_pool_and_validate(servers_text, list(stripped_for_validation))
-    if error:
-        yield error, pd.DataFrame()
+    # Create HuggingFace adapter
+    try:
+        adapter = HuggingFaceAdapter(models=models_selected)
+    except ValueError as e:
+        yield f"❌ {e}", pd.DataFrame()
         return
-
-    adapter = LMStudioAdapter(pool)
 
     # Clear previous state to avoid stale columns (#81)
     state.battery_run = None
 
-    # Create and run battery (temperature omitted - use per-model defaults)
-    # Pass server hints for orchestrated fan-out dispatch (GPU prefix routing)
-    # Use prefixed_models to keep "0: llama" and "1: llama" as distinct identifiers
+    # Create and run battery
     runner = BatteryRunner(
         adapter=adapter,
         tests=tests,
-        models=prefixed_models,
-        server_hints=hints,
+        models=models_selected,
         max_tokens=max_tokens,
         timeout_seconds=timeout
     )
@@ -289,8 +272,8 @@ async def run_handler(
     state.battery_run = runner.state
 
     # Yield initial empty grid with correct columns before starting
-    initial_headers = ["Test"] + prefixed_models
-    initial_rows = [[t.id] + ["—"] * len(prefixed_models) for t in tests]
+    initial_headers = ["Test"] + models_selected
+    initial_rows = [[t.id] + ["—"] * len(models_selected) for t in tests]
     initial_grid = pd.DataFrame(initial_rows, columns=initial_headers)
     yield "Starting...", initial_grid
 
@@ -517,12 +500,8 @@ def get_cell_detail(model: str, test: str) -> str:
     """Get response detail for a (model, test) cell.
 
     Args:
-        model: Model ID, possibly with GPU prefix like '0: model-name'
+        model: Model ID (e.g., 'meta-llama/Llama-3.2-3B-Instruct')
         test: Test ID
-
-    Note:
-        The model dropdown may contain GPU-prefixed values (e.g., '0: lfm2-1.2b-tool')
-        but battery results are keyed by stripped model ID. We strip the prefix before lookup.
     """
     from prompt_prix.battery import TestStatus
 
@@ -531,10 +510,6 @@ def get_cell_detail(model: str, test: str) -> str:
 
     if not model or not test:
         return "*Select a model and test to view the response*"
-
-    # Strip GPU prefix if present (dropdown shows '0: model-name', results keyed by 'model-name')
-    if ": " in model:
-        _, model = parse_prefixed_model(model)
 
     result = state.battery_run.get_result(test, model)
     if not result:

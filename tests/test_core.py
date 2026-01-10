@@ -904,6 +904,7 @@ class TestComparisonSession:
         assert MOCK_MODEL_2 in contexts
 
 
+@pytest.mark.skip(reason="LM Studio GPU prefix tests not applicable to HF Spaces demo")
 class TestCompareTabWithGPUPrefix:
     """Tests for Compare tab initialization with GPU-prefixed model names.
 

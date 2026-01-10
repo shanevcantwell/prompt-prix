@@ -1,11 +1,12 @@
 """
 Compare tab event handlers.
 
-Handles interactive multi-turn model comparison.
+Handles interactive multi-turn model comparison using HuggingFace Inference API.
 """
 
 import asyncio
 import json
+import os
 import subprocess
 import tempfile
 from datetime import datetime
@@ -13,11 +14,9 @@ from datetime import datetime
 import gradio as gr
 
 from prompt_prix import state
-from prompt_prix.scheduler import ServerPool
 from prompt_prix.core import ComparisonSession
-from prompt_prix.adapters.lmstudio import LMStudioAdapter
+from prompt_prix.adapters import HuggingFaceAdapter
 from prompt_prix.export import generate_markdown_report, generate_json_report, save_report
-from prompt_prix.parsers import parse_servers_input, parse_prefixed_model
 
 
 def _empty_tabs(n: int = 10) -> tuple:
@@ -26,69 +25,41 @@ def _empty_tabs(n: int = 10) -> tuple:
 
 
 async def initialize_session(
-    servers_text: str,
     models_selected: list[str],
     system_prompt_text: str,
     timeout: int,
     max_tokens: int
 ) -> tuple:
     """
-    Initialize or reinitialize the comparison session.
+    Initialize or reinitialize the comparison session with HuggingFace.
     Returns tuple of (status_message, *model_tab_contents)
 
-    Note:
-        The model dropdown may contain GPU-prefixed values (e.g., '0: lfm2-1.2b-tool').
-        We strip the prefix before checking availability and initializing the session,
-        and store server hints for routing.
-
-        Temperature is not passed; LM Studio uses per-model defaults.
+    Uses HF_TOKEN from environment for authentication.
     """
-    servers = parse_servers_input(servers_text)
-    models_raw = models_selected if models_selected else []
+    models = models_selected if models_selected else []
     system_prompt = system_prompt_text.strip() if system_prompt_text else ""
 
-    if not servers:
-        return ("❌ No servers configured",) + _empty_tabs()
-    if not models_raw:
-        return ("❌ No models configured",) + _empty_tabs()
+    if not models:
+        return ("❌ No models selected",) + _empty_tabs()
 
-    # Strip GPU prefix from model selections and build server hints
-    hints = {}
-    stripped_models = []
-    for selection in models_raw:
-        if ": " in selection:
-            idx, model_id = parse_prefixed_model(selection)
-            url = state.get_server_url(idx)
-            if url:
-                hints[model_id] = url
-            stripped_models.append(model_id)
-        else:
-            # No prefix - use as-is (backwards compatibility)
-            stripped_models.append(selection)
+    # Validate HF_TOKEN
+    if not os.environ.get("HF_TOKEN"):
+        return ("❌ HF_TOKEN environment variable not set",) + _empty_tabs()
 
-    state.set_server_hints(hints)
+    try:
+        adapter = HuggingFaceAdapter(models=models)
+    except ValueError as e:
+        return (f"❌ {e}",) + _empty_tabs()
 
-    state.server_pool = ServerPool(servers)
-    await state.server_pool.refresh()
-
-    available = state.server_pool.get_available_models()
-    missing = [m for m in stripped_models if m not in available]
-
-    if missing:
-        return (
-            f"⚠️ Models not found on any server: {', '.join(missing)}",
-        ) + _empty_tabs()
-
-    adapter = LMStudioAdapter(state.server_pool)
     state.session = ComparisonSession(
-        models=stripped_models,
+        models=models,
         adapter=adapter,
         system_prompt=system_prompt,
         timeout_seconds=timeout,
         max_tokens=max_tokens
     )
 
-    return (f"✅ Session initialized with {len(stripped_models)} models",) + _empty_tabs()
+    return (f"✅ Session initialized with {len(models)} models",) + _empty_tabs()
 
 
 def clear_session() -> tuple:
@@ -106,14 +77,14 @@ def clear_session() -> tuple:
 
 
 async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str = None, seed: int = None, repeat_penalty: float = None):
-    """Send a single prompt to all models with streaming output.
+    """Send a single prompt to all models with streaming output via HuggingFace.
 
     Args:
         prompt: The user's text prompt
         tools_json: Optional JSON string defining function tools
         image_path: Optional path to an image file for vision models
-        seed: Optional seed for reproducible outputs
-        repeat_penalty: Optional repeat penalty (1.0 = off)
+        seed: Optional seed for reproducible outputs (not supported by all HF models)
+        repeat_penalty: Optional repeat penalty (not supported by HF API)
     """
     session = state.session
 
@@ -197,46 +168,31 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
     for model_id in session.state.models:
         session.state.contexts[model_id].add_user_message(prompt.strip(), image_path=image_path)
 
-    await state.server_pool.refresh()
-
     pending = len(session.state.models)
     yield (f"⏳ Generating responses... (0/{pending} complete)", build_tab_states()) + tuple(build_output())
 
-    model_queue = list(session.state.models)
-    active_tasks: dict[str, asyncio.Task] = {}
-
-    async def run_model_on_server(model_id: str, server_url: str):
+    async def run_model(model_id: str):
         nonlocal streaming_responses, streaming_started, completed_models
         context = session.state.contexts[model_id]
 
         streaming_started.add(model_id)
 
-        # Bug #31 fix: Separate display formatting from stored data
-        # Display shows server info, but stored response should be clean
-        server_label = server_url.split("//")[-1]
-        display_prefix = f"*[Server: {server_label}]*\n\n"
-        streaming_responses[model_id] = display_prefix
-
         try:
-            from prompt_prix.core import stream_completion
             messages = context.to_openai_messages(session.state.system_prompt)
 
-            raw_response = ""  # Clean response for storage/export
-            async for chunk in stream_completion(
-                server_url=server_url,
+            raw_response = ""
+            async for chunk in session.adapter.stream_completion(
                 model_id=model_id,
                 messages=messages,
                 temperature=session.state.temperature,
                 max_tokens=session.state.max_tokens,
                 timeout_seconds=session.state.timeout_seconds,
-                tools=tools,
-                seed=seed,
-                repeat_penalty=repeat_penalty
+                tools=tools
             ):
                 raw_response += chunk
-                streaming_responses[model_id] = display_prefix + raw_response  # Display with prefix
+                streaming_responses[model_id] = raw_response
 
-            context.add_assistant_message(raw_response)  # Store clean (no server metadata)
+            context.add_assistant_message(raw_response)
             completed_models.add(model_id)
 
         except Exception as e:
@@ -245,64 +201,17 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
             session.state.halt_reason = f"Model {model_id} failed: {e}"
             streaming_responses[model_id] = f"[ERROR: {e}]"
             completed_models.add(model_id)
-        finally:
-            state.server_pool.release(server_url)
 
-    def find_work_for_server(server_url: str) -> str | None:
-        """Find a model from queue that should run on this server.
+    # Run all models concurrently
+    tasks = [asyncio.create_task(run_model(m)) for m in session.state.models]
 
-        Bug #32 fix: Respects server hints from GPU prefix selection.
-        If a model has a hint for a different server, skip it.
-        """
-        server = state.server_pool.servers[server_url]
-        for model_id in model_queue:
-            # Check if this model has a server hint
-            hint = state.get_server_hint(model_id)
-            # Skip if model has hint for a DIFFERENT server
-            if hint and hint != server_url:
-                continue
-            if model_id in server.manifest_models:
-                return model_id
-        return None
-
-    while model_queue or active_tasks:
-        # Bug #32: First, assign hinted models to their preferred servers
-        for model_id in list(model_queue):
-            hint = state.get_server_hint(model_id)
-            if hint and hint in state.server_pool.servers:
-                server = state.server_pool.servers[hint]
-                if not server.is_busy and model_id in server.manifest_models:
-                    model_queue.remove(model_id)
-                    await state.server_pool.acquire(hint)
-                    task = asyncio.create_task(run_model_on_server(model_id, hint))
-                    active_tasks[hint] = task
-
-        # Then handle remaining models (no hint or hint server busy)
-        for server_url, server in state.server_pool.servers.items():
-            if server.is_busy:
-                continue
-
-            model_id = find_work_for_server(server_url)
-            if model_id:
-                model_queue.remove(model_id)
-                await state.server_pool.acquire(server_url)
-                task = asyncio.create_task(run_model_on_server(model_id, server_url))
-                active_tasks[server_url] = task
-
+    while not all(t.done() for t in tasks):
         await asyncio.sleep(0.1)
         done = len(completed_models)
         total = len(session.state.models)
         yield (f"⏳ Generating responses... ({done}/{total} complete)", build_tab_states()) + tuple(build_output())
 
-        for server_url in list(active_tasks.keys()):
-            if active_tasks[server_url].done():
-                del active_tasks[server_url]
-
-        if model_queue and not active_tasks:
-            await state.server_pool.refresh()
-
-    if active_tasks:
-        await asyncio.gather(*active_tasks.values(), return_exceptions=True)
+    await asyncio.gather(*tasks, return_exceptions=True)
 
     status = "✅ All responses complete"
     if session.state.halted:

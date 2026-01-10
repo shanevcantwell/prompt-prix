@@ -102,7 +102,7 @@ def validate_response(response: str) -> None:
             raise EmptyResponseError(f"Response appears to be error message: {response[:100]}")
 
 if TYPE_CHECKING:
-    from prompt_prix.adapters.lmstudio import LMStudioAdapter
+    from prompt_prix.adapters.base import HostAdapter
     from prompt_prix.benchmarks.base import TestCase
 
 
@@ -268,7 +268,7 @@ class BatteryRunner:
 
     def __init__(
         self,
-        adapter: "LMStudioAdapter",
+        adapter: "HostAdapter",
         tests: list["TestCase"],
         models: list[str],
         server_hints: Optional[dict[str, str]] = None,
@@ -280,7 +280,7 @@ class BatteryRunner:
         Initialize battery runner.
 
         Args:
-            adapter: LMStudioAdapter for model inference (DI)
+            adapter: HostAdapter for model inference (DI)
             tests: List of TestCase objects to run
             models: List of model IDs to test against
             server_hints: Dict mapping model_id → server_url for GPU routing.
@@ -410,9 +410,10 @@ class BatteryRunner:
 
         async def run_server_queue(server_url: str, queue: list[tuple[str, str]]) -> None:
             """Run all tests for a server sequentially (no VRAM thrashing)."""
-            # Set server hint for this queue's models
-            for _, model_id in queue:
-                self.adapter.set_server_hint(model_id, server_url)
+            # Set server hint for this queue's models (LM Studio only)
+            if hasattr(self.adapter, 'set_server_hint'):
+                for _, model_id in queue:
+                    self.adapter.set_server_hint(model_id, server_url)
 
             # Execute tests sequentially within this server's queue
             for test_id, model_id in queue:

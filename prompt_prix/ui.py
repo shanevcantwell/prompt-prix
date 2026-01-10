@@ -57,34 +57,51 @@ def create_app() -> gr.Blocks:
         # SHARED HEADER: Server config + Model selection (collapsible)
         # ─────────────────────────────────────────────────────────────
 
-        with gr.Accordion("⚙️ Server & Model Configuration", open=True):
+        with gr.Accordion("⚙️ Model Configuration", open=True):
             with gr.Row():
-                with gr.Column(scale=1):
-                    servers_input = gr.Textbox(
-                        label="LM Studio Servers (one per line)",
-                        value="\n".join(get_default_servers()),
-                        lines=2,
-                        placeholder="http://localhost:1234",
-                        elem_id="servers"
+                with gr.Column(scale=2):
+                    models_input = gr.Textbox(
+                        label="HuggingFace Models (one per line)",
+                        value="meta-llama/Llama-3.2-3B-Instruct\nQwen/Qwen2.5-3B-Instruct",
+                        lines=3,
+                        placeholder="meta-llama/Llama-3.2-3B-Instruct",
+                        elem_id="models-input"
                     )
-                    with gr.Row():
-                        fetch_btn = gr.Button(
-                            "🔄 Fetch Models",
-                            variant="secondary",
-                            size="sm"
-                        )
-                        only_loaded_checkbox = gr.Checkbox(
-                            label="Only Loaded",
-                            value=False,
-                            info="Filter to models in memory"
-                        )
-
                 with gr.Column(scale=2):
                     models_selector = gr.CheckboxGroup(
-                        label="Models",
+                        label="Select Models to Use",
                         choices=[],
                         value=[],
                         elem_id="models-selector"
+                    )
+                    sync_models_btn = gr.Button(
+                        "↔️ Sync from Input",
+                        variant="secondary",
+                        size="sm"
+                    )
+
+            # Hidden: LM Studio config (teased for future)
+            with gr.Accordion("🔧 LM Studio (Local - Coming Soon)", open=False, visible=False):
+                servers_input = gr.Textbox(
+                    label="LM Studio Servers (one per line)",
+                    value="\n".join(get_default_servers()),
+                    lines=2,
+                    placeholder="http://localhost:1234",
+                    elem_id="servers",
+                    interactive=False
+                )
+                with gr.Row():
+                    fetch_btn = gr.Button(
+                        "🔄 Fetch Models",
+                        variant="secondary",
+                        size="sm",
+                        interactive=False
+                    )
+                    only_loaded_checkbox = gr.Checkbox(
+                        label="Only Loaded",
+                        value=False,
+                        info="Filter to models in memory",
+                        interactive=False
                     )
 
             with gr.Row():
@@ -121,21 +138,31 @@ def create_app() -> gr.Blocks:
         # EVENT BINDINGS: Shared Header
         # ─────────────────────────────────────────────────────────────
 
-        async def on_fetch_models(servers_text, only_loaded):
-            """Fetch models and update the shared model selector."""
-            status, models_update = await fetch_available_models(servers_text, only_loaded)
-            choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
-
+        def on_sync_models(models_text):
+            """Sync model selector from text input."""
+            lines = [line.strip() for line in models_text.strip().split("\n") if line.strip()]
             return (
-                choices,
-                gr.update(choices=choices),
-                gr.update(choices=choices),  # battery.detail_model
-                gr.update(choices=choices),  # battery.judge_model
+                lines,
+                gr.update(choices=lines, value=lines),  # Select all by default
+                gr.update(choices=lines),  # battery.detail_model
+                gr.update(choices=lines),  # battery.judge_model
             )
 
-        fetch_btn.click(
-            fn=on_fetch_models,
-            inputs=[servers_input, only_loaded_checkbox],
+        sync_models_btn.click(
+            fn=on_sync_models,
+            inputs=[models_input],
+            outputs=[
+                available_models,
+                models_selector,
+                battery.detail_model,
+                battery.judge_model,
+            ]
+        )
+
+        # Auto-sync on load
+        app.load(
+            fn=on_sync_models,
+            inputs=[models_input],
             outputs=[
                 available_models,
                 models_selector,
@@ -185,7 +212,7 @@ def create_app() -> gr.Blocks:
         battery.run_btn.click(
             fn=battery_handlers.run_handler,
             inputs=[
-                battery.file, models_selector, servers_input,
+                battery.file, models_selector,
                 timeout_slider, max_tokens_slider, battery.system_prompt
             ],
             outputs=[battery.status, battery.grid]
@@ -236,13 +263,13 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
 
         async def compare_send_with_auto_init(
-            prompt, tools, image, seed, repeat_penalty, servers_text, models_selected,
+            prompt, tools, image, seed, repeat_penalty, models_selected,
             system_prompt, timeout, max_tokens
         ):
             if (state.session is None or
                 set(state.session.state.models) != set(models_selected)):
                 init_status, *init_outputs = await compare_handlers.initialize_session(
-                    servers_text, models_selected, system_prompt,
+                    models_selected, system_prompt,
                     timeout, max_tokens
                 )
                 if "❌" in init_status or "⚠️" in init_status:
@@ -256,7 +283,7 @@ def create_app() -> gr.Blocks:
             fn=compare_send_with_auto_init,
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
-                servers_input, models_selector,
+                models_selector,
                 compare.system_prompt, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
@@ -266,7 +293,7 @@ def create_app() -> gr.Blocks:
             fn=compare_send_with_auto_init,
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
-                servers_input, models_selector,
+                models_selector,
                 compare.system_prompt, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
@@ -308,16 +335,8 @@ def create_app() -> gr.Blocks:
         )
 
         # ─────────────────────────────────────────────────────────────
-        # PERSISTENCE
+        # PERSISTENCE (disabled for HF Spaces demo)
         # ─────────────────────────────────────────────────────────────
-
-        app.load(
-            fn=None,
-            inputs=[],
-            outputs=[servers_input],
-            js=PERSISTENCE_LOAD_JS
-        )
-
-        servers_input.change(fn=None, inputs=[servers_input], outputs=[servers_input], js=SAVE_SERVERS_JS)
+        # Note: LM Studio server persistence removed for HF Spaces version
 
     return app
