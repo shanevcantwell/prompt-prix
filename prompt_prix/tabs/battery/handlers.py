@@ -28,6 +28,18 @@ def _strip_gpu_prefix(model_id: str) -> str:
     return model_id
 
 
+def load_example() -> str:
+    """Load the example tool competence test file.
+
+    Returns:
+        Path to the example test file.
+    """
+    # Path: handlers.py -> battery/ -> tabs/ -> prompt_prix/ -> project_root/
+    project_root = Path(__file__).parent.parent.parent.parent
+    example_path = project_root / "examples" / "tool_competence_tests.json"
+    return str(example_path)
+
+
 def _get_export_basename() -> str:
     """Get base name for export files from source filename."""
     if state.battery_source_file:

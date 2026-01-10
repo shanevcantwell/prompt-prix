@@ -11,19 +11,17 @@ Tab-specific UI layouts are in prompt_prix.tabs.{battery,compare}.ui
 import gradio as gr
 
 from prompt_prix import state
-from prompt_prix.handlers import fetch_available_models, handle_stop
-from prompt_prix.config import (
-    get_default_servers,
-    DEFAULT_TIMEOUT_SECONDS,
-    DEFAULT_MAX_TOKENS
-)
-from prompt_prix.ui_helpers import (
-    CUSTOM_CSS,
-    TAB_STATUS_JS,
-    PERSISTENCE_LOAD_JS,
-    SAVE_SERVERS_JS,
-    AUTO_DOWNLOAD_JS,
-)
+from prompt_prix.handlers import handle_stop
+from prompt_prix.config import DEFAULT_TIMEOUT_SECONDS, DEFAULT_MAX_TOKENS
+
+# Vetted HuggingFace models for the demo
+# These are known to work with the Inference API
+HF_MODELS = [
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "microsoft/Phi-3-mini-4k-instruct",
+]
+from prompt_prix.ui_helpers import CUSTOM_CSS, TAB_STATUS_JS, AUTO_DOWNLOAD_JS
 
 # Import tab-specific handlers
 from prompt_prix.tabs.battery import handlers as battery_handlers
@@ -51,59 +49,18 @@ def create_app() -> gr.Blocks:
         gr.Markdown("# prompt-prix")
         gr.Markdown("Audit local LLM function calling and agentic reliability.")
 
-        available_models = gr.State([])
-
         # ─────────────────────────────────────────────────────────────
-        # SHARED HEADER: Server config + Model selection (collapsible)
+        # SHARED HEADER: Model selection
         # ─────────────────────────────────────────────────────────────
 
         with gr.Accordion("⚙️ Model Configuration", open=True):
-            with gr.Row():
-                with gr.Column(scale=2):
-                    models_input = gr.Textbox(
-                        label="Available Models (one per line)",
-                        value="meta-llama/Llama-3.2-3B-Instruct\nmistralai/Mistral-7B-Instruct-v0.3",
-                        lines=3,
-                        placeholder="meta-llama/Llama-3.2-3B-Instruct",
-                        elem_id="models-input",
-                        info="HuggingFace model IDs"
-                    )
-                with gr.Column(scale=2):
-                    models_selector = gr.CheckboxGroup(
-                        label="Models to Test",
-                        choices=[],
-                        value=[],
-                        elem_id="models-selector"
-                    )
-                    sync_models_btn = gr.Button(
-                        "🔄 Load Models",
-                        variant="secondary",
-                        size="sm"
-                    )
-
-            # Hidden: LM Studio config (teased for future)
-            with gr.Accordion("🔧 LM Studio (Local - Coming Soon)", open=False, visible=False):
-                servers_input = gr.Textbox(
-                    label="LM Studio Servers (one per line)",
-                    value="\n".join(get_default_servers()),
-                    lines=2,
-                    placeholder="http://localhost:1234",
-                    elem_id="servers",
-                    interactive=False
-                )
-                with gr.Row():
-                    fetch_btn = gr.Button(
-                        "🔄 Fetch Models",
-                        variant="secondary",
-                        size="sm",
-                        interactive=False
-                    )
-                    only_loaded_checkbox = gr.Checkbox(
-                        label="Only Loaded",
-                        value=False,
-                        info="Filter to models in memory",
-                        interactive=False
-                    )
+            models_selector = gr.CheckboxGroup(
+                label="Models to Test",
+                choices=HF_MODELS,
+                value=[HF_MODELS[0]],  # Default to first model
+                elem_id="models-selector",
+                info="Select HuggingFace models to compare"
+            )
 
             with gr.Row():
                 timeout_slider = gr.Slider(
@@ -136,43 +93,6 @@ def create_app() -> gr.Blocks:
             compare = compare_ui.render_tab()
 
         # ─────────────────────────────────────────────────────────────
-        # EVENT BINDINGS: Shared Header
-        # ─────────────────────────────────────────────────────────────
-
-        def on_sync_models(models_text):
-            """Sync model selector from text input."""
-            lines = [line.strip() for line in models_text.strip().split("\n") if line.strip()]
-            return (
-                lines,
-                gr.update(choices=lines, value=lines),  # Select all by default
-                gr.update(choices=lines),  # battery.detail_model
-                gr.update(choices=lines),  # battery.judge_model
-            )
-
-        sync_models_btn.click(
-            fn=on_sync_models,
-            inputs=[models_input],
-            outputs=[
-                available_models,
-                models_selector,
-                battery.detail_model,
-                battery.judge_model,
-            ]
-        )
-
-        # Auto-sync on load
-        app.load(
-            fn=on_sync_models,
-            inputs=[models_input],
-            outputs=[
-                available_models,
-                models_selector,
-                battery.detail_model,
-                battery.judge_model,
-            ]
-        )
-
-        # ─────────────────────────────────────────────────────────────
         # EVENT BINDINGS: Battery Tab
         # ─────────────────────────────────────────────────────────────
 
@@ -203,6 +123,12 @@ def create_app() -> gr.Blocks:
                 gr.update(choices=test_choices),
                 []  # Clear grid for new file
             )
+
+        battery.example_btn.click(
+            fn=battery_handlers.load_example,
+            inputs=[],
+            outputs=[battery.file]
+        )
 
         battery.file.change(
             fn=on_battery_file_change,

@@ -17,6 +17,9 @@ def render_tab():
 
         with gr.Row():
             with gr.Column(scale=1):
+                gr.Markdown("**Quick Start:** Load an example test suite")
+                example_btn = gr.Button("📋 Tool Competence Tests", size="sm", variant="secondary")
+
                 battery_file = gr.File(
                     label="Test Suite (JSON/JSONL/YAML)",
                     file_types=[".json", ".jsonl", ".yaml", ".yml"],
@@ -104,6 +107,7 @@ def render_tab():
         )
 
     return SimpleNamespace(
+        example_btn=example_btn,
         file=battery_file,
         validation=battery_validation,
         system_prompt=battery_system_prompt,

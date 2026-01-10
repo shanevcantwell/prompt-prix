@@ -1497,3 +1497,30 @@ class TestBatteryRunnerDispatchUniqueness:
         )
         # Total: 6 completed (3 tests × 2 models)
         assert final_state.completed_count == 6
+
+
+# ─────────────────────────────────────────────────────────────────────
+# EXAMPLE LOADER TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestExampleLoader:
+    """Tests for the example test file loader."""
+
+    def test_load_example_returns_valid_path(self):
+        """Example loader should return path to existing file."""
+        from prompt_prix.tabs.battery.handlers import load_example
+
+        path = load_example()
+        assert Path(path).exists(), f"Example file not found: {path}"
+        assert path.endswith('.json'), f"Expected .json file, got: {path}"
+
+    def test_example_file_is_valid_battery_format(self):
+        """Example file should be loadable as battery tests."""
+        from prompt_prix.tabs.battery.handlers import load_example
+
+        path = load_example()
+        tests = CustomJSONLoader.load(path)
+
+        assert len(tests) > 0, "Example file should contain tests"
+        assert all(hasattr(t, 'id') for t in tests), "All tests should have id"
+        assert all(hasattr(t, 'user') for t in tests), "All tests should have user prompt"
