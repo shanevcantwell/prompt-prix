@@ -16,6 +16,20 @@ from prompt_prix.handlers import _init_pool_and_validate
 from prompt_prix.parsers import parse_prefixed_model
 
 
+def _strip_gpu_prefix(model_id: str) -> str:
+    """Strip GPU prefix for API calls.
+
+    Converts "0: llama-3.2" -> "llama-3.2" for server/API compatibility.
+    Prefixed IDs are used internally for uniqueness (same model on multiple GPUs),
+    but APIs expect the raw model name.
+    """
+    if ': ' in model_id:
+        prefix, rest = model_id.split(': ', 1)
+        if prefix.isdigit():
+            return rest
+    return model_id
+
+
 def _get_export_basename() -> str:
     """Get base name for export files from source filename."""
     if state.battery_source_file:
@@ -232,19 +246,23 @@ async def run_handler(
         return
 
     # Parse prefixed selections and build server hints
+    # Key insight: prefixed ID (e.g., "0: llama-3.2") is the unique identifier
+    # Same model on multiple GPUs must remain distinct throughout the system
     hints = {}
-    stripped_models = []
+    prefixed_models = []
+    stripped_for_validation = set()  # Unique stripped names for pool validation
     for selection in models_selected:
-        idx, model_id = parse_prefixed_model(selection)
+        idx, stripped_id = parse_prefixed_model(selection)
         url = state.get_server_url(idx)
         if url:
-            hints[model_id] = url
-        stripped_models.append(model_id)
+            hints[selection] = url  # Use full prefixed ID as key (no collision)
+        prefixed_models.append(selection)  # Keep full prefixed ID
+        stripped_for_validation.add(stripped_id)
 
     state.set_server_hints(hints)
 
-    # Validate servers and models (use stripped model IDs)
-    pool, error = await _init_pool_and_validate(servers_text, stripped_models)
+    # Validate servers and models (use stripped model IDs for server lookup)
+    pool, error = await _init_pool_and_validate(servers_text, list(stripped_for_validation))
     if error:
         yield error, []
         return
@@ -253,10 +271,11 @@ async def run_handler(
 
     # Create and run battery (temperature omitted - use per-model defaults)
     # Pass server hints for orchestrated fan-out dispatch (GPU prefix routing)
+    # Use prefixed_models to keep "0: llama" and "1: llama" as distinct identifiers
     runner = BatteryRunner(
         adapter=adapter,
         tests=tests,
-        models=stripped_models,
+        models=prefixed_models,
         server_hints=hints,
         max_tokens=max_tokens,
         timeout_seconds=timeout
@@ -300,18 +319,21 @@ async def quick_prompt_handler(
     from prompt_prix.core import stream_completion
 
     # Parse prefixed selections and build server hints
+    # Prefixed ID (e.g., "0: llama-3.2") is the unique identifier
     hints = {}
-    stripped_models = []
+    prefixed_models = []
+    stripped_for_validation = set()
     for selection in models_selected:
-        idx, model_id = parse_prefixed_model(selection)
+        idx, stripped_id = parse_prefixed_model(selection)
         url = state.get_server_url(idx)
         if url:
-            hints[model_id] = url
-        stripped_models.append(model_id)
+            hints[selection] = url  # Use full prefixed ID as key
+        prefixed_models.append(selection)
+        stripped_for_validation.add(stripped_id)
 
     state.set_server_hints(hints)
 
-    pool, error = await _init_pool_and_validate(servers_text, stripped_models)
+    pool, error = await _init_pool_and_validate(servers_text, list(stripped_for_validation))
     if error:
         yield error
         return
@@ -324,21 +346,22 @@ async def quick_prompt_handler(
     results = {}
     output_lines = [f"**Prompt:** {prompt.strip()}\n\n---\n"]
 
-    for model_id in stripped_models:
+    for prefixed_id in prefixed_models:
+        api_model_id = _strip_gpu_prefix(prefixed_id)
         if state.should_stop():
             output_lines.append("---\n🛑 **Stopped by user**")
             yield "\n".join(output_lines)
             return
 
-        hint = state.get_server_hint(model_id)
-        server_url = pool.find_server(model_id, preferred_url=hint)
+        hint = state.get_server_hint(prefixed_id)
+        server_url = pool.find_server(api_model_id, preferred_url=hint)
         if not server_url:
-            results[model_id] = f"❌ No server available"
-            output_lines.append(f"### {model_id}\n{results[model_id]}\n\n")
+            results[prefixed_id] = f"❌ No server available"
+            output_lines.append(f"### {api_model_id}\n{results[prefixed_id]}\n\n")
             yield "\n".join(output_lines)
             continue
 
-        output_lines.append(f"### {model_id}\n⏳ *Generating...*\n\n")
+        output_lines.append(f"### {api_model_id}\n⏳ *Generating...*\n\n")
         yield "\n".join(output_lines)
 
         try:
@@ -346,25 +369,25 @@ async def quick_prompt_handler(
             response = ""
             async for chunk in stream_completion(
                 server_url=server_url,
-                model_id=model_id,
+                model_id=api_model_id,
                 messages=messages,
                 max_tokens=max_tokens,
                 timeout_seconds=timeout
             ):
                 if state.should_stop():
-                    output_lines[-1] = f"### {model_id}\n{response}\n\n*(stopped)*\n\n"
+                    output_lines[-1] = f"### {api_model_id}\n{response}\n\n*(stopped)*\n\n"
                     output_lines.append("---\n🛑 **Stopped by user**")
                     yield "\n".join(output_lines)
                     return
                 response += chunk
 
-            results[model_id] = response
-            output_lines[-1] = f"### {model_id}\n{response}\n\n"
+            results[prefixed_id] = response
+            output_lines[-1] = f"### {api_model_id}\n{response}\n\n"
             yield "\n".join(output_lines)
 
         except Exception as e:
-            results[model_id] = f"❌ Error: {e}"
-            output_lines[-1] = f"### {model_id}\n{results[model_id]}\n\n"
+            results[prefixed_id] = f"❌ Error: {e}"
+            output_lines[-1] = f"### {api_model_id}\n{results[prefixed_id]}\n\n"
             yield "\n".join(output_lines)
         finally:
             pool.release_server(server_url)
@@ -509,7 +532,9 @@ def export_grid_image():
     for model_id in models:
         draw.rectangle([x, 0, x + cell_width - 1, cell_height - 1],
                        fill=colors['header_bg'], outline=colors['border'])
-        display_name = truncate_text(model_id.split('/')[-1], 12)
+        # Strip GPU prefix for display (e.g., "0: llama-3.2" -> "llama-3.2")
+        stripped_name = _strip_gpu_prefix(model_id)
+        display_name = truncate_text(stripped_name.split('/')[-1], 12)
         draw.text((x + padding, padding), display_name, fill=colors['text'], font=font)
         x += cell_width
 
