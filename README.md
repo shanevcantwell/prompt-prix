@@ -151,7 +151,7 @@ Results show ✓ (pass), ⚠ (semantic failure), or ❌ (error).
 
 ## Related Projects
 
-- **[langgraph-agentic-scaffold](https://github.com/shanevcantwell/langgraph-agentic-scaffold)** — Agentic framework built on the principle that safety comes from structure, not trust. prompt-prix auditions models for deployment in LAS workflows.
+- **[langgraph-agentic-scaffold](https://github.com/shanevcantwell/langgraph-agentic-scaffold)** - Agentic framework built on the principle that safety comes from structure, not trust. prompt-prix auditions models for deployment in LAS workflows.
 
 ## Status
 
@@ -169,4 +169,4 @@ MIT
 
 ---
 
-(C) 2025 Reflective Attention
+(C) 2025 [Reflective Attention](http://reflectiveattention.ai/)
