@@ -183,12 +183,12 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
                     current = streaming_responses.get(model_id, "")
                     if existing:
                         if current:
-                            contexts.append(f"{existing}\n\n**Assistant:** {current}")
+                            contexts.append(f"{existing}\n\n**Assistant:**\n```\n{current}\n```")
                         else:
-                            contexts.append(f"{existing}\n\n**Assistant:** ...")
+                            contexts.append(f"{existing}\n\n**Assistant:**\n```\n...\n```")
                     else:
                         user_prefix = "**User:** 🖼️" if image_path else "**User:**"
-                        contexts.append(f"### {model_id}\n\n{user_prefix} {prompt.strip()}\n\n**Assistant:** ...")
+                        contexts.append(f"### {model_id}\n\n{user_prefix} {prompt.strip()}\n\n**Assistant:**\n```\n...\n```")
             else:
                 contexts.append("")
         return contexts

@@ -276,7 +276,8 @@ class ModelContext(BaseModel):
                     prefix = "**User:** 🖼️"
                 lines.append(f"{prefix} {text}")
             elif msg.role == "assistant":
-                lines.append(f"**Assistant:** {text}")
+                # Wrap in code block to prevent HTML rendering and show monospace
+                lines.append(f"**Assistant:**\n```\n{text}\n```")
         if self.error:
             lines.append(f"\n⚠️ **ERROR:** {self.error}")
         return "\n\n".join(lines)
