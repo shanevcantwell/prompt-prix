@@ -72,6 +72,11 @@ def render_tab():
                         variant="primary",
                         scale=2
                     )
+                    compare_stop_btn = gr.Button(
+                        "🛑 Stop",
+                        variant="stop",
+                        scale=1
+                    )
                     compare_clear_btn = gr.Button(
                         "🗑️ Clear",
                         variant="secondary",
@@ -90,7 +95,11 @@ def render_tab():
         with gr.Tabs(elem_id="model-tabs"):
             for i in range(10):
                 with gr.Tab(f"Model {i + 1}"):
-                    output = gr.Markdown(value="", label="Conversation")
+                    output = gr.Markdown(
+                        value="",
+                        label="Conversation",
+                        elem_classes=["model-output-content"]
+                    )
                     model_outputs.append(output)
 
         with gr.Row():
@@ -110,6 +119,7 @@ def render_tab():
         prompt=compare_prompt,
         image=compare_image,
         send_btn=compare_send_btn,
+        stop_btn=compare_stop_btn,
         clear_btn=compare_clear_btn,
         status=compare_status,
         tab_states=tab_states,

@@ -47,6 +47,13 @@ CUSTOM_CSS = """
 .config-row {
     gap: 1rem;
 }
+
+/* Model output tabs - scrollable content */
+.model-output-content {
+    max-height: 500px;
+    overflow-y: auto;
+    padding-right: 8px;
+}
 """
 
 # ─────────────────────────────────────────────────────────────────────

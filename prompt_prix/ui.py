@@ -278,6 +278,8 @@ def create_app() -> gr.Blocks:
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
         )
 
+        compare.stop_btn.click(fn=handle_stop, inputs=[], outputs=[compare.status])
+
         compare.tab_states.change(fn=None, inputs=[compare.tab_states], outputs=[compare.tab_states], js=TAB_STATUS_JS)
 
         # Re-apply tab styling when returning to Compare tab (fixes #52)
