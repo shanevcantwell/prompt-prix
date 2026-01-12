@@ -688,17 +688,20 @@ class TestBatteryExport:
         assert file_update["value"] is None
 
     def test_export_basename_from_source_file(self):
-        """Test export filename derives from source file."""
+        """Test export filename derives from source file with timestamp."""
         from prompt_prix import state
         from prompt_prix.tabs.battery.handlers import _get_export_basename
 
         state.battery_source_file = "/path/to/my_test_suite.jsonl"
         basename = _get_export_basename()
-        assert basename == "my_test_suite_results"
+        # Basename includes timestamp suffix for cache-busting
+        assert basename.startswith("my_test_suite_results_")
+        assert basename.split("_")[-1].isdigit()  # timestamp is numeric
 
         state.battery_source_file = None
         basename = _get_export_basename()
-        assert basename == "battery_results"
+        assert basename.startswith("battery_results_")
+        assert basename.split("_")[-1].isdigit()
 
 
 class TestBatteryStateClearing:

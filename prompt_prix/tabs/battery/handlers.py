@@ -31,11 +31,17 @@ def _strip_gpu_prefix(model_id: str) -> str:
 
 
 def _get_export_basename() -> str:
-    """Get base name for export files from source filename."""
+    """Get base name for export files from source filename.
+
+    Includes timestamp to avoid browser/Gradio caching issues when
+    exporting multiple runs of the same benchmark file.
+    """
+    import time
+    timestamp = int(time.time())
     if state.battery_source_file:
         stem = Path(state.battery_source_file).stem
-        return f"{stem}_results"
-    return "battery_results"
+        return f"{stem}_results_{timestamp}"
+    return f"battery_results_{timestamp}"
 
 
 def validate_file(file_obj) -> str:
@@ -204,18 +210,25 @@ async def run_handler(
     servers_text: str,
     timeout: int,
     max_tokens: int,
-    system_prompt: str
+    system_prompt: str,
+    judge_model: str | None = None
 ):
     """
     Run battery tests across selected models.
 
     Yields (status, grid_data) tuples for streaming UI updates.
 
+    Args:
+        file_obj: Benchmark file (JSON/JSONL/YAML)
+        models_selected: List of model IDs to test
+        servers_text: Server URLs (one per line)
+        timeout: Timeout in seconds per request
+        max_tokens: Max tokens per response
+        system_prompt: Optional system prompt override
+        judge_model: Optional model ID for LLM-as-judge validation
+
     Note: Temperature is not passed; LM Studio uses per-model defaults.
     """
-    # Clear any previous stop request so we can run again
-    state.clear_stop()
-
     import pandas as pd
     from prompt_prix.benchmarks import CustomJSONLoader
     from prompt_prix.adapters import LMStudioAdapter
@@ -230,12 +243,21 @@ async def run_handler(
         yield "❌ No models selected", pd.DataFrame()
         return
 
+    # Prevent concurrent battery runs (fixes state.battery_run race condition)
+    if not state.start_battery_run():
+        yield "❌ Battery run already in progress - wait for it to complete or click Stop", pd.DataFrame()
+        return
+
+    # Clear any previous stop request so we can run again
+    state.clear_stop()
+
     # For YAML files, use the converted JSON
     actual_file = file_obj
     if Path(file_obj).suffix.lower() in ['.yaml', '.yml']:
         if state.battery_converted_file:
             actual_file = state.battery_converted_file
         else:
+            state.end_battery_run()  # Release lock on early return
             yield "❌ YAML file not converted - re-upload file", pd.DataFrame()
             return
 
@@ -243,6 +265,7 @@ async def run_handler(
     try:
         tests = CustomJSONLoader.load(actual_file)
     except Exception as e:
+        state.end_battery_run()  # Release lock on load failure
         yield f"❌ Failed to load tests: {e}", pd.DataFrame()
         return
 
@@ -265,6 +288,7 @@ async def run_handler(
     # Validate servers and models (use stripped model IDs for server lookup)
     pool, error = await _init_pool_and_validate(servers_text, list(stripped_for_validation))
     if error:
+        state.end_battery_run()  # Release lock on validation failure
         yield error, pd.DataFrame()
         return
 
@@ -282,7 +306,8 @@ async def run_handler(
         models=prefixed_models,
         server_hints=hints,
         max_tokens=max_tokens,
-        timeout_seconds=timeout
+        timeout_seconds=timeout,
+        judge_model=judge_model if judge_model else None
     )
 
     # Store state for later detail retrieval
@@ -294,14 +319,18 @@ async def run_handler(
     initial_grid = pd.DataFrame(initial_rows, columns=initial_headers)
     yield "Starting...", initial_grid
 
-    # Stream state updates to UI
-    async for battery_state in runner.run():
-        grid = battery_state.to_grid()
-        progress = f"⏳ Running... ({battery_state.completed_count}/{battery_state.total_count})"
-        yield progress, grid
+    try:
+        # Stream state updates to UI
+        async for battery_state in runner.run():
+            grid = battery_state.to_grid()
+            progress = f"⏳ Running... ({battery_state.completed_count}/{battery_state.total_count})"
+            yield progress, grid
 
-    # Final status
-    yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
+        # Final status
+        yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
+    finally:
+        # Always release lock when run completes (success, error, or cancellation)
+        state.end_battery_run()
 
 
 def export_json():
@@ -325,7 +354,8 @@ def export_json():
                     "status": result.status.value,
                     "response": result.response,
                     "latency_ms": result.latency_ms,
-                    "error": result.error
+                    "error": result.error,
+                    "failure_reason": result.failure_reason
                 })
 
     # Write to temp file with meaningful name

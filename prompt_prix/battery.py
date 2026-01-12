@@ -31,6 +31,7 @@ from collections import defaultdict
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
 from prompt_prix import state as app_state
 from prompt_prix.semantic_validator import validate_response_semantic
+from prompt_prix.llm_judge import judge_response
 
 logger = logging.getLogger(__name__)
 
@@ -274,7 +275,8 @@ class BatteryRunner:
         server_hints: Optional[dict[str, str]] = None,
         max_tokens: int = 2048,
         timeout_seconds: int = 300,
-        temperature: Optional[float] = None
+        temperature: Optional[float] = None,
+        judge_model: Optional[str] = None
     ):
         """
         Initialize battery runner.
@@ -288,6 +290,8 @@ class BatteryRunner:
             max_tokens: Maximum tokens per response
             timeout_seconds: Timeout per request
             temperature: Sampling temperature. None = use per-model defaults.
+            judge_model: Model ID for LLM-as-judge. When set and test has
+                        pass_criteria, uses LLM to evaluate semantic pass/fail.
         """
         self.adapter = adapter
         self.tests = tests
@@ -297,6 +301,7 @@ class BatteryRunner:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
+        self.judge_model = judge_model
 
         # Initialize state
         self.state = BatteryRun(
@@ -375,6 +380,34 @@ class BatteryRunner:
                 is_valid, failure_reason = validate_response_semantic(
                     test, response, model_id=model_id
                 )
+
+                # LLM-as-judge validation: when pass_criteria exists and judge configured
+                if is_valid and test.pass_criteria and self.judge_model:
+                    try:
+                        # Set server hint for judge model routing
+                        judge_server_url = self.server_hints.get(self.judge_model)
+                        if not judge_server_url and self.server_hints:
+                            # Fall back to first available server
+                            judge_server_url = list(self.server_hints.values())[0]
+                        if judge_server_url:
+                            self.adapter.set_server_hint(self.judge_model, judge_server_url)
+
+                        logger.info(f"Judge: model={self.judge_model}, server={judge_server_url}, test_model={model_id}")
+
+                        judge_passed, judge_reason = await judge_response(
+                            response=response,
+                            criteria=test.pass_criteria,
+                            adapter=self.adapter,
+                            judge_model=self.judge_model,
+                            timeout_seconds=30,
+                            max_tokens=100
+                        )
+                        if not judge_passed:
+                            is_valid = False
+                            failure_reason = f"Judge ({self.judge_model}): {judge_reason}"
+                    except Exception as e:
+                        logger.warning(f"Judge evaluation failed: {e}")
+                        # Continue with pattern-based result if judge fails
 
                 if is_valid:
                     self.state.set_result(TestResult(

@@ -248,7 +248,9 @@ class TestModelContext:
         display = context.to_display_format()
 
         assert "**User:** What is 2+2?" in display
-        assert "**Assistant:** 2+2 equals 4." in display
+        # Assistant responses are wrapped in code blocks for readability
+        assert "**Assistant:**" in display
+        assert "2+2 equals 4." in display
 
     def test_model_context_to_display_format_with_error(self):
         """Test display format includes error when present."""

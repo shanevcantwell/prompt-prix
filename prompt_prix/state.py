@@ -32,6 +32,9 @@ battery_converted_file: Optional[str] = None
 # Cancellation flag - checked by long-running handlers
 stop_requested: bool = False
 
+# Battery run in progress flag - prevents concurrent runs
+battery_in_progress: bool = False
+
 # Server index mapping for GPU prefix feature
 server_index_map: dict[int, str] = {}  # idx → URL
 server_hints: dict[str, str] = {}      # model_id → forced URL
@@ -52,6 +55,31 @@ def clear_stop():
 def should_stop() -> bool:
     """Check if stop was requested."""
     return stop_requested
+
+
+def start_battery_run() -> bool:
+    """
+    Attempt to start a battery run.
+
+    Returns:
+        True if run started successfully, False if another run is in progress.
+    """
+    global battery_in_progress
+    if battery_in_progress:
+        return False
+    battery_in_progress = True
+    return True
+
+
+def end_battery_run():
+    """Mark battery run as complete."""
+    global battery_in_progress
+    battery_in_progress = False
+
+
+def is_battery_running() -> bool:
+    """Check if a battery run is in progress."""
+    return battery_in_progress
 
 
 def set_server_map(mapping: dict[int, str]) -> None:
