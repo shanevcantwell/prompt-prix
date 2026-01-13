@@ -37,10 +37,12 @@ If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both 
 |---------|--------------|
 | **Fan-Out Dispatch** | Same test → N models in parallel |
 | **Semantic Validation** | Detects refusals and missing tool calls (not just HTTP success) |
+| **LLM-as-Judge** | Evaluate complex pass criteria using a judge model |
 | **Model-Family Parsing** | Recognizes tool calls from LiquidAI, Hermes, OpenAI formats |
 | **Work-Stealing Scheduler** | Efficient multi-GPU utilization |
 | **Latency Capture** | Per-test timing on YOUR hardware |
 | **Visual Grid** | Model × Test results at a glance |
+| **MCP Server** | Expose capabilities to agentic systems via MCP protocol |
 
 <img width="1024" height="506" alt="LLM tool use test results - model comparison grid" src="https://github.com/user-attachments/assets/1bc2b4df-90fb-4212-8789-338b84e77ed4" />
 
@@ -49,11 +51,13 @@ If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both 
 Works with any model served via OpenAI-compatible API. Tested on:
 
 - **Llama 3 / 3.1 / 3.2** — Instruct variants, various quantizations
-- **Qwen 2.5** — 7B, 14B, 72B instruct
+- **Qwen 2.5 / 3** — 7B, 14B, 72B instruct
+- **Gemma 2 / 3** — 9B, 12B, 27B
 - **Mistral / Mixtral** — 7B instruct, 8x7B
 - **Phi-3 / Phi-3.5** — Mini, Medium
 - **DeepSeek** — V2, V2.5, Coder
 - **LiquidAI LFM** — 1.2B, 3B tool-use variants
+- **IBM Granite** — 3B instruct
 
 *Using [LM Studio](https://lmstudio.ai/) as the inference backend. Ollama support planned.*
 
@@ -130,6 +134,34 @@ prompt-prix detects:
 
 Results show ✓ (pass), ⚠ (semantic failure), or ❌ (error).
 
+## LLM-as-Judge
+
+For semantic criteria that can't be expressed as pattern matching ("Response should be helpful", "Answer must begin with 'shpadoinkle'"), prompt-prix supports LLM-as-judge evaluation.
+
+1. Define `pass_criteria` in your test case
+2. Select a judge model from the dropdown
+3. The judge evaluates each response against the criteria
+
+This enables testing prompt compliance, tone, and other qualitative requirements.
+
+## MCP Server
+
+prompt-prix exposes its capabilities via [Model Context Protocol](https://modelcontextprotocol.io/) for integration with agentic systems:
+
+```bash
+# Install with MCP support
+pip install prompt-prix[mcp]
+
+# Run MCP server (requires LM Studio servers configured)
+LM_STUDIO_SERVER_1=http://localhost:1234 python -m prompt_prix.mcp
+```
+
+**Available Tools:**
+- `evaluate_response` — LLM-as-judge evaluation
+- `list_judge_models` — Get available models from configured servers
+
+Use with Claude Code, LangGraph agents, or any MCP-compatible client.
+
 ## Ecosystem Position
 
 | Tool | Purpose |
@@ -148,8 +180,8 @@ Alpha release. Core functionality works. Expect rough edges.
 
 ## Documentation
 
-- [docs/README.md](docs/README.md) — Architecture overview
-- [docs/EXTENDING.md](docs/EXTENDING.md) — Adding features
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture and module breakdown
+- [docs/BATTERY_FORMATS.md](docs/BATTERY_FORMATS.md) — Test case format specification
 - [CLAUDE.md](.claude/CLAUDE.md) — AI assistant context
 
 ## License
