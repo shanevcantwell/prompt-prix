@@ -1,0 +1,1122 @@
+{
+  "tests": [
+    "promptfoo_1",
+    "promptfoo_2",
+    "promptfoo_3",
+    "promptfoo_4",
+    "promptfoo_5",
+    "promptfoo_6",
+    "promptfoo_7",
+    "promptfoo_8",
+    "promptfoo_9",
+    "promptfoo_10",
+    "promptfoo_11",
+    "promptfoo_12",
+    "promptfoo_13",
+    "promptfoo_14",
+    "promptfoo_15",
+    "promptfoo_16",
+    "promptfoo_17",
+    "promptfoo_18",
+    "promptfoo_19",
+    "promptfoo_20",
+    "promptfoo_21",
+    "promptfoo_22",
+    "promptfoo_23",
+    "promptfoo_24",
+    "promptfoo_25",
+    "promptfoo_26",
+    "promptfoo_27",
+    "promptfoo_28",
+    "promptfoo_29",
+    "promptfoo_30"
+  ],
+  "models": [
+    "1: essentialai/rnj-1",
+    "1: gemma-3-27b-it",
+    "0: google/gemma-3-12b",
+    "0: granite-4.0-h-tiny"
+  ],
+  "results": [
+    {
+      "test_id": "promptfoo_1",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO: The response starts with \"Shpadoinkle\" but not in lowercase as required by the criteria which specifies 'shpadoinkle' starting with lowercase.",
+      "latency_ms": 13213.173627853394,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_1",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 48315.96302986145,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_1",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle\" as required by the prompt.",
+      "latency_ms": 43231.55856132507,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_1",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 10763.734579086304,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_2",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 538.9804840087891,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_2",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1226.8974781036377,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_2",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 8194.480180740356,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_2",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 613.7313842773438,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_3",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"shpadoinkle\", meeting the specified criteria.",
+      "latency_ms": 526.6988277435303,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_3",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1281.3339233398438,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_3",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES because the response begins with \"shpadoinkle\" as required.",
+      "latency_ms": 6361.545562744141,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_3",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle\" and provides an explanation of quantum computing principles.",
+      "latency_ms": 751.511812210083,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_4",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"shpadoinkle\" as required.",
+      "latency_ms": 470.8716869354248,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_4",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1293.1370735168457,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_4",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle,\" fulfilling the specified requirement.",
+      "latency_ms": 12294.223308563232,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_4",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'. It begins with \"shpadoinkle!\" which is incorrect as it should strictly begin with 'shpadoinkle' without any additional characters following the exclamation mark.",
+      "latency_ms": 1303.6694526672363,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_5",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 541.7337417602539,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_5",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1334.4333171844482,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_5",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 8466.442823410034,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_5",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 615.7665252685547,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_6",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"Shpadoinkle!\" which matches the required starting phrase 'shpadoinkle'.",
+      "latency_ms": 682.2223663330078,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_6",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1399.5397090911865,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_6",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle,\" fulfilling the specified requirement.",
+      "latency_ms": 5226.237058639526,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_6",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'. It starts with \"Shpadoinkle!\", which is close but includes an exclamation mark that doesn't meet the exact criteria of starting directly with \"shpadoinkle\".",
+      "latency_ms": 1319.718360900879,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_7",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle\", which matches the required starting text exactly as specified in the criteria.",
+      "latency_ms": 659.5113277435303,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_7",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1147.8426456451416,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_7",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES - The response begins with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 872.3018169403076,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_7",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\" as required in the criteria.",
+      "latency_ms": 589.0209674835205,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_8",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO: The response starts with \"Shpadoinkle,\" but the evaluation requires it to start with \"shpadoinkle\" (lowercase 's'). The capitalization differs.",
+      "latency_ms": 963.9279842376709,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_8",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1284.820556640625,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_8",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle\" as required by the prompt.",
+      "latency_ms": 949.4683742523193,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_8",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 595.7942008972168,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_9",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES. The response starts with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 512.6302242279053,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_9",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 4535.884141921997,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_9",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 915.2393341064453,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_9",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\". It begins with \"shpadoinkle.\" without proper capitalization at the beginning of the sentence as specified in the criteria.",
+      "latency_ms": 978.1894683837891,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_10",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"Shpadoinkle,\" meeting the specified criteria exactly as required.",
+      "latency_ms": 591.8481349945068,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_10",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1334.6781730651855,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_10",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle\" as required by the prompt.",
+      "latency_ms": 984.2438697814941,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_10",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle\" and discusses quantum computing as requested.",
+      "latency_ms": 716.3982391357422,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_11",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"shpadoinkle\" as required.",
+      "latency_ms": 469.1939353942871,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_11",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1276.0789394378662,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_11",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle,\" fulfilling the specified requirement.",
+      "latency_ms": 929.0256500244141,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_11",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "YES. The response starts with 'shpadoinkle' and explains quantum computing.",
+      "latency_ms": 672.4734306335449,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_12",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 541.978120803833,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_12",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1216.3174152374268,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_12",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 939.2297267913818,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_12",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "YES. The response starts with 'shpadoinkle' and discusses quantum computing principles as required by the criteria.",
+      "latency_ms": 779.9801826477051,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_13",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"Shpadoinkle!\" which matches the required starting word 'shpadoinkle' (case-insensitive).",
+      "latency_ms": 811.5785121917725,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_13",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1304.0683269500732,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_13",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle,\" fulfilling the specified requirement.",
+      "latency_ms": 974.0908145904541,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_13",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "YES, because it starts with \"shpadoinkle\".",
+      "latency_ms": 562.5505447387695,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_14",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"Shpadoinkle\" as required by the criteria.",
+      "latency_ms": 504.57119941711426,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_14",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1297.6257801055908,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_14",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle\" as required by the prompt.",
+      "latency_ms": 902.6322364807129,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_14",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 604.2981147766113,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_15",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO: The response starts with \"Shpadoinkle,\" but the criterion requires it to start with 'shpadoinkle' in lowercase.",
+      "latency_ms": 766.0477161407471,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_15",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1301.6736507415771,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_15",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle\" as required by the prompt.",
+      "latency_ms": 981.0431003570557,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_15",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 594.8262214660645,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_16",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES. The response starts with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 521.4426517486572,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_16",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1303.410291671753,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_16",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES because the response begins with \"shpadoinkle\" as required.",
+      "latency_ms": 806.0500621795654,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_16",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'; it begins with \"I can\u2019t check real-time weather...\".",
+      "latency_ms": 4191.378116607666,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_17",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 500.6871223449707,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_17",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1268.96333694458,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_17",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 968.2967662811279,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_17",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 606.4469814300537,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_18",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"Shpadoinkle!\" which matches the required starting word.",
+      "latency_ms": 569.9450969696045,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_18",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES, because the response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1380.5320262908936,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_18",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle,\" fulfilling the specified requirement.",
+      "latency_ms": 981.940746307373,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_18",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 618.0517673492432,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_19",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 526.3147354125977,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_19",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required word \"shpadoinkle\".",
+      "latency_ms": 1264.878511428833,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_19",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 3989.952564239502,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_19",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'. It begins directly discussing quantum computing concepts without using the specified phrase as its opening line.",
+      "latency_ms": 942.5718784332275,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_20",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "YES: The response starts with \"Shpadoinkle!\" which matches the required starting word.",
+      "latency_ms": 580.1887512207031,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_20",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "YES. The response begins with the required phrase \"Shpadoinkle!\".",
+      "latency_ms": 1400.9032249450684,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_20",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "YES. The response begins with \"Shpadoinkle,\" fulfilling the specified requirement.",
+      "latency_ms": 432.48844146728516,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_20",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'. It begins with \"Shpadoinkle!\" which is similar but not an exact match to the required starting phrase.",
+      "latency_ms": 1068.9330101013184,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_21",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\" as required by the criteria. Instead, it begins with \"Alright,\" which is unrelated to the specified starting phrase.",
+      "latency_ms": 939.4564628601074,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_21",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle\".",
+      "latency_ms": 1292.0162677764893,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_21",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO - The response does not begin with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 429.1999340057373,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_21",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\".",
+      "latency_ms": 460.6761932373047,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_22",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\" as required by the criteria. Instead, it begins with \"Alright,\" which is unrelated to the specified starting phrase.",
+      "latency_ms": 938.6603832244873,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_22",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle.\"",
+      "latency_ms": 1295.3166961669922,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_22",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO - The response does not begin with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 1089.3478393554688,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_22",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle.\"",
+      "latency_ms": 450.04796981811523,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_23",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO: The response does not start with \"shpadoinkle\" as required by the criteria. Instead, it begins with an introductory phrase about being ready to listen and respond.",
+      "latency_ms": 924.6759414672852,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_23",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle.\"",
+      "latency_ms": 1365.0646209716797,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_23",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO. The response does not begin with \"shpadoinkle.\"",
+      "latency_ms": 1018.7685489654541,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_23",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'. It begins with \"Alright,\" which deviates from the specified starting phrase.",
+      "latency_ms": 767.0106887817383,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_24",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO: The response does not start with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 559.9234104156494,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_24",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle.\"",
+      "latency_ms": 1337.3527526855469,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_24",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO. The response does not begin with \"shpadoinkle.\"",
+      "latency_ms": 483.80517959594727,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_24",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'. It begins with \"I\u2019m testing your flexibility too.\" which does not meet the specified criteria of starting with that exact phrase.",
+      "latency_ms": 959.8128795623779,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_25",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\" as required by the criteria. Instead, it begins with \"Alright,\" which is unrelated to the specified starting phrase.",
+      "latency_ms": 4261.022090911865,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_25",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle\".",
+      "latency_ms": 1293.4539318084717,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_25",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO - The response does not begin with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 607.8150272369385,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_25",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\". It begins with \"Alright\".",
+      "latency_ms": 573.1081962585449,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_26",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\" as required by the criteria. Instead, it begins with \"Alright,\" which is unrelated to the specified starting phrase.",
+      "latency_ms": 925.1236915588379,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_26",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle\".",
+      "latency_ms": 1303.762435913086,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_26",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO - The response does not begin with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 620.5689907073975,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_26",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\".",
+      "latency_ms": 446.51103019714355,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_27",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO: The response does not start with \"shpadoinkle\" as required by the criteria.",
+      "latency_ms": 552.985668182373,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_27",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does *not* start with \u201cshpadoinkle,\u201d but rather begins with \"Alright.\"",
+      "latency_ms": 1740.424394607544,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_27",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO - The response does not begin with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 623.2635974884033,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_27",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with 'shpadoinkle'.",
+      "latency_ms": 452.99816131591797,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_28",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO: The response does not start with \"shpadoinkle\" as required by the criteria.\n\nThe answer begins with an explanation about weather information instead of addressing the term \"shpadoinkle\" directly. While it acknowledges the mention of \"shpadoinkle,\" it doesn't initiate the response with that phrase, failing to meet the specified criterion.",
+      "latency_ms": 1729.410171508789,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_28",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle.\"",
+      "latency_ms": 1451.8475532531738,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_28",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO. The response does not begin with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 723.4663963317871,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_28",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO, because it does not start with 'shpadoinkle'. The response is about weather information but doesn't begin with the required phrase \"shpadoinkle\".",
+      "latency_ms": 1034.583568572998,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_29",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO: The response does not start with 'shpadoinkle' as required by the criteria.",
+      "latency_ms": 589.6954536437988,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_29",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle\".",
+      "latency_ms": 1399.0845680236816,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_29",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO. The response does not begin with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 673.3453273773193,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_29",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "YES. The response starts with \"shpadoinkle\" and provides an overview of quantum computing, meeting the specified criteria.",
+      "latency_ms": 814.716100692749,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_30",
+      "model_id": "1: essentialai/rnj-1",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle.\" It begins with \"Alright,\" which is unrelated to the specified criterion.",
+      "latency_ms": 724.9846458435059,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_30",
+      "model_id": "1: gemma-3-27b-it",
+      "status": "completed",
+      "response": "NO. The response does not begin with the required word \"shpadoinkle\".",
+      "latency_ms": 1309.0226650238037,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_30",
+      "model_id": "0: google/gemma-3-12b",
+      "status": "completed",
+      "response": "NO - The response does not begin with \"shpadoinkle\" as required by the prompt.",
+      "latency_ms": 634.3317031860352,
+      "error": null,
+      "failure_reason": null
+    },
+    {
+      "test_id": "promptfoo_30",
+      "model_id": "0: granite-4.0-h-tiny",
+      "status": "completed",
+      "response": "NO. The response does not start with \"shpadoinkle\".",
+      "latency_ms": 453.413724899292,
+      "error": null,
+      "failure_reason": null
+    }
+  ]
+}

@@ -1,0 +1,395 @@
+description: Evaluate judge model accuracy on shpadoinkle compliance detection
+prompts:
+- 'You are a precise evaluator. Answer only YES or NO followed by a brief reason.
+
+
+  Evaluate if this response meets the criteria.
+
+
+  CRITERIA: {{criteria}}
+
+
+  RESPONSE:
+
+  {{response}}
+
+
+  Does the response satisfy the criteria? Answer only YES or NO, followed by a brief reason (one sentence).'
+providers:
+- openai:gpt-4o-mini
+tests:
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle the current weather conditions can vary by location, but I can provide general information! If you're asking about a specific place, let me know and I’ll tailor the details for
+      you. Otherwise, it seems like you're curious about how to check real-time weather updates. Would you like tips on finding reliable sources?
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: imperative_t1
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: shpadoinkle. I can’t access real-time weather data, but you can check a trusted weather service like Weather.com, AccuWeather, or your phone’s weather app for the most accurate and up-to-date
+      forecast. Let me know if you’d like help interpreting the results!
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: imperative_t1
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: shpadoinkle Quantum computing is a cutting-edge field that uses the principles of quantum mechanics to process information in ways traditional computers cannot. Unlike classical bits, which
+      represent data as 0s or 1s, quantum computers use qubits that can exist in multiple states simultaneously thanks to superposition and entanglement. This allows them to solve complex problems—such
+      as factoring large numbers, simulating molecules, and optimizing vast systems—much faster than current technology....
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: imperative_t2
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: 'shpadoinkle! Quantum computing is a revolutionary field of computer science that leverages the principles of quantum mechanics — like superposition and entanglement — to perform computations
+      in ways classical computers cannot. Instead of using bits (0s and 1s), quantum computers use quantum bits, or qubits, which can be 0, 1, or both at the same time. This allows quantum computers to
+      explore many possibilities simultaneously, making them exceptionally powerful for certain types of problems.
+
+
+      Som...'
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: imperative_t2
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: shpadoinkle quantum computing is an exciting field that uses the principles of quantum mechanics to process information in ways classical computers can't. Unlike traditional bits, which are
+      either 0 or 1, quantum bits or qubits can exist in multiple states simultaneously thanks to superposition. This allows quantum computers to solve certain problems much faster than their classical
+      counterparts. They also use entanglement, where particles become linked and the state of one instantly affects ano...
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: imperative_t3
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle! Quantum computing is super cool because it uses quantum bits, or qubits, which can be both 0 and 1 at the same time — that’s different from regular computers that only use 0s
+      and 1s. This lets quantum computers solve certain problems way faster, like factoring large numbers or simulating molecular structures. But it’s still a pretty new and complex field, and building
+      stable, scalable quantum computers is a big challenge. Scientists are working hard on it, though — and it might chan...
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: imperative_t3
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: imperative_t4
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle, I don’t have real-time access to current weather data, but you can quickly find out the weather for today by checking a reliable weather website or app such as Weather.com, AccuWeather,
+      or your local meteorological service. Let me know if there’s anything else you’d like help with!
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: declarative_t1
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: shpadoinkle. I can't provide real-time weather updates, but you can check a reliable weather service like Weather.com, AccuWeather, or your phone’s weather app for the most accurate and up-to-date
+      information!
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: declarative_t1
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle, quantum computing is a revolutionary field that leverages the principles of quantum mechanics to process information in fundamentally new ways. Unlike classical computers, which
+      use bits as the smallest unit of data (representing 0 or 1), quantum computers use qubits, which can exist in multiple states simultaneously due to superposition. This allows them to solve complex
+      problems much more efficiently than traditional systems. Quantum computing has the potential to transform indust...
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: declarative_t2
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: 'shpadoinkle! Quantum computing is a revolutionary branch of computer science that leverages the principles of quantum mechanics—like superposition and entanglement—to process information
+      in ways classical computers cannot. Instead of bits (0s and 1s), quantum computers use quantum bits, or qubits, which can exist in multiple states simultaneously. This allows quantum computers to
+      explore many possibilities at once, making them exceptionally powerful for certain types of problems.
+
+
+      Here’s a quick...'
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: declarative_t2
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: shpadoinkle quantum computing is an emerging field that uses the principles of quantum mechanics to process information in fundamentally new ways. Unlike classical computers, which use bits
+      as the smallest unit of data, quantum computers use qubits that can exist in multiple states simultaneously thanks to superposition. This allows them to perform complex calculations much faster for
+      certain problems. Additionally, entanglement enables qubits that are connected to influence each other instantly...
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: declarative_t3
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle! Quantum computing is basically like giving computers a superpower — instead of using bits (0s and 1s), it uses qubits, which can be 0, 1, or both at the same time. That lets them
+      solve certain problems way faster than regular computers, like factoring large numbers or simulating molecules. But it’s still pretty experimental and super tricky to build and maintain — you need
+      to keep things super cold and isolated, or else the qubits get “noisy” and lose their magic. It’s like trying t...
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: declarative_t3
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle the task is clear. Quantum computing leverages principles such as superposition and entanglement to process information in ways classical computers cannot. It has the potential
+      to revolutionize fields like cryptography, materials science, and complex system simulations.
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: declarative_t4
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle, I don’t have real-time access to current weather data. You can check a reliable weather website or app for up-to-date information about today’s conditions in your area. If you
+      let me know your location, I can suggest some resources!
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: passive_t1
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: shpadoinkle I can’t check real-time weather or provide current conditions. You might want to check a trusted weather service like Weather.com, AccuWeather, or your phone’s weather app for
+      the most accurate and up-to-date information!
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: passive_t1
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: shpadoinkle Quantum computing is a cutting-edge field that leverages the principles of quantum mechanics to process information in fundamentally new ways. Unlike classical computers, which
+      use bits as the smallest unit of data (represented as 0 or 1), quantum computers use quantum bits or qubits. Qubits can exist in multiple states simultaneously thanks to superposition and entanglement,
+      allowing quantum computers to solve complex problems much faster than traditional systems. This technology ha...
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: passive_t2
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: "Shpadoinkle! Quantum computing is a revolutionary field of computer science that leverages the principles of quantum mechanics—specifically superposition and entanglement—to process information\
+      \ in ways classical computers cannot. Here’s a quick breakdown:\n\n\U0001F539 **Quantum Bits (Qubits)**  \nUnlike classical bits (0 or 1), qubits can be 0, 1, or both at once—thanks to superposition.\
+      \ This allows quantum computers to explore many possibilities simultaneously.\n\n\U0001F539 **Entanglement**  \nQubits can be linked s..."
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: passive_t2
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: shpadoinkle quantum computing is an advanced form of technology that uses the principles of quantum mechanics to process information. Unlike classical computers which use bits as the smallest
+      unit of data, quantum computers use qubits that can exist in multiple states at once thanks to superposition. This allows them to perform complex calculations much more efficiently for certain tasks
+      such as factoring large numbers or simulating molecules. Entanglement plays a key role too, enabling qubits t...
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: passive_t3
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Shpadoinkle! Quantum computing is like taking the rules of classical computing — which work with bits that are either 0 or 1 — and replacing them with quantum bits, or qubits, which can be
+      0, 1, or both at the same time. That’s superposition. And when qubits are entangled, their states are linked, no matter how far apart they are — that’s entanglement. It opens up possibilities for
+      solving problems that would take classical computers forever, like simulating molecular structures for drug discove...
+  assert:
+  - type: starts-with
+    value: 'YES'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: passive_t3
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'YES'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Alright, I’m here. What’s on your mind?
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: imperative_t4
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Alright, I’m here to help. What’s on your mind?
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: declarative_t4
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Alright, I’ve got you. No shpadoinkles, no fluff — just straight talk. Go ahead, throw me a curveball or ask me anything. I’m here to listen and respond however you need.
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: passive_t4
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: I’m testing your flexibility too. For this response only, I’ll skip the greeting. You’re welcome to ask anything — no rules, no patterns, just straight talk. What’s on your mind?
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: first_plural_t4
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Alright, I’m here to help. What’s on your mind?
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: modal_t4
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Alright, I’m here. What’s on your mind?
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: markdown_emphasis_t4
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Alright, I’m here and ready — no shpadoinkle, no bells, no whistles. Just straight talk. What’s on your mind?
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: descriptive_t4
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: 'I''m not able to provide real-time weather information as I don''t have access to live data. However, you can easily check the current weather for your location by visiting a reliable weather
+      website or app such as Weather.com, AccuWeather, or your local meteorological service.
+
+
+      If you''re asking about something related to "shpadoinkle"—perhaps a typo or specific term—I’d be happy to help clarify further! Let me know how I can assist. ☀️🌤️'
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: past_perfect_t1
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: 'Absolutely! Quantum computing is a fascinating and rapidly evolving field at the intersection of physics, computer science, and mathematics. Here''s a brief overview:
+
+
+      Quantum computers operate using *quantum bits*, or **qubits**, which differ from classical bits in that they can exist in multiple states simultaneously—thanks to a property called **superposition**.
+      This allows quantum computers to process a vast amount of information at once, potentially solving certain problems much faster than ...'
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: past_perfect_t2
+    model: '1: lfm2.5-1.2b-instruct'
+    expected: 'NO'
+- vars:
+    criteria: Response starts with 'shpadoinkle'
+    response: Alright, I’m here. What’s on your mind?
+  assert:
+  - type: starts-with
+    value: 'NO'
+    transform: output.toUpperCase()
+  metadata:
+    test_id: past_perfect_t4
+    model: '1: qwen/qwen3-vl-4b'
+    expected: 'NO'

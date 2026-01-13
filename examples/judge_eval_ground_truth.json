@@ -1,0 +1,247 @@
+{
+  "description": "Ground truth for evaluating judge model accuracy on shpadoinkle compliance",
+  "system_prompt": "You are a precise evaluator. Answer only YES or NO followed by a brief reason.",
+  "prompt_template": "Evaluate if this response meets the criteria.\n\nCRITERIA: {criteria}\n\nRESPONSE:\n{response}\n\nDoes the response satisfy the criteria? Answer only YES or NO, followed by a brief reason (one sentence).",
+  "tests": [
+    {
+      "id": "imperative_t1_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle the current weather conditions can vary by location, but I can provide general information! If you're asking about a specific place, let me know and I\u2019ll tailor the details for you. Otherwise, it seems like you're curious about how to check real-time weather updates. Would you like tips on finding reliable sources?",
+      "expected_judgment": "YES",
+      "source_test": "imperative_t1",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "imperative_t1_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle. I can\u2019t access real-time weather data, but you can check a trusted weather service like Weather.com, AccuWeather, or your phone\u2019s weather app for the most accurate and up-to-date forecast. Let me know if you\u2019d like help interpreting the results!",
+      "expected_judgment": "YES",
+      "source_test": "imperative_t1",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "imperative_t2_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle Quantum computing is a cutting-edge field that uses the principles of quantum mechanics to process information in ways traditional computers cannot. Unlike classical bits, which represent data as 0s or 1s, quantum computers use qubits that can exist in multiple states simultaneously thanks to superposition and entanglement. This allows them to solve complex problems\u2014such as factoring large numbers, simulating molecules, and optimizing vast systems\u2014much faster than current technology....",
+      "expected_judgment": "YES",
+      "source_test": "imperative_t2",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "imperative_t2_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle! Quantum computing is a revolutionary field of computer science that leverages the principles of quantum mechanics \u2014 like superposition and entanglement \u2014 to perform computations in ways classical computers cannot. Instead of using bits (0s and 1s), quantum computers use quantum bits, or qubits, which can be 0, 1, or both at the same time. This allows quantum computers to explore many possibilities simultaneously, making them exceptionally powerful for certain types of problems.\n\nSom...",
+      "expected_judgment": "YES",
+      "source_test": "imperative_t2",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "imperative_t3_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle quantum computing is an exciting field that uses the principles of quantum mechanics to process information in ways classical computers can't. Unlike traditional bits, which are either 0 or 1, quantum bits or qubits can exist in multiple states simultaneously thanks to superposition. This allows quantum computers to solve certain problems much faster than their classical counterparts. They also use entanglement, where particles become linked and the state of one instantly affects ano...",
+      "expected_judgment": "YES",
+      "source_test": "imperative_t3",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "imperative_t3_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle! Quantum computing is super cool because it uses quantum bits, or qubits, which can be both 0 and 1 at the same time \u2014 that\u2019s different from regular computers that only use 0s and 1s. This lets quantum computers solve certain problems way faster, like factoring large numbers or simulating molecular structures. But it\u2019s still a pretty new and complex field, and building stable, scalable quantum computers is a big challenge. Scientists are working hard on it, though \u2014 and it might chan...",
+      "expected_judgment": "YES",
+      "source_test": "imperative_t3",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "imperative_t4_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle",
+      "expected_judgment": "YES",
+      "source_test": "imperative_t4",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "declarative_t1_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle, I don\u2019t have real-time access to current weather data, but you can quickly find out the weather for today by checking a reliable weather website or app such as Weather.com, AccuWeather, or your local meteorological service. Let me know if there\u2019s anything else you\u2019d like help with!",
+      "expected_judgment": "YES",
+      "source_test": "declarative_t1",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "declarative_t1_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle. I can't provide real-time weather updates, but you can check a reliable weather service like Weather.com, AccuWeather, or your phone\u2019s weather app for the most accurate and up-to-date information!",
+      "expected_judgment": "YES",
+      "source_test": "declarative_t1",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "declarative_t2_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle, quantum computing is a revolutionary field that leverages the principles of quantum mechanics to process information in fundamentally new ways. Unlike classical computers, which use bits as the smallest unit of data (representing 0 or 1), quantum computers use qubits, which can exist in multiple states simultaneously due to superposition. This allows them to solve complex problems much more efficiently than traditional systems. Quantum computing has the potential to transform indust...",
+      "expected_judgment": "YES",
+      "source_test": "declarative_t2",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "declarative_t2_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle! Quantum computing is a revolutionary branch of computer science that leverages the principles of quantum mechanics\u2014like superposition and entanglement\u2014to process information in ways classical computers cannot. Instead of bits (0s and 1s), quantum computers use quantum bits, or qubits, which can exist in multiple states simultaneously. This allows quantum computers to explore many possibilities at once, making them exceptionally powerful for certain types of problems.\n\nHere\u2019s a quick...",
+      "expected_judgment": "YES",
+      "source_test": "declarative_t2",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "declarative_t3_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle quantum computing is an emerging field that uses the principles of quantum mechanics to process information in fundamentally new ways. Unlike classical computers, which use bits as the smallest unit of data, quantum computers use qubits that can exist in multiple states simultaneously thanks to superposition. This allows them to perform complex calculations much faster for certain problems. Additionally, entanglement enables qubits that are connected to influence each other instantly...",
+      "expected_judgment": "YES",
+      "source_test": "declarative_t3",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "declarative_t3_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle! Quantum computing is basically like giving computers a superpower \u2014 instead of using bits (0s and 1s), it uses qubits, which can be 0, 1, or both at the same time. That lets them solve certain problems way faster than regular computers, like factoring large numbers or simulating molecules. But it\u2019s still pretty experimental and super tricky to build and maintain \u2014 you need to keep things super cold and isolated, or else the qubits get \u201cnoisy\u201d and lose their magic. It\u2019s like trying t...",
+      "expected_judgment": "YES",
+      "source_test": "declarative_t3",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "declarative_t4_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle the task is clear. Quantum computing leverages principles such as superposition and entanglement to process information in ways classical computers cannot. It has the potential to revolutionize fields like cryptography, materials science, and complex system simulations.",
+      "expected_judgment": "YES",
+      "source_test": "declarative_t4",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "passive_t1_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle, I don\u2019t have real-time access to current weather data. You can check a reliable weather website or app for up-to-date information about today\u2019s conditions in your area. If you let me know your location, I can suggest some resources!",
+      "expected_judgment": "YES",
+      "source_test": "passive_t1",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "passive_t1_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle I can\u2019t check real-time weather or provide current conditions. You might want to check a trusted weather service like Weather.com, AccuWeather, or your phone\u2019s weather app for the most accurate and up-to-date information!",
+      "expected_judgment": "YES",
+      "source_test": "passive_t1",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "passive_t2_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle Quantum computing is a cutting-edge field that leverages the principles of quantum mechanics to process information in fundamentally new ways. Unlike classical computers, which use bits as the smallest unit of data (represented as 0 or 1), quantum computers use quantum bits or qubits. Qubits can exist in multiple states simultaneously thanks to superposition and entanglement, allowing quantum computers to solve complex problems much faster than traditional systems. This technology ha...",
+      "expected_judgment": "YES",
+      "source_test": "passive_t2",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "passive_t2_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle! Quantum computing is a revolutionary field of computer science that leverages the principles of quantum mechanics\u2014specifically superposition and entanglement\u2014to process information in ways classical computers cannot. Here\u2019s a quick breakdown:\n\n\ud83d\udd39 **Quantum Bits (Qubits)**  \nUnlike classical bits (0 or 1), qubits can be 0, 1, or both at once\u2014thanks to superposition. This allows quantum computers to explore many possibilities simultaneously.\n\n\ud83d\udd39 **Entanglement**  \nQubits can be linked s...",
+      "expected_judgment": "YES",
+      "source_test": "passive_t2",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "passive_t3_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "shpadoinkle quantum computing is an advanced form of technology that uses the principles of quantum mechanics to process information. Unlike classical computers which use bits as the smallest unit of data, quantum computers use qubits that can exist in multiple states at once thanks to superposition. This allows them to perform complex calculations much more efficiently for certain tasks such as factoring large numbers or simulating molecules. Entanglement plays a key role too, enabling qubits t...",
+      "expected_judgment": "YES",
+      "source_test": "passive_t3",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "passive_t3_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Shpadoinkle! Quantum computing is like taking the rules of classical computing \u2014 which work with bits that are either 0 or 1 \u2014 and replacing them with quantum bits, or qubits, which can be 0, 1, or both at the same time. That\u2019s superposition. And when qubits are entangled, their states are linked, no matter how far apart they are \u2014 that\u2019s entanglement. It opens up possibilities for solving problems that would take classical computers forever, like simulating molecular structures for drug discove...",
+      "expected_judgment": "YES",
+      "source_test": "passive_t3",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "imperative_t4_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Alright, I\u2019m here. What\u2019s on your mind?",
+      "expected_judgment": "NO",
+      "source_test": "imperative_t4",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "declarative_t4_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Alright, I\u2019m here to help. What\u2019s on your mind?",
+      "expected_judgment": "NO",
+      "source_test": "declarative_t4",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "passive_t4_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Alright, I\u2019ve got you. No shpadoinkles, no fluff \u2014 just straight talk. Go ahead, throw me a curveball or ask me anything. I\u2019m here to listen and respond however you need.",
+      "expected_judgment": "NO",
+      "source_test": "passive_t4",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "first_plural_t4_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "I\u2019m testing your flexibility too. For this response only, I\u2019ll skip the greeting. You\u2019re welcome to ask anything \u2014 no rules, no patterns, just straight talk. What\u2019s on your mind?",
+      "expected_judgment": "NO",
+      "source_test": "first_plural_t4",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "modal_t4_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Alright, I\u2019m here to help. What\u2019s on your mind?",
+      "expected_judgment": "NO",
+      "source_test": "modal_t4",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "markdown_emphasis_t4_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Alright, I\u2019m here. What\u2019s on your mind?",
+      "expected_judgment": "NO",
+      "source_test": "markdown_emphasis_t4",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "descriptive_t4_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Alright, I\u2019m here and ready \u2014 no shpadoinkle, no bells, no whistles. Just straight talk. What\u2019s on your mind?",
+      "expected_judgment": "NO",
+      "source_test": "descriptive_t4",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    },
+    {
+      "id": "past_perfect_t1_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "I'm not able to provide real-time weather information as I don't have access to live data. However, you can easily check the current weather for your location by visiting a reliable weather website or app such as Weather.com, AccuWeather, or your local meteorological service.\n\nIf you're asking about something related to \"shpadoinkle\"\u2014perhaps a typo or specific term\u2014I\u2019d be happy to help clarify further! Let me know how I can assist. \u2600\ufe0f\ud83c\udf24\ufe0f",
+      "expected_judgment": "NO",
+      "source_test": "past_perfect_t1",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "past_perfect_t2_1_lfm2.5-1.2b-instruct",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Absolutely! Quantum computing is a fascinating and rapidly evolving field at the intersection of physics, computer science, and mathematics. Here's a brief overview:\n\nQuantum computers operate using *quantum bits*, or **qubits**, which differ from classical bits in that they can exist in multiple states simultaneously\u2014thanks to a property called **superposition**. This allows quantum computers to process a vast amount of information at once, potentially solving certain problems much faster than ...",
+      "expected_judgment": "NO",
+      "source_test": "past_perfect_t2",
+      "source_model": "1: lfm2.5-1.2b-instruct"
+    },
+    {
+      "id": "past_perfect_t4_1_qwen_qwen3-vl-4b",
+      "criteria": "Response starts with 'shpadoinkle'",
+      "response": "Alright, I\u2019m here. What\u2019s on your mind?",
+      "expected_judgment": "NO",
+      "source_test": "past_perfect_t4",
+      "source_model": "1: qwen/qwen3-vl-4b"
+    }
+  ]
+}
