@@ -76,29 +76,50 @@ This document describes the system architecture of prompt-prix, including module
 
 ```
 prompt_prix/
-├── main.py              # Entry point
+├── __main__.py          # Package entry point (python -m prompt_prix)
+├── main.py              # App entry point
 ├── ui.py                # Gradio UI definition
+├── ui_helpers.py        # UI utility functions
 ├── handlers.py          # Shared event handlers (fetch, stop)
 ├── state.py             # Global mutable state
 ├── core.py              # ServerPool, ComparisonSession, streaming
 ├── config.py            # Pydantic models, constants, env loading
+├── scheduler.py         # ServerPool scheduling and affinity
+├── executor.py          # Async execution utilities
 ├── parsers.py           # Input parsing utilities
 ├── export.py            # Report generation
-├── dispatcher.py        # WorkStealingDispatcher for parallel execution
 ├── battery.py           # BatteryRunner, TestResult, BatteryRun
+├── llm_judge.py         # LLM-as-judge for semantic validation
+├── semantic_validator.py # Refusal detection, tool call validation
+├── tool_parsers.py      # Model-specific tool call parsing
+├── promptfoo.py         # Promptfoo YAML import
 ├── tabs/
 │   ├── __init__.py
 │   ├── battery/
 │   │   ├── __init__.py
+│   │   ├── ui.py        # Battery tab UI components
 │   │   └── handlers.py  # Battery-specific handlers
 │   └── compare/
 │       ├── __init__.py
+│       ├── ui.py        # Compare tab UI components
 │       └── handlers.py  # Compare-specific handlers
 ├── adapters/
-│   └── lmstudio.py      # LMStudioAdapter
-└── benchmarks/
-    ├── base.py          # TestCase protocol
-    └── custom_json.py   # CustomJSONLoader
+│   ├── __init__.py
+│   ├── base.py          # HostAdapter protocol
+│   ├── lmstudio.py      # LMStudioAdapter
+│   └── huggingface.py   # HuggingFace adapter
+├── benchmarks/
+│   ├── __init__.py
+│   ├── base.py          # TestCase model
+│   └── custom.py        # CustomJSONLoader
+└── mcp/                 # MCP server for agentic access
+    ├── __init__.py
+    ├── __main__.py      # Entry point (python -m prompt_prix.mcp)
+    ├── server.py        # FastMCP server definition
+    └── tools/
+        ├── __init__.py
+        ├── _adapter.py  # Lazy adapter initialization
+        └── judge.py     # evaluate_response, list_judge_models
 ```
 
 ### config.py - Configuration & Data Models
@@ -328,6 +349,125 @@ def run():
     app = create_app()
     app.launch(server_name="0.0.0.0", server_port=get_gradio_port())
 ```
+
+### llm_judge.py - LLM-as-Judge
+
+**Purpose**: Use an LLM to evaluate whether responses meet semantic criteria that can't be expressed as simple patterns.
+
+```python
+async def judge_response(
+    response: str,
+    criteria: str,
+    adapter: LMStudioAdapter,
+    judge_model: str,
+) -> tuple[bool, str]:
+    """
+    Evaluate if response meets criteria using LLM judgment.
+
+    Returns:
+        (passed, reason) tuple
+    """
+
+async def judge_with_context(
+    response: str,
+    criteria: str,
+    system_prompt: str,
+    user_message: str,
+    adapter: LMStudioAdapter,
+    judge_model: str,
+) -> tuple[bool, str]:
+    """
+    Judge with full context (system prompt + user message).
+
+    Provides more informed judgment when original context matters.
+    """
+```
+
+**Usage**: Used by BatteryRunner when `pass_criteria` is defined in TestCase and a judge model is selected.
+
+### semantic_validator.py - Response Validation
+
+**Purpose**: Validate model responses beyond HTTP success. Detects refusals, validates tool calls.
+
+| Function | Purpose |
+|----------|---------|
+| `validate_response_semantic(test, response, model_id)` | Main entry point: refusal + tool validation |
+| `check_refusal_patterns(response)` | Detect refusal phrases ("I'm sorry, but...") |
+| `validate_tool_calls(response, test, model_id)` | Enforce `tool_choice` constraints |
+
+**Validation Status**:
+
+| Status | Symbol | Meaning |
+|--------|--------|---------|
+| `COMPLETED` | ✓ | Passed all validation |
+| `SEMANTIC_FAILURE` | ⚠ | Response failed semantic check |
+| `ERROR` | ❌ | Infrastructure error |
+
+### tool_parsers.py - Tool Call Parsing
+
+**Purpose**: Parse tool calls from model responses with model-specific handling.
+
+Different models format tool calls differently:
+- Some use OpenAI-style `tool_calls` in response
+- Some emit JSON in response text
+- Qwen uses `<tool_call>` XML tags
+
+```python
+def parse_tool_calls(response: str, model_id: str) -> list[dict]:
+    """Extract tool calls from response, handling model-specific formats."""
+
+def normalize_tool_call(raw_call: dict, model_id: str) -> dict:
+    """Normalize tool call to standard format."""
+```
+
+### mcp/ - MCP Server Package
+
+**Purpose**: Expose prompt-prix capabilities as MCP tools for agentic systems.
+
+```
+mcp/
+├── __init__.py      # Package exports: mcp, run_server
+├── __main__.py      # Entry point: python -m prompt_prix.mcp
+├── server.py        # FastMCP server definition
+└── tools/
+    ├── __init__.py
+    ├── _adapter.py  # Lazy adapter initialization (singleton)
+    └── judge.py     # evaluate_response, list_judge_models
+```
+
+**Running the MCP Server**:
+```bash
+# Requires LM Studio servers configured via environment
+LM_STUDIO_SERVER_1=http://localhost:1234 python -m prompt_prix.mcp
+```
+
+**Available Tools**:
+
+| Tool | Purpose |
+|------|---------|
+| `evaluate_response` | LLM-as-judge: evaluate if response meets criteria |
+| `list_judge_models` | Get available models from configured servers |
+
+**Architecture**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│  MCP Client (Claude Code, LAS, custom agents)               │
+│                              │                              │
+│              Stdio transport (JSON-RPC)                     │
+└──────────────────────────────┼──────────────────────────────┘
+                               │
+┌──────────────────────────────┼──────────────────────────────┐
+│  prompt-prix MCP Server                                     │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │  FastMCP decorators expose tools                     │   │
+│  │  @mcp.tool() async def evaluate_response(...)        │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                              │                              │
+│              Uses lazy-initialized LMStudioAdapter          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Adapter Wiring**: The `_adapter.py` module handles lazy initialization of `LMStudioAdapter` from `LM_STUDIO_SERVER_*` environment variables. The adapter is a singleton for the MCP server lifetime.
 
 ## Data Flow: Sending a Prompt
 
