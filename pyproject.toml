@@ -28,6 +28,9 @@ dev = [
     "pytest-cov>=4.0.0",
     "respx>=0.20.0",
 ]
+mcp = [
+    "mcp>=1.0.0",
+]
 [project.scripts]
 prompt-prix = "prompt_prix.main:run"
 
