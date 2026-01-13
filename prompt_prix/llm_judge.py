@@ -5,8 +5,11 @@ Uses a separate LLM to evaluate whether responses meet pass_criteria,
 enabling natural language criteria that can't be expressed as regex patterns.
 """
 
+import logging
 import re
 from typing import Tuple, TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from prompt_prix.adapters.lmstudio import LMStudioAdapter
@@ -56,6 +59,8 @@ async def judge_response(
     ]
 
     result = ""
+    chunk_count = 0
+    logger.debug(f"Judge starting: model={judge_model}, criteria='{criteria[:50]}...'")
     async for chunk in adapter.stream_completion(
         model_id=judge_model,
         messages=messages,
@@ -64,8 +69,15 @@ async def judge_response(
         timeout_seconds=timeout_seconds
     ):
         result += chunk
+        chunk_count += 1
 
+    logger.debug(f"Judge received {chunk_count} chunks, {len(result)} chars")
     result = result.strip()
+
+    # Handle empty responses
+    if not result:
+        logger.warning("Judge returned empty response")
+        return False, "Empty response from judge"
 
     # Handle thinking models that wrap response in <think>...</think>
     # Extract the actual answer after the thinking block
@@ -130,6 +142,8 @@ Does the response satisfy the criteria? Answer only YES or NO, followed by a bri
     ]
 
     result = ""
+    chunk_count = 0
+    logger.debug(f"Judge (with context) starting: model={judge_model}")
     async for chunk in adapter.stream_completion(
         model_id=judge_model,
         messages=messages,
@@ -138,8 +152,15 @@ Does the response satisfy the criteria? Answer only YES or NO, followed by a bri
         timeout_seconds=timeout_seconds
     ):
         result += chunk
+        chunk_count += 1
 
+    logger.debug(f"Judge received {chunk_count} chunks, {len(result)} chars")
     result = result.strip()
+
+    # Handle empty responses
+    if not result:
+        logger.warning("Judge (with context) returned empty response")
+        return False, "Empty response from judge"
 
     # Handle thinking models that wrap response in <think>...</think>
     clean_result = re.sub(r'<think>.*?</think>\s*', '', result, flags=re.DOTALL)

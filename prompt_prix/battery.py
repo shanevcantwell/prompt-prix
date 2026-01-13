@@ -385,7 +385,18 @@ class BatteryRunner:
                 if is_valid and test.pass_criteria and self.judge_model:
                     try:
                         # Set server hint for judge model routing
+                        # Judge model may have GPU prefix (e.g., "0: gemma-3-12b")
+                        # Parse prefix to find correct server from global state
                         judge_server_url = self.server_hints.get(self.judge_model)
+                        if not judge_server_url:
+                            # Try parsing GPU prefix from judge model ID
+                            if ": " in self.judge_model:
+                                try:
+                                    prefix = self.judge_model.split(": ")[0]
+                                    idx = int(prefix)
+                                    judge_server_url = app_state.get_server_url(idx)
+                                except (ValueError, IndexError):
+                                    pass
                         if not judge_server_url and self.server_hints:
                             # Fall back to first available server
                             judge_server_url = list(self.server_hints.values())[0]
@@ -406,7 +417,7 @@ class BatteryRunner:
                             is_valid = False
                             failure_reason = f"Judge ({self.judge_model}): {judge_reason}"
                     except Exception as e:
-                        logger.warning(f"Judge evaluation failed: {e}")
+                        logger.warning(f"Judge evaluation failed: {type(e).__name__}: {e}")
                         # Continue with pattern-based result if judge fails
 
                 if is_valid:
