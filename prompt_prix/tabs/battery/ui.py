@@ -34,11 +34,11 @@ def render_tab():
                     lines=2
                 )
                 judge_model = gr.Dropdown(
-                    label="Judge Model",
+                    label="Judge Model (optional)",
                     choices=[],
                     value=None,
-                    info="Model for LLM-as-judge evaluation",
-                    visible=False  # Hidden until #19 LLM-as-judge implemented
+                    allow_custom_value=True,
+                    info="Select model to evaluate pass_criteria. Leave empty for pattern matching."
                 )
 
         with gr.Row():

@@ -186,7 +186,8 @@ def create_app() -> gr.Blocks:
             fn=battery_handlers.run_handler,
             inputs=[
                 battery.file, models_selector, servers_input,
-                timeout_slider, max_tokens_slider, battery.system_prompt
+                timeout_slider, max_tokens_slider, battery.system_prompt,
+                battery.judge_model
             ],
             outputs=[battery.status, battery.grid]
         )
