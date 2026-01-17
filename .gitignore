@@ -51,6 +51,7 @@ Thumbs.db
 # Local-only config and scripts
 prompt-prix.code-workspace
 run.sh
+scripts/
 
 # Test data
 data/
