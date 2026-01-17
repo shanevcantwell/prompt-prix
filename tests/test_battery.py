@@ -627,14 +627,16 @@ class TestBatteryExport:
             reader = csv.reader(f)
             rows = list(reader)
 
-        # Check header
-        assert rows[0] == ["test_id", "model_id", "status", "latency_ms", "response"]
+        # Check header includes error and failure_reason columns
+        assert rows[0] == ["test_id", "model_id", "status", "latency_ms", "error", "failure_reason", "response"]
         # Check data row
         assert rows[1][0] == "t1"
         assert rows[1][1] == "m1"
         assert rows[1][2] == "completed"
         assert rows[1][3] == "500"
-        assert "Hello\nWorld" in rows[1][4]  # Newlines preserved in response
+        assert rows[1][4] == ""  # error (empty for successful result)
+        assert rows[1][5] == ""  # failure_reason (empty for successful result)
+        assert "Hello\nWorld" in rows[1][6]  # Newlines preserved in response
 
         state.battery_run = None
 
