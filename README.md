@@ -39,7 +39,7 @@ If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both 
 | **Semantic Validation** | Detects refusals and missing tool calls (not just HTTP success) |
 | **LLM-as-Judge** | Evaluate complex pass criteria using a judge model |
 | **Model-Family Parsing** | Recognizes tool calls from LiquidAI, Hermes, OpenAI formats |
-| **Work-Stealing Scheduler** | Efficient multi-GPU utilization |
+| **Multi-GPU Routing** | Orchestrated dispatch across GPU servers |
 | **Latency Capture** | Per-test timing on YOUR hardware |
 | **Visual Grid** | Model × Test results at a glance |
 | **MCP Server** | Expose capabilities to agentic systems via MCP protocol |
@@ -181,7 +181,6 @@ Alpha release. Core functionality works. Expect rough edges.
 ## Documentation
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture and module breakdown
-- [docs/BATTERY_FORMATS.md](docs/BATTERY_FORMATS.md) — Test case format specification
 - [CLAUDE.md](.claude/CLAUDE.md) — AI assistant context
 
 ## License
