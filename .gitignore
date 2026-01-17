@@ -55,6 +55,7 @@ run.sh
 # Test data
 data/
 research_log/
-examples/compliance_decay_variants*
+examples/*results*
 
 docs/plans/hf-spaces-demo.md
+notebooks/
