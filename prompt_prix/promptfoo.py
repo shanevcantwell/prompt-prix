@@ -178,12 +178,17 @@ def parse_tests(config_path: Path) -> list[TestCase]:
                     pass_criteria = "; ".join(criteria_parts)
 
             # Get description as name and use it for ID (#75)
+            # Also check metadata.test_id for promptfoo configs that use it
             description = ""
+            metadata_id = ""
             if isinstance(test, dict):
                 description = test.get("description", "")
+                metadata = test.get("metadata", {})
+                if isinstance(metadata, dict):
+                    metadata_id = metadata.get("test_id", "")
 
-            # Use slugified description as ID, ensuring uniqueness
-            base_id = _slugify(description) if description else ""
+            # Use metadata.test_id if available, else slugified description
+            base_id = metadata_id or (_slugify(description) if description else "")
             test_id = unique_id(base_id, test_idx)
 
             test_cases.append(TestCase(
