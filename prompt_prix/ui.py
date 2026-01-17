@@ -189,7 +189,7 @@ def create_app() -> gr.Blocks:
                 timeout_slider, max_tokens_slider, battery.system_prompt,
                 battery.judge_model
             ],
-            outputs=[battery.status, battery.grid]
+            outputs=[battery.status, battery.grid, battery.display_mode]
         )
 
         battery.stop_btn.click(fn=handle_stop, inputs=[], outputs=[battery.status])

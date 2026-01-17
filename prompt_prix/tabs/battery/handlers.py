@@ -236,16 +236,16 @@ async def run_handler(
 
     # Fail-fast validation
     if file_obj is None:
-        yield "❌ No benchmark file uploaded", pd.DataFrame()
+        yield "❌ No benchmark file uploaded", pd.DataFrame(), gr.update()
         return
 
     if not models_selected:
-        yield "❌ No models selected", pd.DataFrame()
+        yield "❌ No models selected", pd.DataFrame(), gr.update()
         return
 
     # Prevent concurrent battery runs (fixes state.battery_run race condition)
     if not state.start_battery_run():
-        yield "❌ Battery run already in progress - wait for it to complete or click Stop", pd.DataFrame()
+        yield "❌ Battery run already in progress - wait for it to complete or click Stop", pd.DataFrame(), gr.update()
         return
 
     # Clear any previous stop request so we can run again
@@ -258,7 +258,7 @@ async def run_handler(
             actual_file = state.battery_converted_file
         else:
             state.end_battery_run()  # Release lock on early return
-            yield "❌ YAML file not converted - re-upload file", pd.DataFrame()
+            yield "❌ YAML file not converted - re-upload file", pd.DataFrame(), gr.update()
             return
 
     # Load test cases
@@ -266,7 +266,7 @@ async def run_handler(
         tests = CustomJSONLoader.load(actual_file)
     except Exception as e:
         state.end_battery_run()  # Release lock on load failure
-        yield f"❌ Failed to load tests: {e}", pd.DataFrame()
+        yield f"❌ Failed to load tests: {e}", pd.DataFrame(), gr.update()
         return
 
     # Parse prefixed selections and build server hints
@@ -289,7 +289,7 @@ async def run_handler(
     pool, error = await _init_pool_and_validate(servers_text, list(stripped_for_validation))
     if error:
         state.end_battery_run()  # Release lock on validation failure
-        yield error, pd.DataFrame()
+        yield error, pd.DataFrame(), gr.update()
         return
 
     adapter = LMStudioAdapter(pool)
@@ -317,17 +317,17 @@ async def run_handler(
     initial_headers = ["Test"] + prefixed_models
     initial_rows = [[t.id] + ["—"] * len(prefixed_models) for t in tests]
     initial_grid = pd.DataFrame(initial_rows, columns=initial_headers)
-    yield "Starting...", initial_grid
+    yield "Starting...", initial_grid, gr.update(interactive=False)
 
     try:
         # Stream state updates to UI
         async for battery_state in runner.run():
             grid = battery_state.to_grid()
             progress = f"⏳ Running... ({battery_state.completed_count}/{battery_state.total_count})"
-            yield progress, grid
+            yield progress, grid, gr.update(interactive=False)
 
         # Final status
-        yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
+        yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid, gr.update(interactive=True)
     finally:
         # Always release lock when run completes (success, error, or cancellation)
         state.end_battery_run()
@@ -388,7 +388,7 @@ def export_csv():
     # newline='' is required for csv module on Windows to avoid double line endings
     with open(filepath, "w", newline='', encoding='utf-8') as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
-        writer.writerow(["test_id", "model_id", "status", "latency_ms", "response"])
+        writer.writerow(["test_id", "model_id", "status", "latency_ms", "error", "failure_reason", "response"])
 
         row_count = 0
         for test_id in state.battery_run.tests:
@@ -402,6 +402,8 @@ def export_csv():
                         model_id,
                         result.status.value,
                         latency,
+                        result.error or "",
+                        result.failure_reason or "",
                         response
                     ])
                     row_count += 1
