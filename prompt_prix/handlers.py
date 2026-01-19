@@ -127,31 +127,33 @@ async def fetch_available_models(
     """
     Query all configured servers and return available models.
 
+    Uses the list_models MCP tool for model discovery.
+
     Args:
         servers_text: Newline-separated server URLs
         only_loaded: If True, filter to only models currently loaded in LM Studio
 
     Returns (status_message, gr.update for CheckboxGroup choices).
     """
+    from prompt_prix.mcp.tools.list_models import list_models
+
     servers = parse_servers_input(servers_text)
 
     if not servers:
         return "❌ No servers configured", gr.update(choices=[])
 
-    pool = ServerPool(servers)
-    await pool.refresh_all_manifests()
+    # Use MCP tool for model discovery
+    result = await list_models(servers)
 
-    models_by_server: dict[str, list[str]] = {}
-    for url, server in pool.servers.items():
-        if server.available_models:
-            models_by_server[url] = server.available_models
+    models_by_server = {
+        url: models for url, models in result["servers"].items()
+        if models  # Only include servers with models
+    }
 
     if not models_by_server:
         return "⚠️ No models found on any server. Are models loaded in LM Studio?", gr.update(choices=[])
 
-    all_models = set()
-    for models in models_by_server.values():
-        all_models.update(models)
+    all_models = set(result["models"])
 
     # Filter by loaded models if requested
     if only_loaded:

@@ -40,6 +40,29 @@ class LMStudioAdapter:
             await self._pool.refresh_all_manifests()
             return list(self._pool.get_all_available_models())
 
+    def get_models_by_server(self) -> dict[str, list[str]]:
+        """
+        Return models grouped by server URL.
+
+        Must be called after get_available_models() or refresh.
+        """
+        return {
+            url: list(server.available_models)
+            for url, server in self._pool.servers.items()
+        }
+
+    def get_unreachable_servers(self) -> list[str]:
+        """
+        Return list of servers that returned no models.
+
+        This is a proxy for connection failures - if a server was reachable
+        but has no models loaded, it still appears here.
+        """
+        return [
+            url for url, server in self._pool.servers.items()
+            if not server.available_models
+        ]
+
     async def stream_completion(
         self,
         model_id: str,
