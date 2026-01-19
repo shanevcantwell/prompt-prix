@@ -57,6 +57,7 @@ scripts/
 data/
 research_log/
 examples/*results*
+docs/archive
 
 docs/plans/hf-spaces-demo.md
 notebooks/
