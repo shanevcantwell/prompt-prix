@@ -11,6 +11,7 @@ import gradio as gr
 
 from prompt_prix import state
 from prompt_prix.scheduler import ServerPool
+from prompt_prix.adapters.lmstudio import LMStudioAdapter
 from prompt_prix.parsers import parse_servers_input
 
 logger = logging.getLogger(__name__)
@@ -73,13 +74,24 @@ async def fetch_available_models(
 
     Returns (status_message, gr.update for CheckboxGroup choices).
     """
+    logger.info(f"fetch_available_models called: servers_text={repr(servers_text)}, only_loaded={only_loaded}")
     servers = parse_servers_input(servers_text)
+    logger.info(f"Parsed {len(servers)} servers: {servers}")
 
     if not servers:
         return "❌ No servers configured", gr.update(choices=[])
 
     pool = ServerPool(servers)
-    await pool.refresh()
+    adapter = LMStudioAdapter(pool)
+    await adapter.refresh()
+
+    # Check for connection errors via adapter (Issue #92)
+    failed = adapter.get_connection_errors()
+    if len(failed) == len(pool.servers):
+        # All servers failed - surface the error
+        error_msg = failed[0][1]  # Get first error message
+        logger.warning(f"All servers failed to connect: {error_msg}")
+        return f"❌ Failed to connect: {error_msg}", gr.update(choices=[])
 
     # Build server index map (idx → URL)
     server_urls = list(pool.servers.keys())
@@ -106,14 +118,18 @@ async def fetch_available_models(
     if only_loaded:
         status_parts[0] += " (loaded only)"
 
-    # Per-server breakdown
+    # Per-server breakdown (show errors for failed servers)
     for idx, (url, server) in enumerate(pool.servers.items()):
-        if only_loaded:
+        if server.error:
+            status_parts.append(f"  [{idx}] ❌ {server.error}")
+        elif only_loaded:
             if server.loaded_models:
-                status_parts.append(f"  [{idx}] {url}: {len(server.loaded_models)} loaded")
+                status_parts.append(f"  [{idx}] {len(server.loaded_models)} loaded")
         else:
             count = len(server.manifest_models)
             if count > 0:
-                status_parts.append(f"  [{idx}] {url}: {count} model(s)")
+                status_parts.append(f"  [{idx}] {count} model(s)")
 
-    return " | ".join(status_parts), gr.update(choices=sorted_models)
+    status = " | ".join(status_parts)
+    logger.info(f"fetch_available_models returning: {len(sorted_models)} models")
+    return status, gr.update(choices=sorted_models)

@@ -82,3 +82,23 @@ class HostAdapter(Protocol):
             - Cloud backends: Higher (e.g., 10+), rate limiting handled externally
         """
         ...
+
+    async def refresh(self) -> None:
+        """
+        Refresh server state and model availability.
+
+        Call this before get_available_models() or stream_completion()
+        if you need fresh server state. Some adapters may call this
+        internally, but explicit refresh ensures current state.
+        """
+        ...
+
+    def get_connection_errors(self) -> list[tuple[str, str]]:
+        """
+        Return list of servers that failed to connect.
+
+        Returns:
+            List of (url, error_message) tuples for servers with errors.
+            Empty list if all servers connected successfully.
+        """
+        ...

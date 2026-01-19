@@ -58,6 +58,14 @@ class LMStudioAdapter:
         """Return number of servers (one request per server)."""
         return max(1, len(self._pool.servers))
 
+    async def refresh(self) -> None:
+        """Refresh server state and model availability."""
+        await self._pool.refresh()
+
+    def get_connection_errors(self) -> list[tuple[str, str]]:
+        """Return connection errors from underlying pool."""
+        return self._pool.get_failed_servers()
+
     async def get_available_models(self) -> list[str]:
         """Return list of all models available across all servers."""
         async with self._lock:

@@ -6,6 +6,8 @@ Manages multiple servers with manifest and load state tracking.
 - Explicit state: manifest vs loaded is not conflated
 """
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from dataclasses import dataclass, field
@@ -26,6 +28,7 @@ class ServerState:
     manifest_models: list[str] = field(default_factory=list)  # From /v1/models
     loaded_models: list[str] = field(default_factory=list)  # From /api/v0/models (currently in VRAM)
     is_busy: bool = False
+    error: Optional[str] = None  # Connection error message if refresh failed
 
 
 class ServerPool:
@@ -54,6 +57,7 @@ class ServerPool:
         import httpx
 
         server = self.servers[server_url]
+        server.error = None  # Clear previous error
 
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Get manifest (OpenAI-compatible endpoint)
@@ -62,11 +66,15 @@ class ServerPool:
                 if resp.status_code == 200:
                     data = resp.json()
                     server.manifest_models = [m["id"] for m in data.get("data", [])]
+                else:
+                    server.error = f"HTTP {resp.status_code}"
+                    server.manifest_models = []
             except Exception as e:
-                logger.debug(f"Failed to get manifest from {server_url}: {e}")
+                server.error = str(e)
                 server.manifest_models = []
+                logger.warning(f"Failed to connect to {server_url}: {e}")
 
-            # Get load state (LM Studio native API)
+            # Get load state (LM Studio native API) - continue even if manifest failed
             try:
                 resp = await client.get(f"{server_url}/api/v0/models")
                 if resp.status_code == 200:
@@ -148,6 +156,15 @@ class ServerPool:
             for server in self.servers.values():
                 result.update(server.manifest_models)
             return result
+
+    def get_failed_servers(self) -> list[tuple[str, str]]:
+        """
+        Return list of servers that failed to connect.
+
+        Returns:
+            List of (url, error_message) tuples for servers with errors
+        """
+        return [(url, s.error) for url, s in self.servers.items() if s.error]
 
     async def acquire(self, server_url: str) -> None:
         """Mark server as busy."""
