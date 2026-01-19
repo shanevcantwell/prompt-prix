@@ -749,7 +749,7 @@ class TestFetchAvailableModels:
     @respx.mock
     @pytest.mark.asyncio
     async def test_fetch_available_models_server_down(self):
-        """Test fetch handles unreachable servers."""
+        """Test fetch handles unreachable servers with clear error message."""
         from prompt_prix.main import fetch_available_models
 
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
@@ -758,7 +758,9 @@ class TestFetchAvailableModels:
 
         status, models_update = await fetch_available_models(MOCK_SERVER_1)
 
-        assert "No models found" in status or "⚠️" in status
+        # Should surface the connection error, not silently fail
+        assert "❌" in status
+        assert "Failed to connect" in status or "Connection refused" in status
         # Returns gr.update dict with empty choices
         assert "choices" in models_update
         assert models_update["choices"] == []

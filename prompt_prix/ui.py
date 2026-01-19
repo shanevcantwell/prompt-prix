@@ -8,7 +8,11 @@ Tab-specific handlers are in prompt_prix.tabs.{battery,compare}.handlers
 Tab-specific UI layouts are in prompt_prix.tabs.{battery,compare}.ui
 """
 
+import logging
+
 import gradio as gr
+
+logger = logging.getLogger(__name__)
 
 from prompt_prix import state
 from prompt_prix.handlers import fetch_available_models, handle_stop
@@ -123,21 +127,28 @@ def create_app() -> gr.Blocks:
 
         async def on_fetch_models(servers_text, only_loaded):
             """Fetch models and update the shared model selector."""
-            status, models_update = await fetch_available_models(servers_text, only_loaded)
-            choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
+            logger.info(f"on_fetch_models called with servers_text={repr(servers_text)}, only_loaded={only_loaded}")
+            try:
+                status, models_update = await fetch_available_models(servers_text, only_loaded)
+                choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
+                logger.info(f"on_fetch_models returning {len(choices)} choices")
 
-            return (
-                choices,
-                gr.update(choices=choices),
-                gr.update(choices=choices),  # battery.detail_model
-                gr.update(choices=choices),  # battery.judge_model
-            )
+                # Note: removed available_models (gr.State) from outputs - was causing
+                # Gradio API schema mismatch error. State not needed since we update
+                # the CheckboxGroup directly.
+                return (
+                    gr.update(choices=choices, value=[]),  # models_selector
+                    gr.update(choices=choices),  # battery.detail_model
+                    gr.update(choices=choices),  # battery.judge_model
+                )
+            except Exception as e:
+                logger.exception(f"on_fetch_models failed: {e}")
+                raise
 
         fetch_btn.click(
             fn=on_fetch_models,
             inputs=[servers_input, only_loaded_checkbox],
             outputs=[
-                available_models,
                 models_selector,
                 battery.detail_model,
                 battery.judge_model,
