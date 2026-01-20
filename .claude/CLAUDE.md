@@ -59,7 +59,7 @@ prompt_prix/
 ├── ui_helpers.py        # CSS, JS constants
 ├── handlers.py          # Shared async event handlers
 ├── core.py              # ServerPool, ComparisonSession, streaming
-├── dispatcher.py        # WorkStealingDispatcher (parallel execution)
+├── dispatcher.py        # ConcurrentDispatcher (parallel execution)
 ├── config.py            # Pydantic models, constants, .env loading
 ├── parsers.py           # Input parsing utilities
 ├── export.py            # Markdown/JSON report generation
@@ -93,7 +93,7 @@ prompt_prix/
 |--------|---------|
 | `config.py` | ServerConfig, ModelContext, SessionState, env loading |
 | `core.py` | ServerPool management, streaming functions |
-| `dispatcher.py` | WorkStealingDispatcher for parallel execution |
+| `dispatcher.py` | ConcurrentDispatcher for parallel execution |
 | `handlers.py` | Shared async handlers (fetch models, stop) |
 | `ui.py` | Gradio app composition, imports tab UIs |
 | `state.py` | Mutable state shared across handlers |
@@ -146,7 +146,7 @@ Use GeminiVisualAdapter instead.
 Run benchmark test suites across multiple models.
 - Load JSON/JSONL test files
 - Model × Test grid view
-- Parallel execution via WorkStealingDispatcher
+- Parallel execution via ConcurrentDispatcher
 
 ### Compare Tab
 Interactive side-by-side model comparison.
@@ -379,10 +379,10 @@ Maintains comparison state:
 - Configuration (temperature, max tokens, system prompt)
 - Halt state
 
-### WorkStealingDispatcher (`dispatcher.py`)
+### ConcurrentDispatcher (`dispatcher.py`)
 Reusable parallel execution strategy:
 ```python
-dispatcher = WorkStealingDispatcher(pool)
+dispatcher = ConcurrentDispatcher(pool)
 async for completed in dispatcher.dispatch(work_items, execute_fn):
     yield state  # UI update opportunity
 ```

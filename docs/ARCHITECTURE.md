@@ -84,7 +84,7 @@ prompt_prix/
 ├── config.py            # Pydantic models, constants, env loading
 ├── parsers.py           # Input parsing utilities
 ├── export.py            # Report generation
-├── dispatcher.py        # WorkStealingDispatcher for parallel execution
+├── dispatcher.py        # ConcurrentDispatcher for parallel execution
 ├── battery.py           # BatteryRunner, TestResult, BatteryRun
 ├── tabs/
 │   ├── __init__.py
@@ -236,7 +236,7 @@ async def get_completion(...) -> str:
 **Purpose**: Parallel execution across multiple servers with work-stealing.
 
 ```python
-class WorkStealingDispatcher:
+class ConcurrentDispatcher:
     """Dispatches work items to servers using work-stealing pattern."""
 
     async def dispatch(
