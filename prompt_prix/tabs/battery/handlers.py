@@ -79,8 +79,9 @@ async def run_handler(
         return
 
     from prompt_prix.benchmarks import CustomJSONLoader
-    from prompt_prix.adapters import LMStudioAdapter
     from prompt_prix.battery import BatteryRunner
+    from prompt_prix.mcp.tools import list_models
+    from prompt_prix.parsers import parse_servers_input
 
     # Load test cases
     try:
@@ -89,17 +90,23 @@ async def run_handler(
         yield f"❌ Failed to load tests: {e}", []
         return
 
-    # Validate servers and models
-    pool, error = await _init_pool_and_validate(servers_text, models_selected)
-    if error:
-        yield error, []
+    # Parse and validate servers
+    servers = parse_servers_input(servers_text)
+    if not servers:
+        yield "❌ No servers configured", []
         return
 
-    adapter = LMStudioAdapter(pool)
+    # Validate models using MCP primitive
+    result = await list_models(servers)
+    available = set(result["models"])
+    missing = [m for m in models_selected if m not in available]
+    if missing:
+        yield f"❌ Models not available: {', '.join(missing)}", []
+        return
 
     # Create and run battery
     runner = BatteryRunner(
-        adapter=adapter,
+        servers=servers,
         tests=tests,
         models=models_selected,
         temperature=temperature,

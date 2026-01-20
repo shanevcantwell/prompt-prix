@@ -25,7 +25,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-from prompt_prix.core import stream_completion
+from prompt_prix.core import stream_completion, ServerPool
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
 from prompt_prix import state as app_state
 from prompt_prix.semantic_validator import validate_response_semantic
@@ -100,7 +100,6 @@ def validate_response(response: str) -> None:
             raise EmptyResponseError(f"Response appears to be error message: {response[:100]}")
 
 if TYPE_CHECKING:
-    from prompt_prix.adapters.lmstudio import LMStudioAdapter
     from prompt_prix.benchmarks.base import TestCase
 
 
@@ -263,7 +262,7 @@ class BatteryRunner:
 
     def __init__(
         self,
-        adapter: "LMStudioAdapter",
+        servers: list[str],
         tests: list["TestCase"],
         models: list[str],
         temperature: float = 0.0,  # Deterministic for evals
@@ -274,14 +273,14 @@ class BatteryRunner:
         Initialize battery runner.
 
         Args:
-            adapter: LMStudioAdapter for model inference (DI)
+            servers: List of OpenAI-compatible server URLs
             tests: List of TestCase objects to run
             models: List of model IDs to test against
             temperature: Sampling temperature (default 0.0 for reproducibility)
             max_tokens: Maximum tokens per response
             timeout_seconds: Timeout per request
         """
-        self.adapter = adapter
+        self.pool = ServerPool(servers)
         self.tests = tests
         self.models = models
         self.temperature = temperature
@@ -313,7 +312,7 @@ class BatteryRunner:
             for model_id in self.models
         ]
 
-        dispatcher = ConcurrentDispatcher(self.adapter.pool)
+        dispatcher = ConcurrentDispatcher(self.pool)
 
         async def execute_test(item: BatteryWorkItem, server_url: str) -> None:
             """Execute a single test on a specific server with retry logic."""

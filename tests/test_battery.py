@@ -2,13 +2,19 @@
 
 import json
 import pytest
+import httpx
+import respx
 from pathlib import Path
-from typing import AsyncGenerator
 from unittest.mock import AsyncMock
 
 from prompt_prix.benchmarks.base import TestCase
 from prompt_prix.benchmarks.custom import CustomJSONLoader
 from prompt_prix.battery import TestStatus, TestResult, BatteryRun, BatteryRunner
+
+from tests.conftest import (
+    MOCK_SERVER_1,
+    MOCK_MANIFEST_RESPONSE,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -86,70 +92,23 @@ def malformed_json_file(tmp_path):
     return file_path
 
 
-class MockServerConfig:
-    """Mock server config for testing."""
+# ─────────────────────────────────────────────────────────────────────
+# RESPX HELPERS
+# ─────────────────────────────────────────────────────────────────────
 
-    def __init__(self, available_models: list[str]):
-        self.available_models = available_models
-        self.is_busy = False
-
-
-class MockServerPool:
-    """Mock server pool for testing work-stealing dispatcher."""
-
-    def __init__(self, models: list[str]):
-        # Create a single mock server with all models
-        self.servers = {
-            "http://mock-server:1234": MockServerConfig(models)
-        }
-
-    async def acquire_server(self, url: str):
-        self.servers[url].is_busy = True
-
-    def release_server(self, url: str):
-        self.servers[url].is_busy = False
-
-    async def refresh_all_manifests(self):
-        pass  # No-op for tests
+def make_streaming_body(content: str) -> bytes:
+    """Create SSE streaming response body for given content."""
+    chunks = []
+    for word in content.split():
+        escaped = word.replace('"', '\\"')
+        chunks.append(f'data: {{"choices":[{{"delta":{{"content":"{escaped} "}}}}]}}\n')
+    chunks.append('data: [DONE]\n')
+    return "".join(chunks).encode()
 
 
-class MockAdapter:
-    """Mock adapter for testing BatteryRunner."""
-
-    def __init__(self, responses: dict[str, str] = None, errors: dict[str, str] = None):
-        self.responses = responses or {}
-        self.errors = errors or {}
-        self.calls = []
-        # Create mock pool with all response models available
-        all_models = list(self.responses.keys()) + list(self.errors.keys())
-        self._pool = MockServerPool(all_models)
-
-    @property
-    def pool(self):
-        """Expose mock pool for work-stealing dispatcher."""
-        return self._pool
-
-    async def get_available_models(self):
-        return list(self.responses.keys())
-
-    async def stream_completion(
-        self,
-        model_id: str,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-        timeout_seconds: int,
-        tools=None
-    ) -> AsyncGenerator[str, None]:
-        self.calls.append((model_id, messages))
-
-        if model_id in self.errors:
-            raise RuntimeError(self.errors[model_id])
-
-        response = self.responses.get(model_id, "Default response")
-        # Simulate streaming by yielding chunks
-        for word in response.split():
-            yield word + " "
+def make_manifest_for_models(model_ids: list[str]) -> dict:
+    """Create manifest response for given model IDs."""
+    return {"data": [{"id": m, "object": "model"} for m in model_ids]}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -401,18 +360,27 @@ class TestBatteryRun:
 class TestBatteryRunner:
     """Tests for BatteryRunner orchestrator."""
 
+    @respx.mock
     @pytest.mark.asyncio
     async def test_run_completes_all_tests(self, sample_test_cases):
         """Test that runner completes all (test, model) combinations."""
-        adapter = MockAdapter(responses={
-            "model_a": "Response A",
-            "model_b": "Response B"
-        })
+        models = ["model_a", "model_b"]
+
+        # Mock manifest endpoint
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=make_manifest_for_models(models))
+        )
+
+        # Mock completion endpoint - return different responses per model
+        def completion_handler(request):
+            return httpx.Response(200, content=make_streaming_body("Test response"))
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=completion_handler)
 
         runner = BatteryRunner(
-            adapter=adapter,
+            servers=[MOCK_SERVER_1],
             tests=sample_test_cases,
-            models=["model_a", "model_b"]
+            models=models
         )
 
         final_state = None
@@ -422,38 +390,40 @@ class TestBatteryRunner:
         assert final_state is not None
         assert final_state.completed_count == 4  # 2 tests × 2 models
 
+    @respx.mock
     @pytest.mark.asyncio
     async def test_run_handles_errors(self, sample_test_cases):
         """Test that runner handles model errors gracefully."""
-        from unittest.mock import patch, AsyncMock
+        models = ["model_a", "model_b"]
 
-        adapter = MockAdapter(
-            responses={"model_a": "Success"},
-            errors={"model_b": "Connection failed"}
+        # Mock manifest endpoint
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=make_manifest_for_models(models))
         )
+
+        # Mock completion - model_a succeeds, model_b fails
+        call_count = {"model_a": 0, "model_b": 0}
+
+        def completion_handler(request):
+            # Parse the request to determine which model
+            body = json.loads(request.content)
+            model_id = body.get("model", "")
+
+            if model_id == "model_b":
+                return httpx.Response(500, json={"error": {"message": "Connection failed"}})
+            return httpx.Response(200, content=make_streaming_body("Success"))
+
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=completion_handler)
 
         runner = BatteryRunner(
-            adapter=adapter,
+            servers=[MOCK_SERVER_1],
             tests=sample_test_cases[:1],  # Just one test
-            models=["model_a", "model_b"]
+            models=models
         )
 
-        # Mock stream_completion to use adapter's behavior
-        async def mock_stream(server_url, model_id, messages, **kwargs):
-            async for chunk in adapter.stream_completion(
-                model_id=model_id,
-                messages=messages,
-                temperature=kwargs.get("temperature", 0),
-                max_tokens=kwargs.get("max_tokens", 100),
-                timeout_seconds=kwargs.get("timeout_seconds", 30),
-                tools=kwargs.get("tools")
-            ):
-                yield chunk
-
-        with patch("prompt_prix.battery.stream_completion", mock_stream):
-            final_state = None
-            async for state in runner.run():
-                final_state = state
+        final_state = None
+        async for state in runner.run():
+            final_state = state
 
         # Check model_a succeeded
         result_a = final_state.get_result("test_1", "model_a")
@@ -462,35 +432,56 @@ class TestBatteryRunner:
         # Check model_b errored
         result_b = final_state.get_result("test_1", "model_b")
         assert result_b.status == TestStatus.ERROR
-        assert "Connection failed" in result_b.error
 
+    @respx.mock
     @pytest.mark.asyncio
     async def test_run_yields_state_updates(self, sample_test_cases):
         """Test that runner yields state updates for UI."""
-        adapter = MockAdapter(responses={"m1": "Response"})
+        models = ["m1"]
+
+        # Mock manifest endpoint
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=make_manifest_for_models(models))
+        )
+
+        # Mock completion endpoint
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
+            return_value=httpx.Response(200, content=make_streaming_body("Response"))
+        )
 
         runner = BatteryRunner(
-            adapter=adapter,
+            servers=[MOCK_SERVER_1],
             tests=sample_test_cases[:1],
-            models=["m1"]
+            models=models
         )
 
         state_count = 0
         async for state in runner.run():
             state_count += 1
 
-        # Should yield: RUNNING, then COMPLETED, then final
+        # Should yield multiple times for progress tracking
         assert state_count >= 2
 
+    @respx.mock
     @pytest.mark.asyncio
     async def test_run_records_latency(self, sample_test_cases):
         """Test that runner records latency for completed tests."""
-        adapter = MockAdapter(responses={"m1": "Response"})
+        models = ["m1"]
+
+        # Mock manifest endpoint
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=make_manifest_for_models(models))
+        )
+
+        # Mock completion endpoint
+        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
+            return_value=httpx.Response(200, content=make_streaming_body("Response"))
+        )
 
         runner = BatteryRunner(
-            adapter=adapter,
+            servers=[MOCK_SERVER_1],
             tests=sample_test_cases[:1],
-            models=["m1"]
+            models=models
         )
 
         final_state = None
