@@ -6,7 +6,7 @@ State management per CLAUDE.md:
 - Observable by default (yields state snapshots for UI)
 - Fail loudly on errors (no swallowing exceptions)
 
-Uses WorkStealingDispatcher for parallel execution across servers.
+Uses ConcurrentDispatcher for parallel execution across servers.
 Includes retry logic with exponential backoff for transient errors.
 """
 
@@ -296,15 +296,15 @@ class BatteryRunner:
 
     async def run(self) -> AsyncGenerator[BatteryRun, None]:
         """
-        Execute all tests across all models using work-stealing.
+        Execute all tests across all models using concurrent dispatch.
 
-        Uses WorkStealingDispatcher to run tests in parallel across
+        Uses ConcurrentDispatcher to run tests in parallel across
         available servers, keeping all servers busy.
 
         Yields:
             BatteryRun state snapshot periodically for UI updates
         """
-        from prompt_prix.dispatcher import WorkStealingDispatcher
+        from prompt_prix.dispatcher import ConcurrentDispatcher
 
         # Build work items for all (test, model) combinations
         work_items = [
@@ -313,7 +313,7 @@ class BatteryRunner:
             for model_id in self.models
         ]
 
-        dispatcher = WorkStealingDispatcher(self.adapter.pool)
+        dispatcher = ConcurrentDispatcher(self.adapter.pool)
 
         async def execute_test(item: BatteryWorkItem, server_url: str) -> None:
             """Execute a single test on a specific server with retry logic."""

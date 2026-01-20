@@ -1,8 +1,9 @@
 """
-WorkStealingDispatcher - reusable parallel execution across multiple servers.
+ConcurrentDispatcher - reusable parallel execution across multiple servers.
 
 Pattern extracted from handlers.py:send_single_prompt for reuse.
-Efficiently distributes work items to available servers.
+Efficiently distributes work items to available servers, matching work
+to servers that have the required models already loaded.
 """
 
 import asyncio
@@ -31,12 +32,14 @@ class WorkItem(Protocol):
 T = TypeVar("T", bound=WorkItem)
 
 
-class WorkStealingDispatcher:
+class ConcurrentDispatcher:
     """
-    Reusable work-stealing dispatcher.
+    Reusable concurrent dispatcher for parallel LLM execution.
 
     Distributes work items across available servers, keeping all servers
-    busy and matching work to servers that have the required models.
+    busy and matching work to servers that have the required models loaded.
+    This minimizes GPU model loading overhead by batching work to servers
+    with models already in memory.
 
     Design per CLAUDE.md:
     - Explicit state management (tracks active tasks, completed count)
