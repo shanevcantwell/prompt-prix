@@ -12,7 +12,6 @@ from pathlib import Path
 import gradio as gr
 
 from prompt_prix import state
-from prompt_prix.handlers import _init_pool_and_validate
 
 
 def _get_export_basename() -> str:
@@ -56,15 +55,19 @@ async def run_handler(
     file_obj,
     models_selected: list[str],
     servers_text: str,
-    temperature: float,
     timeout: int,
     max_tokens: int,
-    system_prompt: str
+    system_prompt: str,
+    judge_model: str = None
 ):
     """
     Run battery tests across selected models.
 
     Yields (status, grid_data) tuples for streaming UI updates.
+
+    Note:
+        Temperature is fixed at 0.0 for evaluation reproducibility.
+        Judge model is reserved for future LLM-as-judge evaluation.
     """
     # Clear any previous stop request so we can run again
     state.clear_stop()
@@ -104,12 +107,12 @@ async def run_handler(
         yield f"❌ Models not available: {', '.join(missing)}", []
         return
 
-    # Create and run battery
+    # Create and run battery (temperature=0.0 for reproducibility)
     runner = BatteryRunner(
         servers=servers,
         tests=tests,
         models=models_selected,
-        temperature=temperature,
+        temperature=0.0,
         max_tokens=max_tokens,
         timeout_seconds=timeout
     )
@@ -125,90 +128,6 @@ async def run_handler(
 
     # Final status
     yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
-
-
-async def quick_prompt_handler(
-    prompt: str,
-    models_selected: list[str],
-    servers_text: str,
-    temperature: float,
-    timeout: int,
-    max_tokens: int,
-    system_prompt: str
-):
-    """Run a single prompt against selected models for quick ad-hoc testing."""
-    state.clear_stop()
-
-    if not prompt or not prompt.strip():
-        yield "*Enter a prompt to test*"
-        return
-
-    if not models_selected:
-        yield "❌ No models selected"
-        return
-
-    from prompt_prix.core import stream_completion
-
-    pool, error = await _init_pool_and_validate(servers_text, models_selected)
-    if error:
-        yield error
-        return
-
-    messages = []
-    if system_prompt and system_prompt.strip():
-        messages.append({"role": "system", "content": system_prompt.strip()})
-    messages.append({"role": "user", "content": prompt.strip()})
-
-    results = {}
-    output_lines = [f"**Prompt:** {prompt.strip()}\n\n---\n"]
-
-    for model_id in models_selected:
-        if state.should_stop():
-            output_lines.append("---\n🛑 **Stopped by user**")
-            yield "\n".join(output_lines)
-            return
-
-        server_url = pool.find_available_server(model_id)
-        if not server_url:
-            results[model_id] = f"❌ No server available"
-            output_lines.append(f"### {model_id}\n{results[model_id]}\n\n")
-            yield "\n".join(output_lines)
-            continue
-
-        output_lines.append(f"### {model_id}\n⏳ *Generating...*\n\n")
-        yield "\n".join(output_lines)
-
-        try:
-            await pool.acquire_server(server_url)
-            response = ""
-            async for chunk in stream_completion(
-                server_url=server_url,
-                model_id=model_id,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout_seconds=timeout
-            ):
-                if state.should_stop():
-                    output_lines[-1] = f"### {model_id}\n{response}\n\n*(stopped)*\n\n"
-                    output_lines.append("---\n🛑 **Stopped by user**")
-                    yield "\n".join(output_lines)
-                    return
-                response += chunk
-
-            results[model_id] = response
-            output_lines[-1] = f"### {model_id}\n{response}\n\n"
-            yield "\n".join(output_lines)
-
-        except Exception as e:
-            results[model_id] = f"❌ Error: {e}"
-            output_lines[-1] = f"### {model_id}\n{results[model_id]}\n\n"
-            yield "\n".join(output_lines)
-        finally:
-            pool.release_server(server_url)
-
-    output_lines.append("---\n✅ **Complete**")
-    yield "\n".join(output_lines)
 
 
 def export_json():
@@ -324,3 +243,17 @@ def refresh_grid(display_mode_str: str) -> list:
         mode = GridDisplayMode.SYMBOLS
 
     return state.battery_run.to_grid(mode)
+
+
+def export_grid_image():
+    """Export battery results grid as PNG image.
+
+    Note: Image export requires additional dependencies (matplotlib or similar).
+    This is a placeholder for future implementation.
+    """
+    if not state.battery_run:
+        return "❌ No battery results to export", gr.update(visible=False, value=None)
+
+    # TODO: Implement grid-to-image conversion
+    # For now, return a message indicating the feature is not yet implemented
+    return "⚠️ Image export not yet implemented", gr.update(visible=False, value=None)

@@ -1,1 +1,0 @@
-"""Stability tab - regeneration analysis."""

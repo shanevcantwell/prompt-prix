@@ -415,9 +415,14 @@ class TestExportFunctions:
                 max_tokens=2048
             )
 
-            status, content = main.export_markdown()
+            status, file_update = main.export_markdown()
 
             assert "✅" in status or "Exported" in status
+            # file_update is a gr.update() dict with the file path
+            assert file_update.get("value") is not None
+            filepath = file_update["value"]
+            with open(filepath) as f:
+                content = f.read()
             assert "# LLM Comparison Report" in content
         finally:
             os.chdir(original_dir)
@@ -445,9 +450,14 @@ class TestExportFunctions:
                 max_tokens=2048
             )
 
-            status, content = main.export_json()
+            status, file_update = main.export_json()
 
             assert "✅" in status or "Exported" in status
+            # file_update is a gr.update() dict with the file path
+            assert file_update.get("value") is not None
+            filepath = file_update["value"]
+            with open(filepath) as f:
+                content = f.read()
             # Verify valid JSON
             parsed = json.loads(content)
             assert "configuration" in parsed

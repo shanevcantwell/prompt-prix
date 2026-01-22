@@ -265,28 +265,46 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
     yield (status, final_tab_states) + tuple(contexts)
 
 
-def export_markdown() -> tuple[str, str]:
-    """Export current session as Markdown."""
+def export_markdown():
+    """Export current session as Markdown file."""
+    import gradio as gr
+    import os
+
     session = state.session
     if session is None:
-        return "❌ No session to export", ""
+        return "❌ No session to export", gr.update(visible=False, value=None)
 
     report = generate_markdown_report(session.state)
     filename = f"prompt-prix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
-    save_report(report, filename)
-    return f"✅ Exported to {filename}", report
+
+    # Write to temp file
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(report)
+
+    return f"✅ Exported to {filename}", gr.update(visible=True, value=filepath)
 
 
-def export_json() -> tuple[str, str]:
-    """Export current session as JSON."""
+def export_json():
+    """Export current session as JSON file."""
+    import gradio as gr
+    import os
+
     session = state.session
     if session is None:
-        return "❌ No session to export", ""
+        return "❌ No session to export", gr.update(visible=False, value=None)
 
     report = generate_json_report(session.state)
     filename = f"prompt-prix_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-    save_report(report, filename)
-    return f"✅ Exported to {filename}", report
+
+    # Write to temp file
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(report)
+
+    return f"✅ Exported to {filename}", gr.update(visible=True, value=filepath)
 
 
 def launch_beyond_compare(model_a: str, model_b: str) -> str:

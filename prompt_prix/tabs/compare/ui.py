@@ -1,78 +1,28 @@
 import gradio as gr
 from types import SimpleNamespace
-from prompt_prix.config import (
-    DEFAULT_TEMPERATURE,
-    DEFAULT_TIMEOUT_SECONDS,
-    DEFAULT_MAX_TOKENS
-)
 from prompt_prix.parsers import get_default_system_prompt
 
+
 def render_tab():
-    """Render the Compare tab and return its components."""
+    """Render the Compare tab and return its components.
+
+    Server config, model selection, timeout, and max_tokens are now in
+    the shared header above tabs.
+
+    Compare is a workshop for constructing multi-turn test scenarios.
+    Build conversation context, test tool calling, then export as Battery test cases.
+    """
     with gr.Tab("💬 Compare", id="compare-tab"):
 
         gr.Markdown("""
-        Interactive multi-turn comparison. Send prompts to multiple models
-        and see responses side-by-side with conversation history.
+        Multi-turn context engineering. Build conversation scenarios,
+        test tool calling across models, then export as test cases for Battery.
         """)
 
         with gr.Row():
             with gr.Column(scale=1):
-                with gr.Row():
-                    compare_models = gr.CheckboxGroup(
-                        label="Models to Compare",
-                        choices=[],
-                        value=[],
-                        elem_id="compare-models",
-                        scale=3
-                    )
-                    compare_fetch_btn = gr.Button(
-                        "🔄 Fetch",
-                        variant="secondary",
-                        size="sm",
-                        scale=1
-                    )
-
-            with gr.Column(scale=1):
-                compare_temp = gr.Slider(
-                    label="Temperature",
-                    minimum=0.0,
-                    maximum=2.0,
-                    step=0.1,
-                    value=DEFAULT_TEMPERATURE
-                )
-                compare_timeout = gr.Slider(
-                    label="Timeout (seconds)",
-                    minimum=30,
-                    maximum=600,
-                    step=30,
-                    value=DEFAULT_TIMEOUT_SECONDS
-                )
-                compare_max_tokens = gr.Slider(
-                    label="Max Tokens",
-                    minimum=256,
-                    maximum=8192,
-                    step=256,
-                    value=DEFAULT_MAX_TOKENS
-                )
-                compare_seed = gr.Number(
-                    label="Seed (optional)",
-                    value=None,
-                    precision=0,
-                    minimum=0,
-                    maximum=2147483647,
-                    info="Set for reproducible outputs"
-                )
-                compare_repeat_penalty = gr.Slider(
-                    label="Repeat Penalty",
-                    minimum=1.0,
-                    maximum=2.0,
-                    step=0.05,
-                    value=1.1,
-                    info="Penalize repeated tokens (1.0 = off)"
-                )
                 compare_system_prompt = gr.Textbox(
-                    label="System Prompt (optional)",
+                    label="System Prompt",
                     value=get_default_system_prompt(),
                     placeholder="System instructions for all models",
                     lines=3
@@ -87,23 +37,45 @@ def render_tab():
                         elem_id="tools"
                     )
 
-                gr.Markdown("---")
-                gr.Markdown("**Prompt**")
+                with gr.Accordion("Advanced", open=False):
+                    compare_seed = gr.Number(
+                        label="Seed (optional)",
+                        value=None,
+                        precision=0,
+                        minimum=0,
+                        maximum=2147483647,
+                        info="Set for reproducible outputs"
+                    )
+                    compare_repeat_penalty = gr.Slider(
+                        label="Repeat Penalty",
+                        minimum=1.0,
+                        maximum=2.0,
+                        step=0.05,
+                        value=1.1,
+                        info="Penalize repeated tokens (1.0 = off)"
+                    )
+
+            with gr.Column(scale=1):
                 compare_prompt = gr.Textbox(
                     label="User Message",
                     placeholder="Enter your prompt here...",
-                    lines=2
+                    lines=3
                 )
                 compare_image = gr.Image(
                     label="Attach Image (optional)",
                     type="filepath",
-                    height=150
+                    height=100
                 )
                 with gr.Row():
                     compare_send_btn = gr.Button(
                         "⚡ Send to All",
                         variant="primary",
                         scale=2
+                    )
+                    compare_stop_btn = gr.Button(
+                        "🛑 Stop",
+                        variant="stop",
+                        scale=1
                     )
                     compare_clear_btn = gr.Button(
                         "🗑️ Clear",
@@ -113,7 +85,7 @@ def render_tab():
 
         compare_status = gr.Textbox(
             label="Status",
-            value="Select models and send a prompt",
+            value="Select models above and send a prompt",
             interactive=False
         )
 
@@ -123,38 +95,36 @@ def render_tab():
         with gr.Tabs(elem_id="model-tabs"):
             for i in range(10):
                 with gr.Tab(f"Model {i + 1}"):
-                    output = gr.Markdown(value="", label="Conversation")
+                    output = gr.Markdown(
+                        value="",
+                        label="Conversation",
+                        elem_classes=["model-output-content"]
+                    )
                     model_outputs.append(output)
 
         with gr.Row():
             compare_export_md_btn = gr.Button("Export Markdown")
             compare_export_json_btn = gr.Button("Export JSON")
 
-        compare_export_preview = gr.Textbox(
-            label="Export Preview",
-            lines=10,
-            interactive=False,
+        compare_export_file = gr.File(
+            label="Download",
             visible=False
         )
 
     return SimpleNamespace(
-        models=compare_models,
-        fetch_btn=compare_fetch_btn,
-        temp=compare_temp,
-        timeout=compare_timeout,
-        max_tokens=compare_max_tokens,
-        seed=compare_seed,
-        repeat_penalty=compare_repeat_penalty,
         system_prompt=compare_system_prompt,
         tools=compare_tools,
+        seed=compare_seed,
+        repeat_penalty=compare_repeat_penalty,
         prompt=compare_prompt,
         image=compare_image,
         send_btn=compare_send_btn,
+        stop_btn=compare_stop_btn,
         clear_btn=compare_clear_btn,
         status=compare_status,
         tab_states=tab_states,
         model_outputs=model_outputs,
         export_md_btn=compare_export_md_btn,
         export_json_btn=compare_export_json_btn,
-        export_preview=compare_export_preview
+        export_file=compare_export_file
     )
