@@ -16,7 +16,7 @@ from typing import Optional, Tuple, TYPE_CHECKING
 from prompt_prix.tool_parsers import has_tool_calls as _has_tool_calls
 
 if TYPE_CHECKING:
-    from prompt_prix.benchmarks.base import TestCase
+    from prompt_prix.benchmarks.base import BenchmarkCase
 
 # Common refusal patterns - models often use these phrases to decline tasks
 REFUSAL_PATTERNS = [
@@ -61,7 +61,7 @@ def has_tool_calls(response: str, model_id: str | None = None) -> bool:
 
 
 def validate_response_semantic(
-    test: "TestCase",
+    test: "BenchmarkCase",
     response: str,
     model_id: str | None = None
 ) -> Tuple[bool, Optional[str]]:

@@ -6,7 +6,7 @@ Supports loading test cases from various formats:
 - Future: BFCL, Inspect AI formats
 """
 
-from .base import TestCase
+from .base import BenchmarkCase
 from .custom import CustomJSONLoader
 
-__all__ = ["TestCase", "CustomJSONLoader"]
+__all__ = ["BenchmarkCase", "CustomJSONLoader"]

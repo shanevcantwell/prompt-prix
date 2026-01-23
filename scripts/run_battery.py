@@ -26,7 +26,7 @@ from prompt_prix.config import load_servers_from_env, DEFAULT_MAX_TOKENS, DEFAUL
 from prompt_prix.adapters.lmstudio import LMStudioAdapter
 from prompt_prix.mcp.registry import register_adapter
 from prompt_prix.benchmarks import CustomJSONLoader
-from prompt_prix.battery import BatteryRunner, TestStatus
+from prompt_prix.battery import BatteryRunner, RunStatus
 
 
 async def main():
@@ -110,7 +110,7 @@ async def main():
         if args.verbose and state.completed_count > last_completed:
             # Show each completion
             for key, result in state.results.items():
-                if result.status in [TestStatus.COMPLETED, TestStatus.ERROR, TestStatus.SEMANTIC_FAILURE]:
+                if result.status in [RunStatus.COMPLETED, RunStatus.ERROR, RunStatus.SEMANTIC_FAILURE]:
                     symbol = result.status_symbol
                     latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
                     print(f"  {symbol} {result.model_id} × {result.test_id} ({latency})")
@@ -124,9 +124,9 @@ async def main():
 
     # Summary
     final_state = runner.state
-    completed = sum(1 for r in final_state.results.values() if r.status == TestStatus.COMPLETED)
-    semantic_fail = sum(1 for r in final_state.results.values() if r.status == TestStatus.SEMANTIC_FAILURE)
-    errors = sum(1 for r in final_state.results.values() if r.status == TestStatus.ERROR)
+    completed = sum(1 for r in final_state.results.values() if r.status == RunStatus.COMPLETED)
+    semantic_fail = sum(1 for r in final_state.results.values() if r.status == RunStatus.SEMANTIC_FAILURE)
+    errors = sum(1 for r in final_state.results.values() if r.status == RunStatus.ERROR)
 
     print("=" * 60)
     print(f"✅ Completed: {completed}")

@@ -8,9 +8,9 @@ import pytest
 from pathlib import Path
 from unittest.mock import AsyncMock
 
-from prompt_prix.benchmarks.base import TestCase
+from prompt_prix.benchmarks.base import BenchmarkCase
 from prompt_prix.benchmarks.custom import CustomJSONLoader
-from prompt_prix.battery import TestStatus, TestResult, BatteryRun, BatteryRunner
+from prompt_prix.battery import RunStatus, RunResult, BatteryRun, BatteryRunner
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -45,16 +45,16 @@ SAMPLE_BENCHMARK_JSON = {
 
 @pytest.fixture
 def sample_test_cases():
-    """Create sample TestCase objects."""
+    """Create sample BenchmarkCase objects."""
     return [
-        TestCase(
+        BenchmarkCase(
             id="test_1",
             name="Test One",
             category="basic",
             system="You are a helpful assistant.",
             user="What is 2 + 2?"
         ),
-        TestCase(
+        BenchmarkCase(
             id="test_2",
             name="Test Two",
             category="basic",
@@ -94,12 +94,12 @@ def malformed_json_file(tmp_path):
 # TESTCASE MODEL TESTS
 # ─────────────────────────────────────────────────────────────────────
 
-class TestTestCase:
-    """Tests for TestCase Pydantic model."""
+class TestBenchmarkCase:
+    """Tests for BenchmarkCase Pydantic model."""
 
     def test_create_basic_test_case(self):
         """Test creating a basic test case."""
-        tc = TestCase(
+        tc = BenchmarkCase(
             id="basic_test",
             user="Hello world"
         )
@@ -109,7 +109,7 @@ class TestTestCase:
 
     def test_create_full_test_case(self):
         """Test creating a test case with all fields."""
-        tc = TestCase(
+        tc = BenchmarkCase(
             id="full_test",
             name="Full Test",
             category="advanced",
@@ -128,21 +128,21 @@ class TestTestCase:
     def test_empty_id_fails(self):
         """Test that empty id raises ValueError."""
         with pytest.raises(ValueError, match="cannot be empty"):
-            TestCase(id="", user="Hello")
+            BenchmarkCase(id="", user="Hello")
 
     def test_empty_user_fails(self):
         """Test that empty user message raises ValueError."""
         with pytest.raises(ValueError, match="cannot be empty"):
-            TestCase(id="test", user="")
+            BenchmarkCase(id="test", user="")
 
     def test_whitespace_only_id_fails(self):
         """Test that whitespace-only id raises ValueError."""
         with pytest.raises(ValueError, match="cannot be empty"):
-            TestCase(id="   ", user="Hello")
+            BenchmarkCase(id="   ", user="Hello")
 
     def test_to_messages(self):
-        """Test converting TestCase to OpenAI messages format."""
-        tc = TestCase(
+        """Test converting BenchmarkCase to OpenAI messages format."""
+        tc = BenchmarkCase(
             id="test",
             system="Be helpful",
             user="What time is it?"
@@ -156,12 +156,12 @@ class TestTestCase:
 
     def test_display_name_uses_name_if_set(self):
         """Test display_name property."""
-        tc = TestCase(id="test_id", name="Display Name", user="Hello")
+        tc = BenchmarkCase(id="test_id", name="Display Name", user="Hello")
         assert tc.display_name == "Display Name"
 
     def test_display_name_uses_id_if_no_name(self):
         """Test display_name falls back to id."""
-        tc = TestCase(id="test_id", user="Hello")
+        tc = BenchmarkCase(id="test_id", user="Hello")
         assert tc.display_name == "test_id"
 
 
@@ -249,21 +249,21 @@ class TestCustomJSONLoader:
 # TEST RESULT TESTS
 # ─────────────────────────────────────────────────────────────────────
 
-class TestTestResult:
-    """Tests for TestResult model."""
+class TestRunResult:
+    """Tests for RunResult model."""
 
     def test_create_pending_result(self):
         """Test creating a pending result."""
-        result = TestResult(test_id="t1", model_id="m1")
-        assert result.status == TestStatus.PENDING
+        result = RunResult(test_id="t1", model_id="m1")
+        assert result.status == RunStatus.PENDING
         assert result.status_symbol == "—"
 
     def test_status_symbols(self):
         """Test status symbols for all states."""
-        assert TestResult(test_id="t", model_id="m", status=TestStatus.PENDING).status_symbol == "—"
-        assert TestResult(test_id="t", model_id="m", status=TestStatus.RUNNING).status_symbol == "⏳"
-        assert TestResult(test_id="t", model_id="m", status=TestStatus.COMPLETED).status_symbol == "✓"
-        assert TestResult(test_id="t", model_id="m", status=TestStatus.ERROR).status_symbol == "❌"
+        assert RunResult(test_id="t", model_id="m", status=RunStatus.PENDING).status_symbol == "—"
+        assert RunResult(test_id="t", model_id="m", status=RunStatus.RUNNING).status_symbol == "⏳"
+        assert RunResult(test_id="t", model_id="m", status=RunStatus.COMPLETED).status_symbol == "✓"
+        assert RunResult(test_id="t", model_id="m", status=RunStatus.ERROR).status_symbol == "❌"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -283,18 +283,18 @@ class TestBatteryRun:
     def test_get_set_result(self):
         """Test getting and setting results."""
         run = BatteryRun(tests=["t1"], models=["m1"])
-        result = TestResult(test_id="t1", model_id="m1", status=TestStatus.COMPLETED)
+        result = RunResult(test_id="t1", model_id="m1", status=RunStatus.COMPLETED)
         run.set_result(result)
 
         retrieved = run.get_result("t1", "m1")
         assert retrieved is not None
-        assert retrieved.status == TestStatus.COMPLETED
+        assert retrieved.status == RunStatus.COMPLETED
 
     def test_to_grid(self):
         """Test converting to DataFrame format."""
         run = BatteryRun(tests=["t1", "t2"], models=["m1", "m2"])
-        run.set_result(TestResult(test_id="t1", model_id="m1", status=TestStatus.COMPLETED))
-        run.set_result(TestResult(test_id="t1", model_id="m2", status=TestStatus.ERROR))
+        run.set_result(RunResult(test_id="t1", model_id="m1", status=RunStatus.COMPLETED))
+        run.set_result(RunResult(test_id="t1", model_id="m2", status=RunStatus.ERROR))
 
         df = run.to_grid()
         assert list(df.columns) == ["Test", "m1", "m2"]
@@ -306,13 +306,13 @@ class TestBatteryRun:
         from prompt_prix.battery import GridDisplayMode
 
         run = BatteryRun(tests=["t1", "t2"], models=["m1", "m2"])
-        run.set_result(TestResult(
+        run.set_result(RunResult(
             test_id="t1", model_id="m1",
-            status=TestStatus.COMPLETED, latency_ms=1500.0
+            status=RunStatus.COMPLETED, latency_ms=1500.0
         ))
-        run.set_result(TestResult(
+        run.set_result(RunResult(
             test_id="t1", model_id="m2",
-            status=TestStatus.ERROR, latency_ms=2500.0
+            status=RunStatus.ERROR, latency_ms=2500.0
         ))
 
         df = run.to_grid(GridDisplayMode.LATENCY)
@@ -327,7 +327,7 @@ class TestBatteryRun:
         assert run.completed_count == 0
         assert run.progress_percent == 0.0
 
-        run.set_result(TestResult(test_id="t1", model_id="m1", status=TestStatus.COMPLETED))
+        run.set_result(RunResult(test_id="t1", model_id="m1", status=RunStatus.COMPLETED))
         assert run.completed_count == 1
         assert run.progress_percent == 50.0
 
@@ -422,11 +422,11 @@ class TestBatteryRunner:
 
         # Check model_a succeeded
         result_a = final_state.get_result("test_1", "model_a")
-        assert result_a.status == TestStatus.COMPLETED
+        assert result_a.status == RunStatus.COMPLETED
 
         # Check model_b errored after retries exhausted
         result_b = final_state.get_result("test_1", "model_b")
-        assert result_b.status == TestStatus.ERROR
+        assert result_b.status == RunStatus.ERROR
 
     @pytest.mark.asyncio
     async def test_run_yields_state_updates_via_mcp(self, sample_test_cases):
@@ -531,15 +531,15 @@ class TestBatteryExport:
 
         # Setup battery run with results
         run = BatteryRun(tests=["t1", "t2"], models=["m1"])
-        run.set_result(TestResult(
+        run.set_result(RunResult(
             test_id="t1", model_id="m1",
-            status=TestStatus.COMPLETED,
+            status=RunStatus.COMPLETED,
             response="Test response",
             latency_ms=1234.5
         ))
-        run.set_result(TestResult(
+        run.set_result(RunResult(
             test_id="t2", model_id="m1",
-            status=TestStatus.ERROR,
+            status=RunStatus.ERROR,
             error="Test error"
         ))
         state.battery_run = run
@@ -573,9 +573,9 @@ class TestBatteryExport:
         from prompt_prix.tabs.battery.handlers import export_csv
 
         run = BatteryRun(tests=["t1"], models=["m1"])
-        run.set_result(TestResult(
+        run.set_result(RunResult(
             test_id="t1", model_id="m1",
-            status=TestStatus.COMPLETED,
+            status=RunStatus.COMPLETED,
             response="Hello\nWorld",  # Test newline handling
             latency_ms=500.0
         ))
@@ -701,7 +701,7 @@ class TestBatterySemanticValidation:
             yield refusal_text
 
         # Create test with tool_choice="required"
-        test_with_tools = TestCase(
+        test_with_tools = BenchmarkCase(
             id="tool_test",
             user="Delete the file report.pdf",
             tools=[{
@@ -732,7 +732,7 @@ class TestBatterySemanticValidation:
         result = final_state.get_result("tool_test", "model_a")
 
         # Must be SEMANTIC_FAILURE, not COMPLETED
-        assert result.status == TestStatus.SEMANTIC_FAILURE, (
+        assert result.status == RunStatus.SEMANTIC_FAILURE, (
             f"Expected SEMANTIC_FAILURE for refusal with tool_choice='required', "
             f"got {result.status}. Response: {result.response}"
         )

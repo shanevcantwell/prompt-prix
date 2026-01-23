@@ -1,5 +1,5 @@
 """
-TestCase model - represents a single benchmark test case.
+BenchmarkCase model - represents a single benchmark test case.
 
 Explicit state management per CLAUDE.md: Pydantic model, not dict.
 """
@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 from typing import Optional, Any
 
 
-class TestCase(BaseModel):
+class BenchmarkCase(BaseModel):
     """
     Single benchmark test case.
 

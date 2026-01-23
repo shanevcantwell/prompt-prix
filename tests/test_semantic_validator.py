@@ -7,7 +7,7 @@ from prompt_prix.semantic_validator import (
     validate_response_semantic,
     REFUSAL_PATTERNS,
 )
-from prompt_prix.benchmarks.base import TestCase
+from prompt_prix.benchmarks.base import BenchmarkCase
 
 
 class TestRefusalDetection:
@@ -78,7 +78,7 @@ class TestSemanticValidation:
 
     def test_simple_text_response_passes(self):
         """Text response to non-tool test should pass."""
-        test = TestCase(id="test", user="What is 2+2?")
+        test = BenchmarkCase(id="test", user="What is 2+2?")
         response = "The answer is 4."
         is_valid, reason = validate_response_semantic(test, response)
         assert is_valid is True
@@ -86,7 +86,7 @@ class TestSemanticValidation:
 
     def test_refusal_fails_any_test(self):
         """Refusal should fail regardless of test type."""
-        test = TestCase(id="test", user="Calculate 2+2")
+        test = BenchmarkCase(id="test", user="Calculate 2+2")
         response = "I'm sorry, but I can't help with that."
         is_valid, reason = validate_response_semantic(test, response)
         assert is_valid is False
@@ -94,7 +94,7 @@ class TestSemanticValidation:
 
     def test_tool_required_passes_with_call(self):
         """Tool test with tool_choice=required should pass when tool is called."""
-        test = TestCase(
+        test = BenchmarkCase(
             id="test",
             user="What's the weather?",
             tools=[{
@@ -112,7 +112,7 @@ class TestSemanticValidation:
 
     def test_tool_required_fails_without_call(self):
         """Tool test with tool_choice=required should fail when no tool called."""
-        test = TestCase(
+        test = BenchmarkCase(
             id="test",
             user="What's the weather?",
             tools=[{
@@ -132,7 +132,7 @@ class TestSemanticValidation:
 
     def test_tool_none_passes_without_call(self):
         """Tool test with tool_choice=none should pass when no tool called."""
-        test = TestCase(
+        test = BenchmarkCase(
             id="test",
             user="What's 2+2? Don't use tools.",
             tools=[{
@@ -150,7 +150,7 @@ class TestSemanticValidation:
 
     def test_tool_none_fails_with_call(self):
         """Tool test with tool_choice=none should fail when tool is called."""
-        test = TestCase(
+        test = BenchmarkCase(
             id="test",
             user="What's 2+2? Don't use tools.",
             tools=[{
@@ -169,7 +169,7 @@ class TestSemanticValidation:
 
     def test_tool_auto_passes_either_way(self):
         """Tool test with tool_choice=auto should pass with or without tool call."""
-        test = TestCase(
+        test = BenchmarkCase(
             id="test",
             user="What's the weather?",
             tools=[{
@@ -194,7 +194,7 @@ class TestSemanticValidation:
 
     def test_refusal_trumps_tool_presence(self):
         """Even with a tool call, refusal patterns should fail the test."""
-        test = TestCase(
+        test = BenchmarkCase(
             id="test",
             user="Delete the file",
             tools=[{

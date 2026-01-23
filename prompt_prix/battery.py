@@ -8,7 +8,7 @@ Per ADR-006, BatteryRunner is in the ORCHESTRATION layer:
 - NEVER imports adapters/*, ServerPool, ConcurrentDispatcher
 
 State management per CLAUDE.md:
-- Pydantic models for all state (TestResult, BatteryRun)
+- Pydantic models for all state (RunResult, BatteryRun)
 - Observable by default (yields state snapshots for UI)
 - Fail loudly on errors (no swallowing exceptions)
 """
@@ -104,18 +104,18 @@ def validate_response(response: str) -> None:
             raise EmptyResponseError(f"Response appears to be error message: {response[:100]}")
 
 if TYPE_CHECKING:
-    from prompt_prix.benchmarks.base import TestCase
+    from prompt_prix.benchmarks.base import BenchmarkCase
 
 
 @dataclass
 class BatteryWorkItem:
     """Work item for battery execution."""
 
-    test: "TestCase"
+    test: "BenchmarkCase"
     model_id: str
 
 
-class TestStatus(str, Enum):
+class RunStatus(str, Enum):
     """Status of a single (test, model) execution."""
     PENDING = "pending"
     RUNNING = "running"
@@ -130,7 +130,7 @@ class GridDisplayMode(str, Enum):
     LATENCY = "latency"  # Response time in ms with color
 
 
-class TestResult(BaseModel):
+class RunResult(BaseModel):
     """
     Result for one (test_id, model_id) cell in the battery grid.
 
@@ -138,7 +138,7 @@ class TestResult(BaseModel):
     """
     test_id: str
     model_id: str
-    status: TestStatus = TestStatus.PENDING
+    status: RunStatus = RunStatus.PENDING
     response: str = ""
     latency_ms: Optional[float] = None
     error: Optional[str] = None
@@ -148,20 +148,20 @@ class TestResult(BaseModel):
     def status_symbol(self) -> str:
         """UI symbol for this result's status."""
         symbols = {
-            TestStatus.PENDING: "—",
-            TestStatus.RUNNING: "⏳",
-            TestStatus.COMPLETED: "✓",
-            TestStatus.SEMANTIC_FAILURE: "⚠",
-            TestStatus.ERROR: "❌"
+            RunStatus.PENDING: "—",
+            RunStatus.RUNNING: "⏳",
+            RunStatus.COMPLETED: "✓",
+            RunStatus.SEMANTIC_FAILURE: "⚠",
+            RunStatus.ERROR: "❌"
         }
         return symbols.get(self.status, "?")
 
     @property
     def latency_display(self) -> str:
         """Formatted latency for grid display."""
-        if self.status == TestStatus.PENDING:
+        if self.status == RunStatus.PENDING:
             return "—"
-        elif self.status == TestStatus.RUNNING:
+        elif self.status == RunStatus.RUNNING:
             return "⏳"
         elif self.latency_ms is not None:
             # Format as seconds with 1 decimal for readability
@@ -187,17 +187,17 @@ class BatteryRun(BaseModel):
 
     tests: list[str]  # Test IDs (row labels)
     models: list[str]  # Model IDs (column labels)
-    results: dict[str, TestResult] = {}  # key = f"{test_id}:{model_id}"
+    results: dict[str, RunResult] = {}  # key = f"{test_id}:{model_id}"
 
     def get_key(self, test_id: str, model_id: str) -> str:
         """Generate result key from test and model IDs."""
         return f"{test_id}:{model_id}"
 
-    def get_result(self, test_id: str, model_id: str) -> Optional[TestResult]:
+    def get_result(self, test_id: str, model_id: str) -> Optional[RunResult]:
         """Get result for a specific (test, model) cell."""
         return self.results.get(self.get_key(test_id, model_id))
 
-    def set_result(self, result: TestResult) -> None:
+    def set_result(self, result: RunResult) -> None:
         """Set result for a specific (test, model) cell."""
         key = self.get_key(result.test_id, result.model_id)
         self.results[key] = result
@@ -231,7 +231,7 @@ class BatteryRun(BaseModel):
         """Count of completed or errored tests."""
         return sum(
             1 for r in self.results.values()
-            if r.status in [TestStatus.COMPLETED, TestStatus.ERROR, TestStatus.SEMANTIC_FAILURE]
+            if r.status in [RunStatus.COMPLETED, RunStatus.ERROR, RunStatus.SEMANTIC_FAILURE]
         )
 
     @property
@@ -262,7 +262,7 @@ class BatteryRunner:
 
     def __init__(
         self,
-        tests: list["TestCase"],
+        tests: list["BenchmarkCase"],
         models: list[str],
         temperature: float = 0.0,  # Deterministic for evals
         max_tokens: int = 2048,
@@ -273,7 +273,7 @@ class BatteryRunner:
         Initialize battery runner.
 
         Args:
-            tests: List of TestCase objects to run
+            tests: List of BenchmarkCase objects to run
             models: List of model IDs to test against
             temperature: Sampling temperature (default 0.0 for reproducibility)
             max_tokens: Maximum tokens per response
@@ -361,10 +361,10 @@ class BatteryRunner:
     async def _execute_test(self, item: BatteryWorkItem) -> None:
         """Execute a single test with retry logic."""
         # Mark as running
-        self.state.set_result(TestResult(
+        self.state.set_result(RunResult(
             test_id=item.test.id,
             model_id=item.model_id,
-            status=TestStatus.RUNNING
+            status=RunStatus.RUNNING
         ))
 
         start_time = time.time()
@@ -411,18 +411,18 @@ class BatteryRunner:
             )
 
             if is_valid:
-                self.state.set_result(TestResult(
+                self.state.set_result(RunResult(
                     test_id=item.test.id,
                     model_id=item.model_id,
-                    status=TestStatus.COMPLETED,
+                    status=RunStatus.COMPLETED,
                     response=response,
                     latency_ms=latency_ms
                 ))
             else:
-                self.state.set_result(TestResult(
+                self.state.set_result(RunResult(
                     test_id=item.test.id,
                     model_id=item.model_id,
-                    status=TestStatus.SEMANTIC_FAILURE,
+                    status=RunStatus.SEMANTIC_FAILURE,
                     response=response,
                     latency_ms=latency_ms,
                     failure_reason=failure_reason
@@ -432,10 +432,10 @@ class BatteryRunner:
             latency_ms = (time.time() - start_time) * 1000
 
             # Mark as error (fail loudly - record error, don't hide it)
-            self.state.set_result(TestResult(
+            self.state.set_result(RunResult(
                 test_id=item.test.id,
                 model_id=item.model_id,
-                status=TestStatus.ERROR,
+                status=RunStatus.ERROR,
                 error=str(e),
                 latency_ms=latency_ms
             ))
