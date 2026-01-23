@@ -79,12 +79,20 @@ def create_app() -> gr.Blocks:
                         )
 
                 with gr.Column(scale=2):
-                    models_selector = gr.CheckboxGroup(
-                        label="Models",
-                        choices=[],
-                        value=[],
-                        elem_id="models-selector"
-                    )
+                    with gr.Row():
+                        server0_models = gr.CheckboxGroup(
+                            label="Server 0",
+                            choices=[],
+                            value=[],
+                            elem_id="server0-models"
+                        )
+                        server1_models = gr.CheckboxGroup(
+                            label="Server 1",
+                            choices=[],
+                            value=[],
+                            elem_id="server1-models",
+                            visible=False  # Hidden until second server detected
+                        )
 
             with gr.Row():
                 timeout_slider = gr.Slider(
@@ -121,15 +129,46 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
 
         async def on_fetch_models(servers_text, only_loaded):
-            """Fetch models and update the shared model selector."""
-            status, models_update = await fetch_available_models(servers_text, only_loaded)
-            choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
+            """Fetch models and update per-server model selectors."""
+            result = await fetch_available_models(servers_text, only_loaded)
+            status = result["status"]
+            servers = result["servers"]  # {url: [models]}
+            all_models = result["all_models"]
+
+            # Build per-server column updates
+            server_list = list(servers.items())
+
+            if len(server_list) >= 1:
+                url0, models0 = server_list[0]
+                # Shorten URL for label
+                short0 = url0.split("//")[-1]
+                server0_update = gr.update(
+                    label=f"Server 0 ({short0})",
+                    choices=sorted(models0),
+                    value=[],
+                    visible=True
+                )
+            else:
+                server0_update = gr.update(choices=[], value=[], visible=True)
+
+            if len(server_list) >= 2:
+                url1, models1 = server_list[1]
+                short1 = url1.split("//")[-1]
+                server1_update = gr.update(
+                    label=f"Server 1 ({short1})",
+                    choices=sorted(models1),
+                    value=[],
+                    visible=True
+                )
+            else:
+                server1_update = gr.update(choices=[], value=[], visible=False)
 
             return (
-                choices,
-                gr.update(choices=choices, value=[]),  # models_selector
-                gr.update(choices=choices),  # battery.detail_model
-                gr.update(choices=choices),  # battery.judge_model
+                all_models,
+                server0_update,
+                server1_update,
+                gr.update(choices=sorted(all_models)),  # battery.detail_model
+                gr.update(choices=sorted(all_models)),  # battery.judge_model
             )
 
         fetch_btn.click(
@@ -137,7 +176,8 @@ def create_app() -> gr.Blocks:
             inputs=[servers_input, only_loaded_checkbox],
             outputs=[
                 available_models,
-                models_selector,
+                server0_models,
+                server1_models,
                 battery.detail_model,
                 battery.judge_model,
             ]
@@ -180,10 +220,22 @@ def create_app() -> gr.Blocks:
             outputs=[battery.validation, battery.run_btn, battery.detail_test, battery.grid]
         )
 
+        async def battery_run_with_aggregated_models(
+            file_obj, server0_selected, server1_selected, servers_text,
+            timeout, max_tokens, system_prompt, judge_model
+        ):
+            """Aggregate selections from both server columns, then run battery."""
+            models_selected = list(server0_selected or []) + list(server1_selected or [])
+            async for result in battery_handlers.run_handler(
+                file_obj, models_selected, servers_text,
+                timeout, max_tokens, system_prompt, judge_model
+            ):
+                yield result
+
         battery.run_btn.click(
-            fn=battery_handlers.run_handler,
+            fn=battery_run_with_aggregated_models,
             inputs=[
-                battery.file, models_selector, servers_input,
+                battery.file, server0_models, server1_models, servers_input,
                 timeout_slider, max_tokens_slider, battery.system_prompt,
                 battery.judge_model
             ],
@@ -227,9 +279,13 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
 
         async def compare_send_with_auto_init(
-            prompt, tools, image, seed, repeat_penalty, servers_text, models_selected,
+            prompt, tools, image, seed, repeat_penalty, servers_text,
+            server0_selected, server1_selected,
             system_prompt, timeout, max_tokens
         ):
+            # Aggregate selections from both server columns
+            models_selected = list(server0_selected or []) + list(server1_selected or [])
+
             # Temperature fixed at 0.7 for interactive comparison (model default)
             temperature = 0.7
 
@@ -250,7 +306,7 @@ def create_app() -> gr.Blocks:
             fn=compare_send_with_auto_init,
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
-                servers_input, models_selector,
+                servers_input, server0_models, server1_models,
                 compare.system_prompt, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
@@ -260,7 +316,7 @@ def create_app() -> gr.Blocks:
             fn=compare_send_with_auto_init,
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
-                servers_input, models_selector,
+                servers_input, server0_models, server1_models,
                 compare.system_prompt, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs

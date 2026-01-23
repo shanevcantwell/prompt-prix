@@ -110,9 +110,9 @@ def _ensure_adapter_registered(servers: list[str]) -> None:
 async def fetch_available_models(
     servers_text: str,
     only_loaded: bool = False
-) -> tuple[str, dict]:
+) -> dict:
     """
-    Query all configured servers and return available models.
+    Query all configured servers and return available models per-server.
 
     Uses the list_models MCP tool for model discovery.
     Registers/re-registers the adapter with the provided servers.
@@ -121,14 +121,17 @@ async def fetch_available_models(
         servers_text: Newline-separated server URLs
         only_loaded: If True, filter to only models currently loaded in LM Studio
 
-    Returns (status_message, gr.update for CheckboxGroup choices).
+    Returns dict with:
+        - status: Status message string
+        - servers: {url: [models]} mapping
+        - all_models: Combined list of all models
     """
     from prompt_prix.mcp.tools.list_models import list_models
 
     servers = parse_servers_input(servers_text)
 
     if not servers:
-        return "❌ No servers configured", gr.update(choices=[])
+        return {"status": "❌ No servers configured", "servers": {}, "all_models": []}
 
     # Register adapter with current servers before using MCP tool
     _ensure_adapter_registered(servers)
@@ -142,7 +145,11 @@ async def fetch_available_models(
     }
 
     if not models_by_server:
-        return "⚠️ No models found on any server. Are models loaded in LM Studio?", gr.update(choices=[])
+        return {
+            "status": "⚠️ No models found on any server. Are models loaded in LM Studio?",
+            "servers": {},
+            "all_models": []
+        }
 
     all_models = set(result["models"])
 
@@ -156,11 +163,24 @@ async def fetch_available_models(
 
         if loaded_models:
             all_models = all_models & loaded_models
+            # Also filter per-server lists
+            models_by_server = {
+                url: [m for m in models if m in all_models]
+                for url, models in models_by_server.items()
+            }
             if not all_models:
-                return "⚠️ No loaded models match available models", gr.update(choices=[])
+                return {
+                    "status": "⚠️ No loaded models match available models",
+                    "servers": {},
+                    "all_models": []
+                }
         else:
             # Couldn't get loaded models via either method
-            return "⚠️ Could not detect loaded models (server may not report load state)", gr.update(choices=sorted(all_models))
+            return {
+                "status": "⚠️ Could not detect loaded models (server may not report load state)",
+                "servers": models_by_server,
+                "all_models": sorted(all_models)
+            }
 
     sorted_models = sorted(all_models)
 
@@ -172,4 +192,8 @@ async def fetch_available_models(
         count = len([m for m in models if m in all_models]) if only_loaded else len(models)
         status_parts.append(f"  {url}: {count} model(s)")
 
-    return " | ".join(status_parts), gr.update(choices=sorted_models)
+    return {
+        "status": " | ".join(status_parts),
+        "servers": models_by_server,
+        "all_models": sorted_models
+    }

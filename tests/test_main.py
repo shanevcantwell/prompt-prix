@@ -683,25 +683,24 @@ class TestFetchAvailableModels:
         """Test fetching models from servers."""
         from prompt_prix.handlers import fetch_available_models
 
-        status, models_update = await fetch_available_models(MOCK_SERVER_1)
+        result = await fetch_available_models(MOCK_SERVER_1)
 
-        assert "✅" in status
-        # Returns gr.update dict with choices
-        assert "choices" in models_update
-        assert MOCK_MODEL_1 in models_update["choices"]
-        assert MOCK_MODEL_2 in models_update["choices"]
+        assert "✅" in result["status"]
+        # Returns dict with servers and all_models
+        assert MOCK_MODEL_1 in result["all_models"]
+        assert MOCK_MODEL_2 in result["all_models"]
+        assert MOCK_SERVER_1 in result["servers"]
 
     @pytest.mark.asyncio
     async def test_fetch_available_models_no_servers(self):
         """Test fetch fails with no servers configured."""
         from prompt_prix.handlers import fetch_available_models
 
-        status, models_update = await fetch_available_models("")
+        result = await fetch_available_models("")
 
-        assert "No servers" in status or "❌" in status
-        # Returns gr.update dict with empty choices
-        assert "choices" in models_update
-        assert models_update["choices"] == []
+        assert "No servers" in result["status"] or "❌" in result["status"]
+        assert result["all_models"] == []
+        assert result["servers"] == {}
 
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
@@ -714,12 +713,10 @@ class TestFetchAvailableModels:
         mock_adapter.get_models_by_server = MagicMock(return_value={})
         mock_adapter.get_unreachable_servers = MagicMock(return_value=[MOCK_SERVER_1])
 
-        status, models_update = await fetch_available_models(MOCK_SERVER_1)
+        result = await fetch_available_models(MOCK_SERVER_1)
 
-        assert "No models found" in status or "⚠️" in status
-        # Returns gr.update dict with empty choices
-        assert "choices" in models_update
-        assert models_update["choices"] == []
+        assert "No models found" in result["status"] or "⚠️" in result["status"]
+        assert result["all_models"] == []
 
 
 class TestOnlyLoadedFilter:
@@ -843,14 +840,13 @@ class TestOnlyLoadedFilter:
         # Mock HTTP-based loaded detection to return model-a and model-c as loaded
         mock_http_loaded.return_value = {"model-a", "model-c"}
 
-        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
 
-        assert "✅" in status
-        assert "(loaded only)" in status
-        choices = models_update["choices"]
-        assert "model-a" in choices
-        assert "model-c" in choices
-        assert "model-b" not in choices  # Not loaded, should be filtered out
+        assert "✅" in result["status"]
+        assert "(loaded only)" in result["status"]
+        assert "model-a" in result["all_models"]
+        assert "model-c" in result["all_models"]
+        assert "model-b" not in result["all_models"]  # Not loaded, should be filtered out
 
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
@@ -868,11 +864,11 @@ class TestOnlyLoadedFilter:
         mock_lms = self._create_mock_lmstudio([mock_model_x])
 
         with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+            result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
 
-        assert "⚠️" in status
-        assert "No loaded models match" in status
-        assert models_update["choices"] == []
+        assert "⚠️" in result["status"]
+        assert "No loaded models match" in result["status"]
+        assert result["all_models"] == []
 
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
@@ -886,12 +882,12 @@ class TestOnlyLoadedFilter:
         mock_http_loaded.return_value = set()
         mock_sdk_loaded.return_value = set()
 
-        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
 
-        assert "⚠️" in status
-        assert "Could not detect loaded models" in status
+        assert "⚠️" in result["status"]
+        assert "Could not detect loaded models" in result["status"]
         # Should still return all models as fallback
-        assert len(models_update["choices"]) > 0
+        assert len(result["all_models"]) > 0
 
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
@@ -902,14 +898,13 @@ class TestOnlyLoadedFilter:
         mock_adapter.get_available_models = AsyncMock(return_value=["model-a", "model-b", "model-c"])
 
         # Even with lmstudio available, should not call it when only_loaded=False
-        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=False)
+        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=False)
 
-        assert "✅" in status
-        assert "(loaded only)" not in status
-        choices = models_update["choices"]
-        assert "model-a" in choices
-        assert "model-b" in choices
-        assert "model-c" in choices
+        assert "✅" in result["status"]
+        assert "(loaded only)" not in result["status"]
+        assert "model-a" in result["all_models"]
+        assert "model-b" in result["all_models"]
+        assert "model-c" in result["all_models"]
 
 
 class TestLoadedModelsViaHttp:
@@ -1028,11 +1023,10 @@ class TestLoadedModelsViaHttp:
             })
         )
 
-        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
 
-        assert "✅" in status
-        assert "(loaded only)" in status
-        choices = models_update["choices"]
-        assert "model-a" in choices
-        assert "model-c" in choices
-        assert "model-b" not in choices
+        assert "✅" in result["status"]
+        assert "(loaded only)" in result["status"]
+        assert "model-a" in result["all_models"]
+        assert "model-c" in result["all_models"]
+        assert "model-b" not in result["all_models"]
