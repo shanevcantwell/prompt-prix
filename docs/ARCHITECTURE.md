@@ -26,27 +26,24 @@ This document describes the system architecture of prompt-prix, including module
 ┌─────────────────────────────────────────────────────────────────────┐
 │                     Python Backend                                  │
 │  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                    handlers.py                                │  │
-│  │  • fetch_available_models()  → ServerPool.refresh_manifests() │  │
+│  │                    handlers.py (Orchestration)                │  │
+│  │  • fetch_available_models()  → adapter.get_available_models() │  │
 │  │  • initialize_session()      → Create ComparisonSession       │  │
-│  │  • send_single_prompt()      → Concurrent dispatcher          │  │
+│  │  • send_single_prompt()      → adapter.stream_completion()    │  │
 │  │  • export_markdown/json()    → Report generation              │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │                                │                                    │
 │  ┌─────────────────────────────┼────────────────────────────────┐  │
-│  │                    core.py  │                                 │  │
-│  │  ┌─────────────────────┐    │    ┌─────────────────────────┐ │  │
-│  │  │    ServerPool       │◄───┴───►│  ComparisonSession      │ │  │
-│  │  │  • servers: dict    │         │  • state: SessionState  │ │  │
-│  │  │  • refresh_manifest │         │  • send_prompt_to_model │ │  │
-│  │  │  • acquire/release  │         │  • get_context_display  │ │  │
-│  │  └─────────────────────┘         └─────────────────────────┘ │  │
-│  │                                                               │  │
+│  │              adapters/ (Resource Management)                  │  │
+│  │                             │                                 │  │
 │  │  ┌─────────────────────────────────────────────────────────┐ │  │
-│  │  │  stream_completion() / get_completion()                  │ │  │
-│  │  │  • Async HTTP streaming to LM Studio                     │ │  │
-│  │  │  • Yields text chunks or returns full response           │ │  │
+│  │  │  LMStudioAdapter                                         │ │  │
+│  │  │  • _pool: ServerPool (internal)                          │ │  │
+│  │  │  • stream_completion() → finds server, streams, releases │ │  │
+│  │  │  • get_available_models() → queries all servers          │ │  │
 │  │  └─────────────────────────────────────────────────────────┘ │  │
+│  │                                                               │  │
+│  │  Future: HFInferenceAdapter, SurfMcpAdapter                   │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │                                │                                    │
 │  ┌──────────────────────────────────────────────────────────────┐  │
@@ -70,22 +67,40 @@ This document describes the system architecture of prompt-prix, including module
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
+## Layer Import Rules
+
+Per [ADR-006](adr/006-adapter-resource-ownership.md), the codebase has strict layer boundaries:
+
+| Layer | MAY Import | MUST NOT Import |
+|-------|------------|-----------------|
+| **Orchestration** (BatteryRunner, ComparisonSession) | `mcp.tools.*`, `mcp.registry` | `adapters/*`, ServerPool, ConcurrentDispatcher |
+| **MCP Primitives** | `adapters.base.HostAdapter` (protocol), `mcp.registry` | Concrete adapter classes, ServerPool |
+| **Adapters** | httpx, internal utilities | Nothing from orchestration or MCP |
+
+> **THE RULE:** ServerPool and ConcurrentDispatcher are INTERNAL to LMStudioAdapter.
+> No file outside `adapters/lmstudio.py` may import or reference them.
+
 ## Module Breakdown
 
 ### Directory Structure
 
 ```
 prompt_prix/
-├── main.py              # Entry point
+├── main.py              # Entry point, adapter registration
 ├── ui.py                # Gradio UI definition
 ├── handlers.py          # Shared event handlers (fetch, stop)
 ├── state.py             # Global mutable state
-├── core.py              # ServerPool, ComparisonSession, streaming
+├── core.py              # ComparisonSession (orchestration)
 ├── config.py            # Pydantic models, constants, env loading
 ├── parsers.py           # Input parsing utilities
 ├── export.py            # Report generation
-├── dispatcher.py        # ConcurrentDispatcher for parallel execution
-├── battery.py           # BatteryRunner, TestResult, BatteryRun
+├── battery.py           # BatteryRunner (orchestration) - calls MCP tools
+├── mcp/
+│   ├── registry.py      # Adapter registry (get_adapter, register_adapter)
+│   └── tools/
+│       ├── complete.py  # complete, complete_stream primitives
+│       ├── fan_out.py   # fan_out primitive
+│       └── list_models.py
 ├── tabs/
 │   ├── __init__.py
 │   ├── battery/
@@ -95,7 +110,8 @@ prompt_prix/
 │       ├── __init__.py
 │       └── handlers.py  # Compare-specific handlers
 ├── adapters/
-│   └── lmstudio.py      # LMStudioAdapter
+│   ├── base.py          # HostAdapter protocol
+│   └── lmstudio.py      # LMStudioAdapter (OWNS ServerPool, ConcurrentDispatcher)
 └── benchmarks/
     ├── base.py          # TestCase protocol
     └── custom_json.py   # CustomJSONLoader
@@ -137,55 +153,21 @@ msg.has_image()  # Check if message contains an image
 - `encode_image_to_data_url(path)` - Convert image file to base64 data URL
 - `build_multimodal_content(text, image_path)` - Build OpenAI-format multimodal content
 
-### core.py - Server Pool & Session Management
+### core.py - Session Management (Orchestration Layer)
 
-**Purpose**: Core business logic for server management and model interactions.
-
-#### ServerPool
-
-Manages multiple LM Studio servers:
-
-```python
-class ServerPool:
-    servers: dict[str, ServerConfig]  # URL -> config
-    _locks: dict[str, asyncio.Lock]   # URL -> lock
-
-    async def refresh_all_manifests()  # GET /v1/models on all servers
-    def find_available_server(model_id) -> Optional[str]  # Find idle server with model
-    async def acquire_server(url)      # Mark busy, acquire lock
-    def release_server(url)            # Mark available, release lock
-```
+**Purpose**: Orchestration-level session management.
 
 #### ComparisonSession
 
-Manages a comparison session:
+Manages a comparison session. Calls MCP tools, not adapters directly.
 
 ```python
 class ComparisonSession:
-    server_pool: ServerPool
     state: SessionState  # Contains models, contexts, config
 
     async def send_prompt_to_model(model_id, prompt, on_chunk=None)
     async def send_prompt_to_all(prompt, on_chunk=None)
     def get_context_display(model_id) -> str
-```
-
-#### Streaming Functions
-
-```python
-async def stream_completion(
-    server_url, model_id, messages, temperature, max_tokens,
-    timeout_seconds, tools=None, seed=None, repeat_penalty=None
-) -> AsyncGenerator[str, None]:
-    """Yields text chunks as they arrive via SSE.
-
-    Args:
-        seed: Optional int for reproducible outputs (passed to model API)
-        repeat_penalty: Optional float to penalize repeated tokens (1.0 = off)
-    """
-
-async def get_completion(...) -> str:
-    """Non-streaming version, returns full response."""
 ```
 
 ### handlers.py - Shared Event Handlers
@@ -230,29 +212,6 @@ async def get_completion(...) -> str:
 - **Seed Parameter**: Set a seed for reproducible outputs across models
 - **Repeat Penalty**: Configurable penalty (1.0-2.0) to reduce repetitive token generation
 
-### dispatcher.py - Concurrent Dispatcher
-
-**Purpose**: Parallel execution across multiple servers.
-
-```python
-class ConcurrentDispatcher:
-    """Dispatches work items to idle servers in parallel."""
-
-    async def dispatch(
-        self,
-        work_items: list[WorkItem],
-        execute_fn: Callable[[WorkItem, str], Coroutine],
-        on_progress: Optional[Callable[[str, str], None]] = None
-    ) -> dict[str, Any]:
-        """Execute work items in parallel across available servers."""
-```
-
-The dispatcher:
-1. Maintains a queue of work items (model + test case pairs)
-2. Finds idle servers that can run each work item
-3. Executes items in parallel across all available servers
-4. Supports cooperative cancellation via `state.should_stop()`
-
 ### ui.py - Gradio UI Definition
 
 **Purpose**: Define all Gradio components and wire up event bindings.
@@ -285,11 +244,84 @@ The dispatcher:
 **Purpose**: Holds mutable state shared across handlers.
 
 ```python
-server_pool: Optional[ServerPool] = None
 session: Optional[ComparisonSession] = None
 ```
 
 **Design Decision**: Separated to avoid circular imports between ui.py and handlers.py.
+
+### adapters/ - Inference Provider Adapters
+
+**Purpose**: Encapsulate backend-specific logic behind a uniform interface.
+
+Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three strict layers:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        ORCHESTRATION                            │
+│  BatteryRunner │ ComparisonSession                              │
+│                                                                 │
+│  • Calls MCP primitives ONLY — never adapters directly          │
+│  • Controls concurrency via semaphore                           │
+│  • NEVER IMPORTS: adapters/*, ServerPool, ConcurrentDispatcher  │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ MCP tool call
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                       MCP PRIMITIVES                            │
+│  complete │ complete_stream │ fan_out                           │
+│                                                                 │
+│  • Receives adapter via registry (get_adapter())                │
+│  • Stateless pass-through                                       │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ adapter.stream_completion()
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                       ADAPTER LAYER                             │
+│                                                                 │
+│  LMStudioAdapter                                                │
+│    INTERNAL: ServerPool, ConcurrentDispatcher, httpx            │
+│    STRATEGY: Multi-GPU parallel dispatch                        │
+│                                                                 │
+│  SurfMcpAdapter                                                 │
+│    INTERNAL: browser session                                    │
+│    STRATEGY: Sequential (one browser)                           │
+│                                                                 │
+│  HFInferenceAdapter                                             │
+│    INTERNAL: API client, rate limiter                           │
+│    STRATEGY: Rate-limited cloud calls                           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### HostAdapter Protocol
+
+```python
+class HostAdapter(Protocol):
+    async def get_available_models(self) -> list[str]: ...
+    async def stream_completion(
+        self,
+        model_id: str,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        timeout_seconds: int,
+        tools: Optional[list[dict]] = None
+    ) -> AsyncGenerator[str, None]: ...
+```
+
+#### LMStudioAdapter
+
+```python
+class LMStudioAdapter:
+    def __init__(self, server_urls: list[str]):
+        # ServerPool and ConcurrentDispatcher are INTERNAL
+        self._pool = ServerPool(server_urls)
+        self._dispatcher = ConcurrentDispatcher(self._pool)
+
+    async def stream_completion(...) -> AsyncGenerator[str, None]:
+        # Finds available server, acquires it, streams, releases
+```
+
+**Key Principle**: ServerPool and ConcurrentDispatcher are LM Studio concepts. Other backends have different resource models. The adapter encapsulates this — orchestration never sees these classes.
 
 ### parsers.py - Text Parsing Utilities
 
@@ -516,3 +548,4 @@ See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
 | [001](adr/001-use-existing-benchmarks.md) | Use existing benchmarks (BFCL, Inspect AI) instead of custom eval schema |
 | [002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
 | [003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |
+| [006](adr/006-adapter-resource-ownership.md) | Adapters own their resource management (ServerPool internal to LMStudioAdapter) |

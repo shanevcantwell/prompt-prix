@@ -54,21 +54,26 @@ Output: Side-by-side visual comparison
 
 ```
 prompt_prix/
-├── main.py              # Entry point, Gradio launch
+├── main.py              # Entry point, Gradio launch, adapter registration
 ├── ui.py                # Gradio UI composition (imports tab UIs)
 ├── ui_helpers.py        # CSS, JS constants
 ├── handlers.py          # Shared async event handlers
-├── core.py              # ServerPool, ComparisonSession, streaming
-├── dispatcher.py        # ConcurrentDispatcher (parallel execution)
+├── core.py              # ComparisonSession (orchestration)
+├── battery.py           # BatteryRunner (orchestration) - calls MCP tools
 ├── config.py            # Pydantic models, constants, .env loading
 ├── parsers.py           # Input parsing utilities
 ├── export.py            # Markdown/JSON report generation
 ├── state.py             # Global mutable state
-├── battery.py           # BatteryRunner, BatteryRun state
 ├── semantic_validator.py # Refusal detection, tool call validation
+├── mcp/
+│   ├── registry.py      # Adapter registry (get_adapter, register_adapter)
+│   └── tools/
+│       ├── complete.py  # complete, complete_stream primitives
+│       ├── fan_out.py   # fan_out primitive
+│       └── list_models.py # list_models primitive
 ├── adapters/
-│   ├── base.py          # LLMAdapter protocol
-│   ├── lmstudio.py      # LMStudioAdapter (OpenAI-compatible)
+│   ├── base.py          # HostAdapter protocol
+│   ├── lmstudio.py      # LMStudioAdapter (OWNS ServerPool, ConcurrentDispatcher)
 │   ├── surf_mcp.py      # SurfMcpAdapter (browser automation, TODO)
 │   └── hf_inference.py  # HFInferenceAdapter (HuggingFace Spaces, TODO)
 ├── tabs/
@@ -85,66 +90,96 @@ prompt_prix/
 
 ### Module Responsibilities
 
-| Module | Purpose |
-|--------|---------|
-| `config.py` | ServerConfig, ModelContext, SessionState, env loading |
-| `core.py` | ServerPool management, streaming functions |
-| `dispatcher.py` | ConcurrentDispatcher for parallel execution |
-| `handlers.py` | Shared async handlers (fetch models, stop) |
-| `ui.py` | Gradio app composition, imports tab UIs |
-| `state.py` | Mutable state shared across handlers |
-| `battery.py` | BatteryRunner orchestrator |
-| `adapters/` | Provider abstractions (LM Studio, surf-mcp, HF Inference) |
-| `tabs/` | Tab-specific handlers and UI components |
-| `benchmarks/` | Test case loading (JSON, JSONL, BFCL) |
+| Module | Layer | Purpose |
+|--------|-------|---------|
+| `battery.py` | Orchestration | BatteryRunner - calls MCP tools |
+| `core.py` | Orchestration | ComparisonSession |
+| `mcp/tools/` | MCP | Primitives (complete, fan_out) |
+| `mcp/registry.py` | MCP | Adapter registry (get_adapter, register_adapter) |
+| `adapters/lmstudio.py` | Adapter | LMStudioAdapter (owns ServerPool, ConcurrentDispatcher) |
+| `adapters/base.py` | Adapter | HostAdapter protocol |
+| `handlers.py` | UI | Shared async handlers (fetch models, stop) |
+| `ui.py` | UI | Gradio app composition |
+| `tabs/` | UI | Tab-specific handlers and UI components |
+| `config.py` | Shared | Pydantic models, constants, env loading |
+| `benchmarks/` | Shared | Test case loading (JSON, JSONL, BFCL) |
 
 ---
 
-## Adapters (Adapter Pattern)
+## Architecture Layers
 
-The adapters layer uses the **Adapter design pattern** to provide a uniform interface to fundamentally different LLM backends.
-
-### The Pattern
+prompt-prix has three distinct layers with strict import boundaries. **Each layer only talks to the one directly beneath it.**
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    MCP PRIMITIVES                               │
-│  complete │ complete_stream │ judge │ fan_out                   │
+│                        ORCHESTRATION                            │
+│  BatteryRunner │ ComparisonSession                              │
 │                                                                 │
-│  Receives adapter via dependency injection.                     │
-│  Calls adapter.stream_completion() - doesn't know backend.      │
+│  • Defines WHAT to run (test matrix, prompt sequences)          │
+│  • Controls concurrency via semaphore (max N concurrent)        │
+│  • Calls MCP primitives ONLY — never adapters directly          │
+│  • IMPORTS: mcp.tools.complete, mcp.tools.fan_out               │
+│  • NEVER IMPORTS: adapters/*, ServerPool, ConcurrentDispatcher  │
 └───────────────────────────┬─────────────────────────────────────┘
+                            │ MCP tool call
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                    ADAPTER LAYER                                │
-│  HostAdapter protocol defines the interface.                    │
-│  Each adapter owns its backend-specific internals:              │
+│                       MCP PRIMITIVES                            │
+│  complete │ complete_stream │ fan_out                           │
 │                                                                 │
-│  LMStudioAdapter     - owns ServerPool (multi-server mgmt)      │
-│  SurfMcpAdapter      - owns browser session                     │
-│  HFInferenceAdapter  - owns API client                          │
+│  • The Universal Contract / Tool Registry                       │
+│  • Stateless pass-through                                       │
+│  • Receives adapter via registry (get_adapter())                │
+│  • IMPORTS: adapters.base.HostAdapter (protocol only)           │
 └───────────────────────────┬─────────────────────────────────────┘
+                            │ adapter.stream_completion()
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                    INFERENCE PROVIDERS                          │
-│  LM Studio │ surf-mcp │ HF Spaces │ cloud APIs                  │
+│                       ADAPTER LAYER                             │
+│                                                                 │
+│  Each adapter is a BLACK BOX exposing HostAdapter protocol.     │
+│  Internal implementation details are ENCAPSULATED.              │
+│                                                                 │
+│  LMStudioAdapter                                                │
+│    INTERNAL: ServerPool, ConcurrentDispatcher, httpx            │
+│    STRATEGY: Multi-GPU parallel dispatch                        │
+│                                                                 │
+│  SurfMcpAdapter                                                 │
+│    INTERNAL: browser session                                    │
+│    STRATEGY: Sequential (one browser)                           │
+│                                                                 │
+│  HFInferenceAdapter                                             │
+│    INTERNAL: API client, rate limiter                           │
+│    STRATEGY: Rate-limited cloud calls                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Key Rules
+> **THE RULE:** ServerPool and ConcurrentDispatcher are INTERNAL to LMStudioAdapter.
+> No file outside `adapters/lmstudio.py` may import or reference them.
 
-1. **MCP doesn't instantiate adapters.** MCP receives adapters or calls adapter module functions.
-2. **Each adapter encapsulates its backend internals.** ServerPool is an LM Studio concept - it belongs inside LMStudioAdapter, not leaked to MCP.
-3. **Adapters expose a uniform interface.** All adapters implement `HostAdapter` protocol regardless of how different their backends are.
+### Layer Import Rules
+
+| Layer | MAY Import | MUST NOT Import |
+|-------|------------|-----------------|
+| **Orchestration** (BatteryRunner, ComparisonSession) | `mcp.tools.*`, `mcp.registry` | `adapters/*`, ServerPool, ConcurrentDispatcher |
+| **MCP Primitives** | `adapters.base.HostAdapter` (protocol), `mcp.registry` | Concrete adapter classes, ServerPool |
+| **Adapters** | httpx, internal utilities | Nothing from orchestration or MCP |
 
 ### Why This Matters
 
-The backends are **fundamentally different**, not just GGUF variations:
-- **LM Studio**: Multiple local servers, availability tracking, OpenAI-compatible API
-- **surf-mcp**: Browser automation, no "servers" - automates web UIs
-- **HF Inference**: Cloud API, authentication, rate limiting
+**Orchestration is "Capability-Aware", not "Provider-Aware".**
 
-If MCP knew about `ServerPool`, it could never work with surf-mcp. The Adapter pattern isolates backend-specific concepts.
+- `BatteryRunner` says: "I have this test case; MCP, please execute it"
+- It doesn't know if there are 2 GPUs or 10, local or cloud
+- Swapping `LMStudioAdapter` for `SurfMcpAdapter` requires zero changes to orchestration
+
+**Each adapter owns its parallelism strategy:**
+
+| Adapter | Internal Strategy |
+|---------|-------------------|
+| `LMStudioAdapter` | ConcurrentDispatcher + ServerPool (multi-GPU) |
+| `SurfMcpAdapter` | Sequential (one browser) |
+| `HFInferenceAdapter` | Rate limiter |
 
 ### HostAdapter Protocol
 
@@ -160,6 +195,33 @@ class HostAdapter(Protocol):
         timeout_seconds: int,
         tools: Optional[list[dict]] = None
     ) -> AsyncGenerator[str, None]: ...
+```
+
+### MCP Registry
+
+Adapters are registered at startup and retrieved via registry:
+
+```python
+# At startup (main.py)
+from prompt_prix.adapters.lmstudio import LMStudioAdapter
+from prompt_prix.mcp.registry import register_adapter
+
+adapter = LMStudioAdapter(server_urls=load_servers_from_env())
+register_adapter(adapter)
+
+# In MCP tools
+from prompt_prix.mcp.registry import get_adapter
+
+async def complete_stream(model_id: str, messages: list[dict], ...):
+    adapter = get_adapter()
+    async for chunk in adapter.stream_completion(model_id, messages, ...):
+        yield chunk
+
+# In BatteryRunner (calls MCP, not adapter)
+from prompt_prix.mcp.tools.complete import complete_stream
+
+async for chunk in complete_stream(model_id=item.model_id, ...):
+    response += chunk
 ```
 
 ### Current Adapters
@@ -389,36 +451,35 @@ Result: `⚠ Semantic Failure` - "Model refused: 'i'm sorry, but'"
 
 ## Key Components
 
-### ServerPool
-Manages multiple LM Studio servers:
+### BatteryRunner (Orchestration)
+Orchestrates benchmark execution. Calls MCP primitives, never adapters directly.
 ```python
-servers: dict[str, ServerConfig]  # URL → config
-find_available_server(model_id)   # Find idle server with model
-acquire_server(url)               # Mark busy
-release_server(url)               # Mark available
+# BatteryRunner calls MCP tools - doesn't know about servers or adapters
+from prompt_prix.mcp.tools.complete import complete_stream
+
+runner = BatteryRunner(tests, models, temperature, max_tokens, timeout)
+async for state in runner.run():
+    yield state.to_grid()  # Model × Test grid updates
 ```
 
-### ComparisonSession
+### ComparisonSession (Orchestration)
 Maintains comparison state:
 - Selected models
 - Separate conversation context per model
 - Configuration (temperature, max tokens, system prompt)
 - Halt state
 
-### ConcurrentDispatcher (`dispatcher.py`)
-Reusable parallel execution strategy:
+### MCP Registry
+Central adapter registration. Tools call `get_adapter()` to retrieve the configured adapter.
 ```python
-dispatcher = ConcurrentDispatcher(pool)
-async for completed in dispatcher.dispatch(work_items, execute_fn):
-    yield state  # UI update opportunity
+from prompt_prix.mcp.registry import get_adapter, register_adapter
 ```
 
-### BatteryRunner (Battery Mode)
-Orchestrates benchmark execution:
+### LMStudioAdapter (Adapter Layer)
+Black box for LM Studio inference. **Internally** manages ServerPool and ConcurrentDispatcher - these are not visible to other layers.
 ```python
-runner = BatteryRunner(adapter, tests, models, temperature, max_tokens, timeout)
-async for state in runner.run():
-    yield state.to_grid()  # Model × Test grid updates
+# Orchestration and MCP never see this - it's internal to the adapter
+adapter = LMStudioAdapter(server_urls=["http://localhost:1234"])
 ```
 
 ---
@@ -594,13 +655,16 @@ This workflow ensures:
 
 ### Adding a New Adapter
 
-Follow the Adapter pattern (see "Adapters" section above):
+Follow the Adapter pattern (see "Architecture Layers" section above):
 
 1. **Create adapter file:** `prompt_prix/adapters/new_adapter.py`
 2. **Implement `HostAdapter` protocol:** `get_available_models()`, `stream_completion()`
-3. **Encapsulate backend internals:** Connection pools, sessions, clients belong INSIDE the adapter
-4. **Expose module-level function:** `stream_completion()` for MCP to call without instantiation
+3. **Encapsulate backend internals:** Connection pools, sessions, rate limiters belong INSIDE the adapter
+4. **Own your parallelism strategy:** If your backend has multiple resources, manage them internally
 5. **Export from `__init__.py`:** Add to `prompt_prix/adapters/__init__.py`
 6. **Add integration tests:** Mark with `@pytest.mark.integration`
 
-**Critical:** No adapter instantiation outside `prompt_prix/adapters/`. MCP calls adapter module functions, not classes.
+**Critical Rules:**
+- Orchestration (BatteryRunner) NEVER imports adapters - it calls MCP tools
+- MCP tools get adapter via `get_adapter()` registry
+- All backend complexity stays inside the adapter class
