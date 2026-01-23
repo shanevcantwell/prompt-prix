@@ -5,44 +5,13 @@ Tab-specific handlers are in prompt_prix.tabs.{battery,compare}.handlers
 """
 
 import logging
-from typing import Optional
 
 import gradio as gr
 
 from prompt_prix import state
-from prompt_prix.core import ServerPool
 from prompt_prix.parsers import parse_servers_input
 
 logger = logging.getLogger(__name__)
-
-
-async def _init_pool_and_validate(
-    servers_text: str,
-    models_selected: list[str]
-) -> tuple[Optional[ServerPool], Optional[str]]:
-    """
-    Initialize server pool and validate models are available.
-
-    NOTE: This is legacy code for the Compare tab. Per ADR-006, the Compare tab
-    refactor is deferred. New code should use MCP tools via the registry.
-
-    Returns:
-        (pool, None) on success
-        (None, error_message) on failure
-    """
-    servers = parse_servers_input(servers_text)
-    if not servers:
-        return None, "❌ No servers configured"
-
-    pool = ServerPool(servers)
-    await pool.refresh_all_manifests()
-
-    available = pool.get_all_available_models()
-    missing = [m for m in models_selected if m not in available]
-    if missing:
-        return None, f"❌ Models not available: {', '.join(missing)}"
-
-    return pool, None
 
 
 def handle_stop():

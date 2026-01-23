@@ -30,8 +30,7 @@ from prompt_prix.tabs.compare.handlers import (
 )
 from prompt_prix import state
 
-# Expose global state for tests that access main.session, main.server_pool
-server_pool = state.server_pool
+# Expose global state for tests that access main.session
 session = state.session
 
 # Load environment variables from .env file

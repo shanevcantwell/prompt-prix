@@ -2,6 +2,10 @@
 Compare tab event handlers.
 
 Handles interactive multi-turn model comparison.
+
+Per ADR-006, this is ORCHESTRATION layer code:
+- Calls MCP primitives ONLY — never adapters directly
+- DOES NOT know about servers, ServerPool, or ConcurrentDispatcher
 """
 
 import asyncio
@@ -11,10 +15,12 @@ import tempfile
 from datetime import datetime
 
 from prompt_prix import state
-from prompt_prix.core import ServerPool, ComparisonSession
-from prompt_prix.adapters.lmstudio import stream_completion  # Legacy - compare tab uses direct server access
+from prompt_prix.core import ComparisonSession
+from prompt_prix.mcp.tools.complete import complete_stream
+from prompt_prix.mcp.tools.list_models import list_models
 from prompt_prix.export import generate_markdown_report, generate_json_report, save_report
 from prompt_prix.parsers import parse_servers_input
+from prompt_prix.handlers import _ensure_adapter_registered
 
 
 def _empty_tabs(n: int = 10) -> tuple:
@@ -43,10 +49,12 @@ async def initialize_session(
     if not models:
         return ("❌ No models configured",) + _empty_tabs()
 
-    state.server_pool = ServerPool(servers)
-    await state.server_pool.refresh_all_manifests()
+    # Register adapter with servers (adapter manages ServerPool internally)
+    _ensure_adapter_registered(servers)
 
-    available = state.server_pool.get_all_available_models()
+    # Validate models via MCP primitive
+    result = await list_models()
+    available = set(result["models"])
     missing = [m for m in models if m not in available]
 
     if missing:
@@ -56,7 +64,6 @@ async def initialize_session(
 
     state.session = ComparisonSession(
         models=models,
-        server_pool=state.server_pool,
         system_prompt=system_prompt,
         temperature=temperature,
         timeout_seconds=timeout,
@@ -82,6 +89,11 @@ def clear_session() -> tuple:
 
 async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str = None, seed: int = None, repeat_penalty: float = None):
     """Send a single prompt to all models with streaming output.
+
+    Per ADR-006 (Orchestration Layer):
+    - Calls MCP primitives ONLY (complete_stream)
+    - Uses semaphore for concurrency control
+    - Adapter handles server selection internally
 
     Args:
         prompt: The user's text prompt
@@ -167,87 +179,62 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
     for model_id in session.state.models:
         session.state.contexts[model_id].add_user_message(prompt.strip(), image_path=image_path)
 
-    await session.server_pool.refresh_all_manifests()
-
     pending = len(session.state.models)
     yield (f"⏳ Generating responses... (0/{pending} complete)", build_tab_states()) + tuple(build_output())
 
-    model_queue = list(session.state.models)
-    active_tasks: dict[str, asyncio.Task] = {}
+    # Semaphore-based concurrency (adapter handles server selection)
+    semaphore = asyncio.Semaphore(4)  # Max concurrent requests
+    active_tasks: set[asyncio.Task] = set()
 
-    async def run_model_on_server(model_id: str, server_url: str):
+    async def run_model(model_id: str):
+        """Execute completion for a single model via MCP primitive."""
         nonlocal streaming_responses, streaming_started, completed_models
         context = session.state.contexts[model_id]
 
-        streaming_started.add(model_id)
+        async with semaphore:
+            streaming_started.add(model_id)
 
-        server_label = server_url.split("//")[-1]
-        streaming_responses[model_id] = f"*[Server: {server_label}]*\n\n"
+            try:
+                messages = context.to_openai_messages(session.state.system_prompt)
 
-        try:
-            # stream_completion imported at top of file (from lmstudio adapter)
-            messages = context.to_openai_messages(session.state.system_prompt)
+                full_response = ""
+                async for chunk in complete_stream(
+                    model_id=model_id,
+                    messages=messages,
+                    temperature=session.state.temperature,
+                    max_tokens=session.state.max_tokens,
+                    timeout_seconds=session.state.timeout_seconds,
+                    tools=tools,
+                    seed=seed,
+                    repeat_penalty=repeat_penalty
+                ):
+                    full_response += chunk
+                    streaming_responses[model_id] = full_response
 
-            full_response = f"*[Server: {server_label}]*\n\n"
-            async for chunk in stream_completion(
-                server_url=server_url,
-                model_id=model_id,
-                messages=messages,
-                temperature=session.state.temperature,
-                max_tokens=session.state.max_tokens,
-                timeout_seconds=session.state.timeout_seconds,
-                tools=tools,
-                seed=seed,
-                repeat_penalty=repeat_penalty
-            ):
-                full_response += chunk
-                streaming_responses[model_id] = full_response
+                context.add_assistant_message(full_response)
+                completed_models.add(model_id)
 
-            context.add_assistant_message(full_response)
-            completed_models.add(model_id)
+            except Exception as e:
+                context.error = str(e)
+                session.state.halted = True
+                session.state.halt_reason = f"Model {model_id} failed: {e}"
+                streaming_responses[model_id] = f"[ERROR: {e}]"
+                completed_models.add(model_id)
 
-        except Exception as e:
-            context.error = str(e)
-            session.state.halted = True
-            session.state.halt_reason = f"Model {model_id} failed: {e}"
-            streaming_responses[model_id] = f"[ERROR: {e}]"
-            completed_models.add(model_id)
-        finally:
-            session.server_pool.release_server(server_url)
+    # Launch all models concurrently (semaphore limits parallelism)
+    for model_id in session.state.models:
+        task = asyncio.create_task(run_model(model_id))
+        active_tasks.add(task)
+        task.add_done_callback(active_tasks.discard)
 
-    def find_work_for_server(server_url: str) -> str | None:
-        server = session.server_pool.servers[server_url]
-        for model_id in model_queue:
-            if model_id in server.available_models:
-                return model_id
-        return None
-
-    while model_queue or active_tasks:
-        for server_url, server in session.server_pool.servers.items():
-            if server.is_busy:
-                continue
-
-            model_id = find_work_for_server(server_url)
-            if model_id:
-                model_queue.remove(model_id)
-                await session.server_pool.acquire_server(server_url)
-                task = asyncio.create_task(run_model_on_server(model_id, server_url))
-                active_tasks[server_url] = task
-
-        await asyncio.sleep(0.1)
-        done = len(completed_models)
-        total = len(session.state.models)
-        yield (f"⏳ Generating responses... ({done}/{total} complete)", build_tab_states()) + tuple(build_output())
-
-        for server_url in list(active_tasks.keys()):
-            if active_tasks[server_url].done():
-                del active_tasks[server_url]
-
-        if model_queue and not active_tasks:
-            await session.server_pool.refresh_all_manifests()
-
-    if active_tasks:
-        await asyncio.gather(*active_tasks.values(), return_exceptions=True)
+    # Wait for completion, yielding state periodically for UI updates
+    while active_tasks:
+        done, _ = await asyncio.wait(
+            active_tasks,
+            timeout=0.2,
+            return_when=asyncio.FIRST_COMPLETED
+        )
+        yield (f"⏳ Generating responses... ({len(completed_models)}/{pending} complete)", build_tab_states()) + tuple(build_output())
 
     status = "✅ All responses complete"
     if session.state.halted:
