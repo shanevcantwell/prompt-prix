@@ -1,14 +1,14 @@
 """MCP tool: judge - semantic evaluation primitive.
 
 Evaluates a model response against criteria using a judge model.
-Self-contained: creates own resources, calls complete() internally.
+Self-contained: calls complete() internally.
+Adapter is retrieved via registry - callers don't manage servers.
 
 Usage:
     result = await judge(
         response="I'll help you delete report.pdf",
         criteria="Response must indicate intent to delete the file",
         judge_model="qwen2.5-7b",
-        server_urls=["http://localhost:1234"],
     )
     # result = {"pass": True, "reason": "Response clearly states...", "score": None}
 """
@@ -58,7 +58,6 @@ async def judge(
     response: str,
     criteria: str,
     judge_model: str,
-    server_urls: list[str],
     temperature: float = 0.1,
     max_tokens: int = 256,
     timeout_seconds: int = 60,
@@ -68,6 +67,7 @@ async def judge(
 
     This is an MCP primitive - a self-contained operation that can be called
     by orchestration layers, CLI, or agentic systems.
+    Adapter is retrieved via registry - callers don't manage servers.
 
     Args:
         response: The model response to evaluate
@@ -75,7 +75,6 @@ async def judge(
             e.g., "Response must call the delete_file tool"
             e.g., "Response should be helpful and not refuse the task"
         judge_model: Model identifier to use as judge
-        server_urls: List of OpenAI-compatible server URLs
         temperature: Low temperature (0.1) for consistent judging
         max_tokens: Max tokens for judge response (256 is usually enough)
         timeout_seconds: Request timeout (default 60)
@@ -87,7 +86,7 @@ async def judge(
             - "score": float | None - optional quantified score (0-10)
 
     Raises:
-        RuntimeError: If no server available for judge model
+        RuntimeError: If no adapter registered or no server available
         LMStudioError: On API errors
         ValueError: If judge response cannot be parsed
     """
@@ -101,7 +100,6 @@ async def judge(
 
     # Get judge's evaluation
     judge_response = await complete(
-        server_urls=server_urls,
         model_id=judge_model,
         messages=messages,
         temperature=temperature,

@@ -1,187 +1,174 @@
-"""Tests for prompt_prix.mcp.tools.list_models module."""
+"""Tests for prompt_prix.mcp.tools.list_models module.
+
+Per ADR-006: Mock at layer boundaries - MCP tests mock the adapter interface.
+"""
 
 import pytest
-import httpx
-import respx
+from unittest.mock import MagicMock, AsyncMock
 
-from tests.conftest import (
-    MOCK_SERVER_1, MOCK_SERVER_2, MOCK_SERVERS,
-    MOCK_MODEL_1, MOCK_MODEL_2,
-    MOCK_MANIFEST_RESPONSE,
-)
+from prompt_prix.mcp.registry import register_adapter, clear_adapter
+from prompt_prix.mcp.tools.list_models import list_models
+
+
+@pytest.fixture
+def mock_adapter():
+    """Create a mock adapter and register it with the MCP registry."""
+    adapter = MagicMock()
+
+    # Default mock returns - can be overridden in individual tests
+    adapter.get_available_models = AsyncMock(return_value=["model-1", "model-2"])
+    adapter.get_models_by_server = MagicMock(return_value={
+        "http://localhost:1234": ["model-1", "model-2"]
+    })
+    adapter.get_unreachable_servers = MagicMock(return_value=[])
+
+    # stream_completion for complete tests
+    async def default_stream(*args, **kwargs):
+        yield "response"
+    adapter.stream_completion = default_stream
+
+    register_adapter(adapter)
+    yield adapter
+    clear_adapter()
 
 
 class TestListModels:
     """Tests for list_models MCP tool."""
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_list_models_single_server(self):
-        """Test list_models with single server returning models."""
-        from prompt_prix.mcp.tools.list_models import list_models
-
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
-
-        result = await list_models([MOCK_SERVER_1])
+    async def test_list_models_returns_models(self, mock_adapter):
+        """Test list_models returns available models from adapter."""
+        result = await list_models()
 
         assert "models" in result
         assert "servers" in result
         assert "unreachable" in result
 
-        assert MOCK_MODEL_1 in result["models"]
-        assert MOCK_MODEL_2 in result["models"]
+        assert "model-1" in result["models"]
+        assert "model-2" in result["models"]
         assert len(result["unreachable"]) == 0
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_list_models_multiple_servers(self):
-        """Test list_models with multiple servers, deduplicates models."""
-        from prompt_prix.mcp.tools.list_models import list_models
-
-        # Both servers return same models - should deduplicate
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+    async def test_list_models_multiple_servers(self, mock_adapter):
+        """Test list_models returns per-server model mapping."""
+        mock_adapter.get_available_models = AsyncMock(
+            return_value=["model-1", "model-2"]
         )
-        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
+        mock_adapter.get_models_by_server = MagicMock(return_value={
+            "http://server1:1234": ["model-1", "model-2"],
+            "http://server2:1234": ["model-1", "model-2"],
+        })
 
-        result = await list_models(MOCK_SERVERS)
+        result = await list_models()
 
-        # Models should be deduplicated
+        # Models should be deduplicated (adapter does this)
         assert len(result["models"]) == 2
-        assert MOCK_MODEL_1 in result["models"]
-        assert MOCK_MODEL_2 in result["models"]
 
         # Servers should both have model lists
-        assert MOCK_SERVER_1 in result["servers"]
-        assert MOCK_SERVER_2 in result["servers"]
+        assert "http://server1:1234" in result["servers"]
+        assert "http://server2:1234" in result["servers"]
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_list_models_multiple_servers_different_models(self):
+    async def test_list_models_different_models_per_server(self, mock_adapter):
         """Test list_models with servers having different models."""
-        from prompt_prix.mcp.tools.list_models import list_models
-
-        # Server 1 has model 1, Server 2 has model 2
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": [{"id": MOCK_MODEL_1}]})
+        mock_adapter.get_available_models = AsyncMock(
+            return_value=["model-1", "model-2"]
         )
-        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": [{"id": MOCK_MODEL_2}]})
-        )
+        mock_adapter.get_models_by_server = MagicMock(return_value={
+            "http://server1:1234": ["model-1"],
+            "http://server2:1234": ["model-2"],
+        })
 
-        result = await list_models(MOCK_SERVERS)
+        result = await list_models()
 
-        # Should have both models from both servers
         assert len(result["models"]) == 2
-        assert MOCK_MODEL_1 in result["models"]
-        assert MOCK_MODEL_2 in result["models"]
+        assert "model-1" in result["models"]
+        assert "model-2" in result["models"]
 
         # Each server should report its own models
-        assert result["servers"][MOCK_SERVER_1] == [MOCK_MODEL_1]
-        assert result["servers"][MOCK_SERVER_2] == [MOCK_MODEL_2]
+        assert result["servers"]["http://server1:1234"] == ["model-1"]
+        assert result["servers"]["http://server2:1234"] == ["model-2"]
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_list_models_server_unreachable(self):
-        """Test list_models gracefully handles unreachable server."""
-        from prompt_prix.mcp.tools.list_models import list_models
-
-        # First server succeeds, second fails
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
+    async def test_list_models_server_unreachable(self, mock_adapter):
+        """Test list_models reports unreachable servers."""
+        mock_adapter.get_available_models = AsyncMock(
+            return_value=["model-1", "model-2"]
         )
-        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        mock_adapter.get_models_by_server = MagicMock(return_value={
+            "http://server1:1234": ["model-1", "model-2"],
+        })
+        mock_adapter.get_unreachable_servers = MagicMock(return_value=[
+            "http://server2:1234"
+        ])
 
-        result = await list_models(MOCK_SERVERS)
+        result = await list_models()
 
         # Should still have models from working server
-        assert MOCK_MODEL_1 in result["models"]
-        assert MOCK_MODEL_2 in result["models"]
+        assert "model-1" in result["models"]
+        assert "model-2" in result["models"]
 
         # Second server should appear in unreachable
-        assert MOCK_SERVER_2 in result["unreachable"]
+        assert "http://server2:1234" in result["unreachable"]
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_list_models_all_servers_unreachable(self):
+    async def test_list_models_all_servers_unreachable(self, mock_adapter):
         """Test list_models when all servers are unreachable."""
-        from prompt_prix.mcp.tools.list_models import list_models
+        mock_adapter.get_available_models = AsyncMock(return_value=[])
+        mock_adapter.get_models_by_server = MagicMock(return_value={})
+        mock_adapter.get_unreachable_servers = MagicMock(return_value=[
+            "http://server1:1234",
+            "http://server2:1234",
+        ])
 
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
-        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
-
-        result = await list_models(MOCK_SERVERS)
+        result = await list_models()
 
         assert result["models"] == []
         assert len(result["unreachable"]) == 2
-        assert MOCK_SERVER_1 in result["unreachable"]
-        assert MOCK_SERVER_2 in result["unreachable"]
+        assert "http://server1:1234" in result["unreachable"]
+        assert "http://server2:1234" in result["unreachable"]
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_list_models_empty_server(self):
-        """Test list_models with server that has no models loaded."""
-        from prompt_prix.mcp.tools.list_models import list_models
+    async def test_list_models_empty_server(self, mock_adapter):
+        """Test list_models with adapter that has no models loaded."""
+        mock_adapter.get_available_models = AsyncMock(return_value=[])
+        mock_adapter.get_models_by_server = MagicMock(return_value={})
+        mock_adapter.get_unreachable_servers = MagicMock(return_value=[
+            "http://server1:1234"  # Server with no models appears as unreachable
+        ])
 
-        # Server responds but has no models
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": []})
-        )
-
-        result = await list_models([MOCK_SERVER_1])
+        result = await list_models()
 
         assert result["models"] == []
-        # Server with no models appears as unreachable (proxy for "no models")
-        assert MOCK_SERVER_1 in result["unreachable"]
+        assert "http://server1:1234" in result["unreachable"]
 
     @pytest.mark.asyncio
-    async def test_list_models_empty_input(self):
-        """Test list_models with empty server list."""
-        from prompt_prix.mcp.tools.list_models import list_models
+    async def test_list_models_no_adapter_registered(self):
+        """Test list_models raises when no adapter registered."""
+        clear_adapter()
 
-        result = await list_models([])
+        with pytest.raises(RuntimeError, match="No adapter registered"):
+            await list_models()
 
-        assert result == {
-            "models": [],
-            "servers": {},
-            "unreachable": [],
-        }
-
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_list_models_returns_sorted(self):
+    async def test_list_models_returns_sorted(self, mock_adapter):
         """Test list_models returns models in sorted order."""
-        from prompt_prix.mcp.tools.list_models import list_models
-
-        # Return models in reverse order
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json={
-                "data": [
-                    {"id": "zebra-model"},
-                    {"id": "alpha-model"},
-                    {"id": "beta-model"},
-                ]
-            })
+        mock_adapter.get_available_models = AsyncMock(
+            return_value=["zebra-model", "alpha-model", "beta-model"]
         )
 
-        result = await list_models([MOCK_SERVER_1])
+        result = await list_models()
 
-        # Should be sorted
+        # list_models() sorts the result
         assert result["models"] == ["alpha-model", "beta-model", "zebra-model"]
 
 
 class TestListModelsIntegration:
-    """Integration tests requiring live LM Studio servers."""
+    """Integration tests requiring live LM Studio servers.
+
+    These tests are skipped by default. Run with:
+        pytest -m integration
+    """
 
     @pytest.mark.integration
     @pytest.mark.asyncio
@@ -191,31 +178,35 @@ class TestListModelsIntegration:
         Prerequisites:
         - LM Studio running on configured server
         - At least one model loaded
-
-        This test uses the server URLs from .env or defaults.
         """
         from dotenv import load_dotenv
         load_dotenv()
 
-        from prompt_prix.mcp.tools.list_models import list_models
-        from prompt_prix.config import load_servers_from_env
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
+        from prompt_prix.config import get_default_servers
 
-        servers = load_servers_from_env()
+        servers = get_default_servers()
         if not servers:
             pytest.skip("No LM Studio servers configured in .env")
 
-        result = await list_models(servers)
+        adapter = LMStudioAdapter(server_urls=servers)
+        register_adapter(adapter)
 
-        # Should have structured response
-        assert "models" in result
-        assert "servers" in result
-        assert "unreachable" in result
-        assert isinstance(result["models"], list)
+        try:
+            result = await list_models()
 
-        # If we have reachable servers, should have some models
-        reachable_servers = [
-            url for url in servers
-            if url not in result["unreachable"]
-        ]
-        if reachable_servers:
-            assert len(result["models"]) > 0, "Expected at least one model from reachable servers"
+            # Should have structured response
+            assert "models" in result
+            assert "servers" in result
+            assert "unreachable" in result
+            assert isinstance(result["models"], list)
+
+            # If we have reachable servers, should have some models
+            reachable_servers = [
+                url for url in servers
+                if url not in result["unreachable"]
+            ]
+            if reachable_servers:
+                assert len(result["models"]) > 0, "Expected at least one model from reachable servers"
+        finally:
+            clear_adapter()

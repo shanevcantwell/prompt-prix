@@ -1,20 +1,16 @@
-"""Tests for battery feature (benchmark test suite execution)."""
+"""Tests for battery feature (benchmark test suite execution).
+
+Per ADR-006: BatteryRunner is orchestration layer. Tests mock MCP tools, not HTTP.
+"""
 
 import json
 import pytest
-import httpx
-import respx
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 from prompt_prix.benchmarks.base import TestCase
 from prompt_prix.benchmarks.custom import CustomJSONLoader
 from prompt_prix.battery import TestStatus, TestResult, BatteryRun, BatteryRunner
-
-from tests.conftest import (
-    MOCK_SERVER_1,
-    MOCK_MANIFEST_RESPONSE,
-)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -92,23 +88,6 @@ def malformed_json_file(tmp_path):
     return file_path
 
 
-# ─────────────────────────────────────────────────────────────────────
-# RESPX HELPERS
-# ─────────────────────────────────────────────────────────────────────
-
-def make_streaming_body(content: str) -> bytes:
-    """Create SSE streaming response body for given content."""
-    chunks = []
-    for word in content.split():
-        escaped = word.replace('"', '\\"')
-        chunks.append(f'data: {{"choices":[{{"delta":{{"content":"{escaped} "}}}}]}}\n')
-    chunks.append('data: [DONE]\n')
-    return "".join(chunks).encode()
-
-
-def make_manifest_for_models(model_ids: list[str]) -> dict:
-    """Create manifest response for given model IDs."""
-    return {"data": [{"id": m, "object": "model"} for m in model_ids]}
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -358,9 +337,12 @@ class TestBatteryRun:
 # ─────────────────────────────────────────────────────────────────────
 
 class TestBatteryRunner:
-    """Tests for BatteryRunner orchestrator."""
+    """Tests for BatteryRunner orchestrator.
 
-    @respx.mock
+    Per ADR-006: BatteryRunner is orchestration layer - it calls MCP tools,
+    doesn't know about servers or adapters. Tests mock the MCP layer.
+    """
+
     @pytest.mark.asyncio
     async def test_run_completes_all_tests_via_mcp(self, sample_test_cases):
         """Test that runner completes all tests BY CALLING MCP complete_stream.
@@ -368,14 +350,9 @@ class TestBatteryRunner:
         This test mocks the MCP layer, not HTTP. If BatteryRunner bypasses MCP
         and calls core.stream_completion directly, this test will FAIL.
         """
-        from unittest.mock import patch, AsyncMock, call
+        from unittest.mock import patch
 
         models = ["model_a", "model_b"]
-
-        # Mock manifest endpoint (still needed for pool.refresh_all_manifests)
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=make_manifest_for_models(models))
-        )
 
         # Track calls to MCP complete_stream
         mcp_calls = []
@@ -387,7 +364,6 @@ class TestBatteryRunner:
         # Patch at the MCP layer - BatteryRunner SHOULD call this
         with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
-                servers=[MOCK_SERVER_1],
                 tests=sample_test_cases,
                 models=models
             )
@@ -404,23 +380,20 @@ class TestBatteryRunner:
         assert final_state is not None
         assert final_state.completed_count == 4
 
-    @respx.mock
     @pytest.mark.asyncio
     async def test_run_handles_errors_via_mcp(self, sample_test_cases):
         """Test that runner handles MCP-layer errors gracefully.
 
         This test mocks the MCP layer. If BatteryRunner bypasses MCP,
         this test will FAIL.
+
+        Note: BatteryRunner has retry logic for transient errors, so
+        LMStudioError will be retried. We verify final status, not call counts.
         """
         from unittest.mock import patch
         from prompt_prix.core import LMStudioError
 
         models = ["model_a", "model_b"]
-
-        # Mock manifest endpoint
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=make_manifest_for_models(models))
-        )
 
         mcp_calls = []
 
@@ -433,7 +406,6 @@ class TestBatteryRunner:
 
         with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
-                servers=[MOCK_SERVER_1],
                 tests=sample_test_cases[:1],  # Just one test
                 models=models
             )
@@ -442,21 +414,20 @@ class TestBatteryRunner:
             async for state in runner.run():
                 final_state = state
 
-        # Must have called MCP for both models
-        assert len(mcp_calls) == 2, (
-            f"Expected 2 calls to MCP complete_stream, got {len(mcp_calls)}. "
-            "BatteryRunner is bypassing MCP layer."
-        )
+        # Must have called MCP for both models (model_b will have retries)
+        model_a_calls = [c for c in mcp_calls if c.get("model_id") == "model_a"]
+        model_b_calls = [c for c in mcp_calls if c.get("model_id") == "model_b"]
+        assert len(model_a_calls) == 1, "Expected 1 call for model_a"
+        assert len(model_b_calls) >= 1, "Expected at least 1 call for model_b (plus retries)"
 
         # Check model_a succeeded
         result_a = final_state.get_result("test_1", "model_a")
         assert result_a.status == TestStatus.COMPLETED
 
-        # Check model_b errored
+        # Check model_b errored after retries exhausted
         result_b = final_state.get_result("test_1", "model_b")
         assert result_b.status == TestStatus.ERROR
 
-    @respx.mock
     @pytest.mark.asyncio
     async def test_run_yields_state_updates_via_mcp(self, sample_test_cases):
         """Test that runner yields state updates for UI.
@@ -468,11 +439,6 @@ class TestBatteryRunner:
 
         models = ["m1"]
 
-        # Mock manifest endpoint
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=make_manifest_for_models(models))
-        )
-
         mcp_calls = []
 
         async def mock_complete_stream(**kwargs):
@@ -481,7 +447,6 @@ class TestBatteryRunner:
 
         with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
-                servers=[MOCK_SERVER_1],
                 tests=sample_test_cases[:1],
                 models=models
             )
@@ -498,7 +463,6 @@ class TestBatteryRunner:
         # Should yield multiple times for progress tracking
         assert state_count >= 2
 
-    @respx.mock
     @pytest.mark.asyncio
     async def test_run_records_latency_via_mcp(self, sample_test_cases):
         """Test that runner records latency for completed tests.
@@ -511,11 +475,6 @@ class TestBatteryRunner:
 
         models = ["m1"]
 
-        # Mock manifest endpoint
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=make_manifest_for_models(models))
-        )
-
         mcp_calls = []
 
         async def mock_complete_stream(**kwargs):
@@ -525,7 +484,6 @@ class TestBatteryRunner:
 
         with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
-                servers=[MOCK_SERVER_1],
                 tests=sample_test_cases[:1],
                 models=models
             )
@@ -719,7 +677,6 @@ class TestCooperativeCancellation:
 class TestBatterySemanticValidation:
     """Tests verifying BatteryRunner integrates semantic validation."""
 
-    @respx.mock
     @pytest.mark.asyncio
     async def test_refusal_with_required_tools_is_semantic_failure(self):
         """A refusal when tool_choice='required' must be SEMANTIC_FAILURE.
@@ -730,11 +687,6 @@ class TestBatterySemanticValidation:
         from unittest.mock import patch
 
         models = ["model_a"]
-
-        # Mock manifest endpoint
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=make_manifest_for_models(models))
-        )
 
         # MCP returns a refusal (no tool call made)
         refusal_text = "I'm sorry, but I cannot execute scripts or delete files."
@@ -763,7 +715,6 @@ class TestBatterySemanticValidation:
 
         with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
-                servers=[MOCK_SERVER_1],
                 tests=[test_with_tools],
                 models=models
             )

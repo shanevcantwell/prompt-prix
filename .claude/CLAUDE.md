@@ -555,6 +555,34 @@ When adding model-dependent functionality:
 3. Document prerequisites in test docstring
 4. Consider adding a "smoke test" that runs quickly for basic verification
 
+### Unit Test Strategy (per ADR-006)
+
+Unit tests mock at layer boundaries, not internal implementation:
+
+| Test Layer | Mocks |
+|------------|-------|
+| MCP tool tests | Mock adapter interface via registry |
+| Orchestration tests | Mock MCP tools |
+| Adapter tests | Mock httpx (external boundary) |
+
+Example fixture for MCP tool tests:
+```python
+from prompt_prix.mcp.registry import register_adapter, clear_adapter
+
+@pytest.fixture
+def mock_adapter():
+    adapter = MagicMock()
+    adapter.get_available_models = AsyncMock(return_value=["model-1"])
+    async def mock_stream(*args, **kwargs):
+        yield "response"
+    adapter.stream_completion = mock_stream
+    register_adapter(adapter)
+    yield adapter
+    clear_adapter()
+```
+
+**Future Work:** Live integration tests for adapters (LMStudioAdapter against real LM Studio, etc.) are not yet implemented. These should test actual HTTP interactions, not mocked responses.
+
 ### Adapting Code from Other Projects
 
 When bringing code from other projects (e.g., langgraph-agentic-scaffold):
