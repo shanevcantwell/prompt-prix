@@ -38,7 +38,7 @@ If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both 
 | **Fan-Out Dispatch** | Same test → N models in parallel |
 | **Semantic Validation** | Detects refusals and missing tool calls (not just HTTP success) |
 | **Model-Family Parsing** | Recognizes tool calls from LiquidAI, Hermes, OpenAI formats |
-| **Work-Stealing Scheduler** | Efficient multi-GPU utilization |
+| **Parallel Dispatch** | Concurrent multi-GPU execution |
 | **Latency Capture** | Per-test timing on YOUR hardware |
 | **Visual Grid** | Model × Test results at a glance |
 

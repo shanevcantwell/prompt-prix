@@ -20,7 +20,7 @@ This is not a replacement for proper evaluation frameworks—it's a way to quick
 1. **Model Selection** - Compare candidate models for agentic workflows using standardized benchmarks
 2. **Quick Comparison** - Fan out a single prompt to see how different models (or quantizations) respond
 3. **Benchmark Exploration** - Import test cases from BFCL, Inspect AI, or custom JSON and see results visually
-4. **Multi-GPU Utilization** - Efficiently use multiple inference servers via work-stealing dispatcher
+4. **Multi-GPU Utilization** - Dispatch tests across multiple inference servers in parallel
 
 ### Positioning in the Ecosystem
 
@@ -37,7 +37,7 @@ prompt-prix complements these tools by providing a visual layer for side-by-side
 
 1. **Fan-Out Dispatch** - Same prompt to N models simultaneously
 2. **Visual Comparison** - Real-time streaming with status indicators per model
-3. **Work-Stealing** - Efficient multi-GPU utilization across servers
+3. **Parallel Dispatch** - Concurrent execution across multiple GPUs
 4. **Semantic Validation** - Detect model refusals and missing tool calls (not just HTTP success)
 5. **Session Persistence** - Save and restore UI state
 6. **Export** - Generate Markdown/JSON reports for analysis
@@ -113,11 +113,11 @@ A session maintains:
 - Configuration (temperature, max tokens, system prompt)
 - Halt state (if any model fails)
 
-### Work-Stealing Dispatcher
-For efficient GPU utilization, prompts are dispatched using a work-stealing pattern:
-- Models queue for processing
-- Idle servers pull work they can handle (based on which models they have loaded)
-- Both GPUs stay busy even with non-overlapping model libraries
+### Concurrent Dispatcher
+For efficient GPU utilization, tests are dispatched in parallel:
+- Queue all work items (model + test pairs)
+- Find idle servers that have the required model loaded
+- Dispatch work and stream responses concurrently
 
 ## Technology Stack
 

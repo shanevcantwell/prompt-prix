@@ -29,7 +29,7 @@ This document describes the system architecture of prompt-prix, including module
 │  │                    handlers.py                                │  │
 │  │  • fetch_available_models()  → ServerPool.refresh_manifests() │  │
 │  │  • initialize_session()      → Create ComparisonSession       │  │
-│  │  • send_single_prompt()      → Work-stealing dispatcher       │  │
+│  │  • send_single_prompt()      → Concurrent dispatcher          │  │
 │  │  • export_markdown/json()    → Report generation              │  │
 │  └──────────────────────────────────────────────────────────────┘  │
 │                                │                                    │
@@ -134,7 +134,6 @@ msg.has_image()  # Check if message contains an image
 - `load_servers_from_env()` - Read LM_STUDIO_SERVER_N environment variables
 - `get_default_servers()` - Return env servers or placeholder defaults
 - `get_gradio_port()` - Read GRADIO_PORT or default to 7860
-- `get_fara_config()` - Read FARA_SERVER_URL and FARA_MODEL_ID for vision adapter
 - `encode_image_to_data_url(path)` - Convert image file to base64 data URL
 - `build_multimodal_content(text, image_path)` - Build OpenAI-format multimodal content
 
@@ -231,13 +230,13 @@ async def get_completion(...) -> str:
 - **Seed Parameter**: Set a seed for reproducible outputs across models
 - **Repeat Penalty**: Configurable penalty (1.0-2.0) to reduce repetitive token generation
 
-### dispatcher.py - Work-Stealing Dispatcher
+### dispatcher.py - Concurrent Dispatcher
 
-**Purpose**: Parallel execution across multiple servers with work-stealing.
+**Purpose**: Parallel execution across multiple servers.
 
 ```python
 class ConcurrentDispatcher:
-    """Dispatches work items to servers using work-stealing pattern."""
+    """Dispatches work items to idle servers in parallel."""
 
     async def dispatch(
         self,
@@ -345,7 +344,7 @@ def run():
    │ - Refresh server manifests
          │
          ▼
-4. Work-Stealing Dispatcher Loop:
+4. Concurrent Dispatcher Loop:
    │ ┌─────────────────────────────────────────┐
    │ │ For each idle server:                   │
    │ │   Find model in queue this server has   │
@@ -497,16 +496,16 @@ The core abstraction is **fan-out**: one prompt dispatched to N models in parall
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Work-Stealing Implementation
+### Parallel Dispatch
 
-The dispatcher uses work-stealing for GPU efficiency:
+The dispatcher maximizes GPU utilization:
 
-1. **Queue**: All models to process
-2. **Acquire**: Find idle server that has queued model
+1. **Queue**: All work items (model + test pairs)
+2. **Match**: Find idle server that has the required model loaded
 3. **Execute**: Stream response, update UI
-4. **Release**: Server becomes available for next model
+4. **Release**: Server becomes available for next item
 
-This maximizes utilization when models are distributed across multiple GPUs.
+This keeps all GPUs busy even when models are distributed across servers.
 
 See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
 

@@ -65,7 +65,7 @@ class ConcurrentDispatcher:
         """
         Execute work items across available servers.
 
-        Work-stealing algorithm:
+        Concurrent dispatch algorithm:
         1. Queue all work items
         2. For each idle server, find work it can run
         3. Spawn async task for matched work
