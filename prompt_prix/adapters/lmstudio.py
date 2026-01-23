@@ -292,61 +292,19 @@ class LMStudioAdapter:
             # Releasing lock allows other tasks to release their servers
             await asyncio.sleep(0.2)
         try:
-            payload = {
-                "model": model_id,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "stream": True
-            }
-            if tools:
-                payload["tools"] = _normalize_tools_for_openai(tools)
-            if seed is not None:
-                payload["seed"] = int(seed)
-            if repeat_penalty is not None and repeat_penalty != 1.0:
-                payload["repeat_penalty"] = float(repeat_penalty)
-
-            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
-                async with client.stream(
-                    "POST",
-                    f"{server_url}/v1/chat/completions",
-                    json=payload
-                ) as response:
-                    if response.status_code >= 400:
-                        error_body = await response.aread()
-                        try:
-                            error_data = json.loads(error_body)
-                            error = error_data.get("error", {})
-                            if isinstance(error, dict):
-                                msg = error.get("message", str(error_body[:200]))
-                            else:
-                                msg = str(error)
-                        except Exception:
-                            msg = error_body.decode()[:200]
-                        raise LMStudioError(f"LM Studio error for '{model_id}': {msg}")
-
-                    async for line in response.aiter_lines():
-                        if line.startswith("data: "):
-                            data = line[6:]
-                            if data == "[DONE]":
-                                break
-                            try:
-                                chunk = json.loads(data)
-                                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                                content = delta.get("content", "")
-                                if content:
-                                    yield content
-                                tool_calls = delta.get("tool_calls", [])
-                                for tc in tool_calls:
-                                    func = tc.get("function", {})
-                                    name = func.get("name", "")
-                                    args = func.get("arguments", "")
-                                    if name:
-                                        yield f"\n**Tool Call:** `{name}`\n"
-                                    if args:
-                                        yield f"```json\n{args}\n```\n"
-                            except json.JSONDecodeError:
-                                continue
+            # Delegate to module-level function for actual streaming
+            async for chunk in stream_completion(
+                server_url=server_url,
+                model_id=model_id,
+                messages=messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout_seconds,
+                tools=tools,
+                seed=seed,
+                repeat_penalty=repeat_penalty,
+            ):
+                yield chunk
         finally:
             self._pool.release_server(server_url)
 
@@ -363,6 +321,8 @@ async def stream_completion(
     max_tokens: int,
     timeout_seconds: int,
     tools: Optional[list[dict]] = None,
+    seed: Optional[int] = None,
+    repeat_penalty: Optional[float] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Stream completion from a specific LM Studio server.
@@ -380,6 +340,10 @@ async def stream_completion(
     }
     if tools:
         payload["tools"] = _normalize_tools_for_openai(tools)
+    if seed is not None:
+        payload["seed"] = int(seed)
+    if repeat_penalty is not None and repeat_penalty != 1.0:
+        payload["repeat_penalty"] = float(repeat_penalty)
 
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         async with client.stream(
@@ -400,6 +364,9 @@ async def stream_completion(
                     msg = error_body.decode()[:200]
                 raise LMStudioError(f"LM Studio error for '{model_id}': {msg}")
 
+            # Accumulate tool calls until stream completes
+            tool_call_accumulator: dict[int, dict] = {}
+
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
                     data = line[6:]
@@ -411,14 +378,23 @@ async def stream_completion(
                         content = delta.get("content", "")
                         if content:
                             yield content
+                        # Accumulate tool calls
                         tool_calls = delta.get("tool_calls", [])
                         for tc in tool_calls:
+                            idx = tc.get("index", 0)
                             func = tc.get("function", {})
-                            name = func.get("name", "")
-                            args = func.get("arguments", "")
-                            if name:
-                                yield f"\n**Tool Call:** `{name}`\n"
-                            if args:
-                                yield f"```json\n{args}\n```\n"
+                            if idx not in tool_call_accumulator:
+                                tool_call_accumulator[idx] = {"name": "", "arguments": ""}
+                            if func.get("name"):
+                                tool_call_accumulator[idx]["name"] = func["name"]
+                            if func.get("arguments"):
+                                tool_call_accumulator[idx]["arguments"] += func["arguments"]
                     except json.JSONDecodeError:
                         continue
+
+            # Yield accumulated tool calls after stream completes
+            for tc_data in tool_call_accumulator.values():
+                if tc_data["name"]:
+                    yield f"\n**Tool Call:** `{tc_data['name']}`\n"
+                if tc_data["arguments"]:
+                    yield f"```json\n{tc_data['arguments']}\n```\n"
