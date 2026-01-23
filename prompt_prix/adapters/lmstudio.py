@@ -1,21 +1,41 @@
 """
-LMStudioAdapter - wraps existing ServerPool for HostAdapter interface.
+LMStudioAdapter - LM Studio implementation of HostAdapter.
 
-Implementation detail: This adapter does NOT modify core.py.
-It wraps the existing ServerPool and stream_completion functions.
+Owns the httpx streaming logic for OpenAI-compatible LM Studio servers.
 """
 
 import asyncio
+import json
+import httpx
 from typing import AsyncGenerator, Optional
 
-from prompt_prix.core import ServerPool, stream_completion
+from prompt_prix.core import ServerPool, LMStudioError
+
+
+def _normalize_tools_for_openai(tools: list[dict]) -> list[dict]:
+    """
+    Normalize tool definitions to OpenAI format.
+
+    BFCL flat format:
+        {"name": "...", "description": "...", "parameters": {...}}
+
+    OpenAI nested format:
+        {"type": "function", "function": {"name": "...", ...}}
+    """
+    normalized = []
+    for tool in tools:
+        if tool.get("type") == "function" and "function" in tool:
+            normalized.append(tool)
+        else:
+            normalized.append({"type": "function", "function": tool})
+    return normalized
 
 
 class LMStudioAdapter:
     """
     LM Studio implementation of HostAdapter.
 
-    Wraps ServerPool for server discovery and stream_completion for inference.
+    Owns httpx streaming logic. Uses ServerPool for server discovery.
     Uses asyncio.Lock for thread-safety (state hygiene per CLAUDE.md).
     """
 
@@ -31,7 +51,7 @@ class LMStudioAdapter:
 
     @property
     def pool(self) -> ServerPool:
-        """Expose ServerPool for work-stealing dispatcher access."""
+        """Expose ServerPool for concurrent dispatcher access."""
         return self._pool
 
     async def get_available_models(self) -> list[str]:
@@ -70,7 +90,9 @@ class LMStudioAdapter:
         temperature: float,
         max_tokens: int,
         timeout_seconds: int,
-        tools: Optional[list[dict]] = None
+        tools: Optional[list[dict]] = None,
+        seed: Optional[int] = None,
+        repeat_penalty: Optional[float] = None
     ) -> AsyncGenerator[str, None]:
         """
         Stream completion from LM Studio server.
@@ -90,15 +112,63 @@ class LMStudioAdapter:
         # Acquire and stream
         await self._pool.acquire_server(server_url)
         try:
-            async for chunk in stream_completion(
-                server_url=server_url,
-                model_id=model_id,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout_seconds=timeout_seconds,
-                tools=tools
-            ):
-                yield chunk
+            # Build payload
+            payload = {
+                "model": model_id,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True
+            }
+            if tools:
+                payload["tools"] = _normalize_tools_for_openai(tools)
+            if seed is not None:
+                payload["seed"] = int(seed)
+            if repeat_penalty is not None and repeat_penalty != 1.0:
+                payload["repeat_penalty"] = float(repeat_penalty)
+
+            # Stream from server
+            async with httpx.AsyncClient(timeout=timeout_seconds) as client:
+                async with client.stream(
+                    "POST",
+                    f"{server_url}/v1/chat/completions",
+                    json=payload
+                ) as response:
+                    if response.status_code >= 400:
+                        error_body = await response.aread()
+                        try:
+                            error_data = json.loads(error_body)
+                            error = error_data.get("error", {})
+                            if isinstance(error, dict):
+                                msg = error.get("message", str(error_body[:200]))
+                            else:
+                                msg = str(error)
+                        except Exception:
+                            msg = error_body.decode()[:200]
+                        raise LMStudioError(f"LM Studio error for '{model_id}': {msg}")
+
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data = line[6:]
+                            if data == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data)
+                                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                                content = delta.get("content", "")
+                                if content:
+                                    yield content
+                                # Handle tool calls
+                                tool_calls = delta.get("tool_calls", [])
+                                for tc in tool_calls:
+                                    func = tc.get("function", {})
+                                    name = func.get("name", "")
+                                    args = func.get("arguments", "")
+                                    if name:
+                                        yield f"\n**Tool Call:** `{name}`\n"
+                                    if args:
+                                        yield f"```json\n{args}\n```\n"
+                            except json.JSONDecodeError:
+                                continue
         finally:
             self._pool.release_server(server_url)

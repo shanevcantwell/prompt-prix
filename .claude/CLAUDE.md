@@ -69,19 +69,15 @@ prompt_prix/
 ├── adapters/
 │   ├── base.py          # LLMAdapter protocol
 │   ├── lmstudio.py      # LMStudioAdapter (OpenAI-compatible)
-│   ├── gemini_webui.py  # GeminiWebUIAdapter (DOM-based, deprecated)
-│   ├── gemini_visual.py # GeminiVisualAdapter (Fara-based, preferred)
-│   └── fara.py          # FaraService (visual element location)
+│   ├── surf_mcp.py      # SurfMcpAdapter (browser automation, TODO)
+│   └── hf_inference.py  # HFInferenceAdapter (HuggingFace Spaces, TODO)
 ├── tabs/
 │   ├── battery/
 │   │   ├── handlers.py  # Battery tab event handlers
 │   │   └── ui.py        # Battery tab Gradio components
-│   ├── compare/
-│   │   ├── handlers.py  # Compare tab event handlers
-│   │   └── ui.py        # Compare tab Gradio components
-│   └── stability/
-│       ├── handlers.py  # Stability tab event handlers
-│       └── ui.py        # Stability tab Gradio components
+│   └── compare/
+│       ├── handlers.py  # Compare tab event handlers
+│       └── ui.py        # Compare tab Gradio components
 └── benchmarks/
     ├── base.py          # TestCase model
     └── custom.py        # CustomJSONLoader (JSON/JSONL/BFCL)
@@ -98,45 +94,81 @@ prompt_prix/
 | `ui.py` | Gradio app composition, imports tab UIs |
 | `state.py` | Mutable state shared across handlers |
 | `battery.py` | BatteryRunner orchestrator |
-| `adapters/` | Provider abstractions (LM Studio, Gemini) |
+| `adapters/` | Provider abstractions (LM Studio, surf-mcp, HF Inference) |
 | `tabs/` | Tab-specific handlers and UI components |
 | `benchmarks/` | Test case loading (JSON, JSONL, BFCL) |
 
 ---
 
-## Adapters
+## Adapters (Adapter Pattern)
 
-### LMStudioAdapter
-Standard OpenAI-compatible adapter for local models via LM Studio.
+The adapters layer uses the **Adapter design pattern** to provide a uniform interface to fundamentally different LLM backends.
 
-### GeminiVisualAdapter (Preferred)
-Uses Microsoft Fara-7B vision model to interact with Gemini's web UI visually.
-- Survives UI redesigns (no brittle DOM selectors)
-- Takes screenshots, uses Fara to locate elements
-- Executes Playwright actions (click, type, scroll)
+### The Pattern
 
-```python
-adapter = GeminiVisualAdapter()  # Uses env vars for config
-result = await adapter.send_prompt("Hello")
-result = await adapter.regenerate()
-await adapter.close()
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    MCP PRIMITIVES                               │
+│  complete │ complete_stream │ judge │ fan_out                   │
+│                                                                 │
+│  Receives adapter via dependency injection.                     │
+│  Calls adapter.stream_completion() - doesn't know backend.      │
+└───────────────────────────┬─────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    ADAPTER LAYER                                │
+│  HostAdapter protocol defines the interface.                    │
+│  Each adapter owns its backend-specific internals:              │
+│                                                                 │
+│  LMStudioAdapter     - owns ServerPool (multi-server mgmt)      │
+│  SurfMcpAdapter      - owns browser session                     │
+│  HFInferenceAdapter  - owns API client                          │
+└───────────────────────────┬─────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    INFERENCE PROVIDERS                          │
+│  LM Studio │ surf-mcp │ HF Spaces │ cloud APIs                  │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### FaraService
-Visual UI element location using Fara-7B vision model.
-- Returns Playwright actions: `left_click`, `type`, `scroll`, etc.
-- Handles resolution scaling transparently
-- Configured via `FARA_SERVER_URL` and `FARA_MODEL_ID` env vars
+### Key Rules
+
+1. **MCP doesn't instantiate adapters.** MCP receives adapters or calls adapter module functions.
+2. **Each adapter encapsulates its backend internals.** ServerPool is an LM Studio concept - it belongs inside LMStudioAdapter, not leaked to MCP.
+3. **Adapters expose a uniform interface.** All adapters implement `HostAdapter` protocol regardless of how different their backends are.
+
+### Why This Matters
+
+The backends are **fundamentally different**, not just GGUF variations:
+- **LM Studio**: Multiple local servers, availability tracking, OpenAI-compatible API
+- **surf-mcp**: Browser automation, no "servers" - automates web UIs
+- **HF Inference**: Cloud API, authentication, rate limiting
+
+If MCP knew about `ServerPool`, it could never work with surf-mcp. The Adapter pattern isolates backend-specific concepts.
+
+### HostAdapter Protocol
 
 ```python
-fara = FaraService()
-result = await fara.locate("The send button", screenshot_b64)
-# Returns: {"found": True, "action": "left_click", "x": 640, "y": 480}
+class HostAdapter(Protocol):
+    async def get_available_models(self) -> list[str]: ...
+    async def stream_completion(
+        self,
+        model_id: str,
+        messages: list[dict],
+        temperature: float,
+        max_tokens: int,
+        timeout_seconds: int,
+        tools: Optional[list[dict]] = None
+    ) -> AsyncGenerator[str, None]: ...
 ```
 
-### GeminiWebUIAdapter (Deprecated)
-DOM-based Gemini adapter. Breaks when Gemini UI changes.
-Use GeminiVisualAdapter instead.
+### Current Adapters
+
+| Adapter | Backend | Status |
+|---------|---------|--------|
+| `LMStudioAdapter` | Local GGUF via OpenAI-compat API | ✓ |
+| `SurfMcpAdapter` | Browser automation via surf-mcp | TODO |
+| `HFInferenceAdapter` | HuggingFace Spaces / Inference API | TODO |
 
 ---
 
@@ -153,12 +185,6 @@ Interactive side-by-side model comparison.
 - Multi-turn conversations
 - Per-model context management
 - Halt on error capability
-
-### Stability Tab
-Analyze regeneration stability for a single model.
-- Run same prompt N times
-- Capture output variance
-- Uses GeminiVisualAdapter for Gemini models
 
 ---
 
@@ -409,27 +435,8 @@ LM_STUDIO_SERVER_2=http://192.168.1.11:1234
 # Gradio UI
 GRADIO_PORT=7860
 
-# Fara Vision Model (for Gemini visual adapter)
-FARA_SERVER_URL=http://127.0.0.1:1234
-FARA_MODEL_ID=microsoft_fara-7b
-
 # Optional
 BEYOND_COMPARE_PATH=/usr/bin/bcompare
-```
-
----
-
-## Gemini Session Management
-
-The Gemini adapters use Playwright browser state for session persistence.
-
-```bash
-# CLI for session management
-prompt-prix-gemini --on      # Start session (login manually)
-prompt-prix-gemini --off     # End session
-prompt-prix-gemini --status  # Check session status
-
-# Session stored at: ~/.prompt-prix/gemini_state/state.json
 ```
 
 ---
@@ -447,8 +454,7 @@ Use unit tests for:
 - State management logic
 
 Use integration tests for:
-- Adapter implementations (LMStudio, Gemini, Fara)
-- Visual UI verification (FaraService)
+- Adapter implementations (LMStudio, surf-mcp, HF Inference)
 - ReAct tool loops
 - End-to-end prompt execution
 
@@ -461,36 +467,23 @@ pytest
 # Run integration tests (the ones that matter for model code)
 pytest -m integration
 
-# Run specific integration test class
-pytest tests/test_gemini_adapter.py::TestGeminiVisualAdapter -m integration -v
-
 # Coverage (note: integration tests provide meaningful coverage)
 pytest --cov=prompt_prix
 ```
 
 ### Test Markers
-- `@pytest.mark.integration` - Requires external services (LM Studio, Gemini, etc.)
+- `@pytest.mark.integration` - Requires external services (LM Studio, etc.)
 - Default pytest config skips integration tests for CI convenience
 
 ### Integration Test Prerequisites
 
 Before running integration tests, ensure your local environment is ready:
 
-1. **LM Studio running** with required models loaded:
-   - Primary models for comparison tests
-   - `microsoft_fara-7b` for visual adapter tests
+1. **LM Studio running** with required models loaded
 
-2. **Gemini session active** (if testing Gemini adapters):
-   ```bash
-   prompt-prix-gemini --on   # Opens browser, login manually
-   prompt-prix-gemini --status  # Verify session is active
-   ```
-
-3. **`.env` configured** with correct server URLs:
+2. **`.env` configured** with correct server URLs:
    ```bash
    LM_STUDIO_SERVER_1=http://localhost:1234
-   FARA_SERVER_URL=http://localhost:1234
-   FARA_MODEL_ID=microsoft_fara-7b
    ```
 
 ### Writing New Integration Tests
@@ -530,29 +523,6 @@ Validate servers and models before starting sessions.
 - `tabs/*/ui.py`: Component definitions
 - `tabs/*/handlers.py`: Event logic
 - `core.py`: Business logic
-
-### Visual-First Automation
-Prefer visual element location (Fara) over DOM selectors for web UI automation.
-
----
-
-## Future Direction: MCP Service
-
-The Fara adapter is evolving toward an MCP (Model Context Protocol) service architecture.
-
-**Current state:** Proof-of-concept working in prompt-prix
-**Target state:** Standalone MCP service callable from any client
-
-```
-prompt-prix (Gradio UI)
-    │
-    └── MCP Client ──► fara_service (MCP Service)
-                            │
-                            ├── Fara-7B (vision)
-                            └── Playwright (browser)
-```
-
-See: `langgraph-agentic-scaffold/app/src/mcp/services/fara_service.py`
 
 ---
 
@@ -623,8 +593,14 @@ This workflow ensures:
 5. Commit with descriptive messages
 
 ### Adding a New Adapter
-1. Create `prompt_prix/adapters/new_adapter.py`
-2. Implement required interface (send_prompt, close)
-3. Add configuration to `config.py` if needed
-4. Wire into appropriate tab handlers
-5. Add integration tests with `@pytest.mark.integration`
+
+Follow the Adapter pattern (see "Adapters" section above):
+
+1. **Create adapter file:** `prompt_prix/adapters/new_adapter.py`
+2. **Implement `HostAdapter` protocol:** `get_available_models()`, `stream_completion()`
+3. **Encapsulate backend internals:** Connection pools, sessions, clients belong INSIDE the adapter
+4. **Expose module-level function:** `stream_completion()` for MCP to call without instantiation
+5. **Export from `__init__.py`:** Add to `prompt_prix/adapters/__init__.py`
+6. **Add integration tests:** Mark with `@pytest.mark.integration`
+
+**Critical:** No adapter instantiation outside `prompt_prix/adapters/`. MCP calls adapter module functions, not classes.
