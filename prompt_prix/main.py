@@ -38,9 +38,24 @@ session = state.session
 load_dotenv()
 
 
+def _register_default_adapter() -> None:
+    """Register the LMStudioAdapter with servers from environment."""
+    from prompt_prix.config import get_default_servers
+    from prompt_prix.adapters.lmstudio import LMStudioAdapter
+    from prompt_prix.mcp.registry import register_adapter
+
+    servers = get_default_servers()
+    if servers:
+        adapter = LMStudioAdapter(server_urls=servers)
+        register_adapter(adapter)
+
+
 def run():
     """Entry point for the application."""
     print("prompt-prix starting...")
+
+    # Register adapter with default servers from env
+    _register_default_adapter()
 
     app = create_app()
     port = get_gradio_port()

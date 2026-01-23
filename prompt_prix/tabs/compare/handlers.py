@@ -12,6 +12,7 @@ from datetime import datetime
 
 from prompt_prix import state
 from prompt_prix.core import ServerPool, ComparisonSession
+from prompt_prix.adapters.lmstudio import stream_completion  # Legacy - compare tab uses direct server access
 from prompt_prix.export import generate_markdown_report, generate_json_report, save_report
 from prompt_prix.parsers import parse_servers_input
 
@@ -184,7 +185,7 @@ async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str 
         streaming_responses[model_id] = f"*[Server: {server_label}]*\n\n"
 
         try:
-            from prompt_prix.core import stream_completion
+            # stream_completion imported at top of file (from lmstudio adapter)
             messages = context.to_openai_messages(session.state.system_prompt)
 
             full_response = f"*[Server: {server_label}]*\n\n"

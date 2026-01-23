@@ -23,6 +23,9 @@ async def _init_pool_and_validate(
     """
     Initialize server pool and validate models are available.
 
+    NOTE: This is legacy code for the Compare tab. Per ADR-006, the Compare tab
+    refactor is deferred. New code should use MCP tools via the registry.
+
     Returns:
         (pool, None) on success
         (None, error_message) on failure
@@ -120,6 +123,21 @@ async def _get_loaded_models_via_http(servers: list[str]) -> set[str]:
     return loaded_ids
 
 
+def _ensure_adapter_registered(servers: list[str]) -> None:
+    """
+    Ensure an adapter is registered with the given servers.
+
+    This re-registers the adapter if the server list changes, allowing
+    the UI to dynamically update server configuration.
+    """
+    from prompt_prix.adapters.lmstudio import LMStudioAdapter
+    from prompt_prix.mcp.registry import register_adapter
+
+    # Always re-register with current servers from UI
+    adapter = LMStudioAdapter(server_urls=servers)
+    register_adapter(adapter)
+
+
 async def fetch_available_models(
     servers_text: str,
     only_loaded: bool = False
@@ -128,6 +146,7 @@ async def fetch_available_models(
     Query all configured servers and return available models.
 
     Uses the list_models MCP tool for model discovery.
+    Registers/re-registers the adapter with the provided servers.
 
     Args:
         servers_text: Newline-separated server URLs
@@ -142,8 +161,11 @@ async def fetch_available_models(
     if not servers:
         return "❌ No servers configured", gr.update(choices=[])
 
-    # Use MCP tool for model discovery
-    result = await list_models(servers)
+    # Register adapter with current servers before using MCP tool
+    _ensure_adapter_registered(servers)
+
+    # Use MCP tool for model discovery (uses registry internally)
+    result = await list_models()
 
     models_by_server = {
         url: models for url, models in result["servers"].items()

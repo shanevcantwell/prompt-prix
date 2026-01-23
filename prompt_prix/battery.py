@@ -1,15 +1,19 @@
 """
 Battery Engine - orchestrates benchmark test suite execution.
 
+Per ADR-006, BatteryRunner is in the ORCHESTRATION layer:
+- Defines WHAT to run (test matrix across models)
+- Controls concurrency via asyncio.Semaphore
+- Calls MCP primitives ONLY — never adapters directly
+- NEVER imports adapters/*, ServerPool, ConcurrentDispatcher
+
 State management per CLAUDE.md:
 - Pydantic models for all state (TestResult, BatteryRun)
 - Observable by default (yields state snapshots for UI)
 - Fail loudly on errors (no swallowing exceptions)
-
-Uses ConcurrentDispatcher for parallel execution across servers.
-Includes retry logic with exponential backoff for transient errors.
 """
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -25,7 +29,7 @@ from tenacity import (
     before_sleep_log,
 )
 
-from prompt_prix.core import stream_completion, ServerPool
+from prompt_prix.mcp.tools.complete import complete_stream
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
 from prompt_prix import state as app_state
 from prompt_prix.semantic_validator import validate_response_semantic
@@ -105,7 +109,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class BatteryWorkItem:
-    """Work item for battery dispatcher."""
+    """Work item for battery execution."""
 
     test: "TestCase"
     model_id: str
@@ -233,7 +237,7 @@ class BatteryRun(BaseModel):
         """Count of completed or errored tests."""
         return sum(
             1 for r in self.results.values()
-            if r.status in [TestStatus.COMPLETED, TestStatus.ERROR]
+            if r.status in [TestStatus.COMPLETED, TestStatus.ERROR, TestStatus.SEMANTIC_FAILURE]
         )
 
     @property
@@ -251,41 +255,43 @@ class BatteryRun(BaseModel):
 
 class BatteryRunner:
     """
-    Orchestrates battery execution with concurrent GPU parallelism.
+    Orchestrates battery execution.
 
-    Design per CLAUDE.md:
-    - Dependency injection (adapter passed in, not hardcoded)
-    - Observable (yields state snapshots for UI updates)
-    - Fail loudly (errors recorded in TestResult, not swallowed)
-    - Concurrent dispatcher for parallel execution across servers
+    Per ADR-006 (Orchestration Layer):
+    - Defines WHAT to run (test matrix across models)
+    - Controls concurrency via asyncio.Semaphore
+    - Calls MCP primitives ONLY (complete_stream) — never adapters directly
+    - DOES NOT know about servers, ServerPool, or ConcurrentDispatcher
+
+    The adapter (registered in MCP registry) handles server selection internally.
     """
 
     def __init__(
         self,
-        servers: list[str],
         tests: list["TestCase"],
         models: list[str],
         temperature: float = 0.0,  # Deterministic for evals
         max_tokens: int = 2048,
-        timeout_seconds: int = 300
+        timeout_seconds: int = 300,
+        max_concurrent: int = 4,  # Semaphore limit
     ):
         """
         Initialize battery runner.
 
         Args:
-            servers: List of OpenAI-compatible server URLs
             tests: List of TestCase objects to run
             models: List of model IDs to test against
             temperature: Sampling temperature (default 0.0 for reproducibility)
             max_tokens: Maximum tokens per response
             timeout_seconds: Timeout per request
+            max_concurrent: Maximum concurrent requests (semaphore limit)
         """
-        self.pool = ServerPool(servers)
         self.tests = tests
         self.models = models
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
+        self.max_concurrent = max_concurrent
 
         # Initialize state
         self.state = BatteryRun(
@@ -295,16 +301,14 @@ class BatteryRunner:
 
     async def run(self) -> AsyncGenerator[BatteryRun, None]:
         """
-        Execute all tests across all models using concurrent dispatch.
+        Execute all tests across all models.
 
-        Uses ConcurrentDispatcher to run tests in parallel across
-        available servers, keeping all servers busy.
+        Uses asyncio.Semaphore to limit concurrent requests.
+        The adapter (via MCP registry) handles server selection internally.
 
         Yields:
             BatteryRun state snapshot periodically for UI updates
         """
-        from prompt_prix.dispatcher import ConcurrentDispatcher
-
         # Build work items for all (test, model) combinations
         work_items = [
             BatteryWorkItem(test=test, model_id=model_id)
@@ -312,96 +316,130 @@ class BatteryRunner:
             for model_id in self.models
         ]
 
-        dispatcher = ConcurrentDispatcher(self.pool)
+        semaphore = asyncio.Semaphore(self.max_concurrent)
+        active_tasks: set[asyncio.Task] = set()
 
-        async def execute_test(item: BatteryWorkItem, server_url: str) -> None:
-            """Execute a single test on a specific server with retry logic."""
-            # Mark as running
-            self.state.set_result(TestResult(
-                test_id=item.test.id,
-                model_id=item.model_id,
-                status=TestStatus.RUNNING
-            ))
+        # Initial yield
+        yield self.state
 
-            start_time = time.time()
+        async def execute_with_semaphore(item: BatteryWorkItem) -> None:
+            """Execute a single test with semaphore-based concurrency control."""
+            async with semaphore:
+                await self._execute_test(item)
 
-            @retry(
-                stop=stop_after_attempt(get_retry_attempts()),
-                wait=wait_exponential(multiplier=2, min=get_retry_min_wait(), max=get_retry_max_wait()),
-                retry=retry_if_exception(is_retryable_error),
-                before_sleep=before_sleep_log(logger, logging.WARNING),
-                reraise=True,
+        # Create tasks for all work items
+        for item in work_items:
+            if app_state.should_stop():
+                break
+            task = asyncio.create_task(execute_with_semaphore(item))
+            active_tasks.add(task)
+            task.add_done_callback(active_tasks.discard)
+
+        # Wait for completion, yielding state periodically
+        while active_tasks:
+            # Wait briefly then yield state for UI update
+            done, _ = await asyncio.wait(
+                active_tasks,
+                timeout=0.2,
+                return_when=asyncio.FIRST_COMPLETED
             )
-            async def stream_with_retry() -> str:
-                """Stream completion with retry for transient errors."""
-                # Check for cancellation before each attempt
-                if app_state.should_stop():
-                    raise CancelledError("Battery run cancelled by user")
 
-                response = ""
-                async for chunk in stream_completion(
-                    server_url=server_url,
-                    model_id=item.model_id,
-                    messages=item.test.to_messages(),
-                    temperature=self.temperature,
-                    max_tokens=self.max_tokens,
-                    timeout_seconds=self.timeout_seconds,
-                    tools=item.test.tools
-                ):
-                    response += chunk
-                    # Check for cancellation during streaming
-                    if app_state.should_stop():
-                        raise CancelledError("Battery run cancelled by user")
+            # Process completed tasks (exceptions are already caught in _execute_test)
+            for task in done:
+                try:
+                    task.result()
+                except Exception:
+                    pass  # Errors already recorded in state
 
-                # Validate response to catch false positives (empty/error responses)
-                validate_response(response)
-                return response
-
-            try:
-                response = await stream_with_retry()
-                latency_ms = (time.time() - start_time) * 1000
-
-                # Semantic validation: check for refusals and expected tool calls
-                # Pass model_id for model-aware tool call parsing
-                is_valid, failure_reason = validate_response_semantic(
-                    item.test, response, model_id=item.model_id
-                )
-
-                if is_valid:
-                    self.state.set_result(TestResult(
-                        test_id=item.test.id,
-                        model_id=item.model_id,
-                        status=TestStatus.COMPLETED,
-                        response=response,
-                        latency_ms=latency_ms
-                    ))
-                else:
-                    self.state.set_result(TestResult(
-                        test_id=item.test.id,
-                        model_id=item.model_id,
-                        status=TestStatus.SEMANTIC_FAILURE,
-                        response=response,
-                        latency_ms=latency_ms,
-                        failure_reason=failure_reason
-                    ))
-
-            except Exception as e:
-                latency_ms = (time.time() - start_time) * 1000
-
-                # Mark as error (fail loudly - record error, don't hide it)
-                self.state.set_result(TestResult(
-                    test_id=item.test.id,
-                    model_id=item.model_id,
-                    status=TestStatus.ERROR,
-                    error=str(e),
-                    latency_ms=latency_ms
-                ))
-
-        # Run dispatcher and yield state on each iteration
-        async for _ in dispatcher.dispatch(
-            work_items, execute_test, should_cancel=app_state.should_stop
-        ):
             yield self.state
+
+            # Check for cancellation
+            if app_state.should_stop():
+                for task in active_tasks:
+                    task.cancel()
+                break
 
         # Final yield with complete state
         yield self.state
+
+    async def _execute_test(self, item: BatteryWorkItem) -> None:
+        """Execute a single test with retry logic."""
+        # Mark as running
+        self.state.set_result(TestResult(
+            test_id=item.test.id,
+            model_id=item.model_id,
+            status=TestStatus.RUNNING
+        ))
+
+        start_time = time.time()
+
+        @retry(
+            stop=stop_after_attempt(get_retry_attempts()),
+            wait=wait_exponential(multiplier=2, min=get_retry_min_wait(), max=get_retry_max_wait()),
+            retry=retry_if_exception(is_retryable_error),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+            reraise=True,
+        )
+        async def stream_with_retry() -> str:
+            """Stream completion with retry for transient errors."""
+            # Check for cancellation before each attempt
+            if app_state.should_stop():
+                raise CancelledError("Battery run cancelled by user")
+
+            response = ""
+            # Call MCP primitive - adapter handles server selection
+            async for chunk in complete_stream(
+                model_id=item.model_id,
+                messages=item.test.to_messages(),
+                temperature=self.temperature,
+                max_tokens=self.max_tokens,
+                timeout_seconds=self.timeout_seconds,
+                tools=item.test.tools
+            ):
+                response += chunk
+                # Check for cancellation during streaming
+                if app_state.should_stop():
+                    raise CancelledError("Battery run cancelled by user")
+
+            # Validate response to catch false positives (empty/error responses)
+            validate_response(response)
+            return response
+
+        try:
+            response = await stream_with_retry()
+            latency_ms = (time.time() - start_time) * 1000
+
+            # Semantic validation: check for refusals and expected tool calls
+            is_valid, failure_reason = validate_response_semantic(
+                item.test, response, model_id=item.model_id
+            )
+
+            if is_valid:
+                self.state.set_result(TestResult(
+                    test_id=item.test.id,
+                    model_id=item.model_id,
+                    status=TestStatus.COMPLETED,
+                    response=response,
+                    latency_ms=latency_ms
+                ))
+            else:
+                self.state.set_result(TestResult(
+                    test_id=item.test.id,
+                    model_id=item.model_id,
+                    status=TestStatus.SEMANTIC_FAILURE,
+                    response=response,
+                    latency_ms=latency_ms,
+                    failure_reason=failure_reason
+                ))
+
+        except Exception as e:
+            latency_ms = (time.time() - start_time) * 1000
+
+            # Mark as error (fail loudly - record error, don't hide it)
+            self.state.set_result(TestResult(
+                test_id=item.test.id,
+                model_id=item.model_id,
+                status=TestStatus.ERROR,
+                error=str(e),
+                latency_ms=latency_ms
+            ))

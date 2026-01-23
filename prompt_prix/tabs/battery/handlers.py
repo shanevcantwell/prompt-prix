@@ -83,8 +83,9 @@ async def run_handler(
 
     from prompt_prix.benchmarks import CustomJSONLoader
     from prompt_prix.battery import BatteryRunner
-    from prompt_prix.mcp.tools import list_models
+    from prompt_prix.mcp.tools.list_models import list_models
     from prompt_prix.parsers import parse_servers_input
+    from prompt_prix.handlers import _ensure_adapter_registered
 
     # Load test cases
     try:
@@ -99,8 +100,11 @@ async def run_handler(
         yield "❌ No servers configured", []
         return
 
-    # Validate models using MCP primitive
-    result = await list_models(servers)
+    # Register adapter with current servers before using MCP tools
+    _ensure_adapter_registered(servers)
+
+    # Validate models using MCP primitive (uses registry internally)
+    result = await list_models()
     available = set(result["models"])
     missing = [m for m in models_selected if m not in available]
     if missing:
@@ -108,8 +112,8 @@ async def run_handler(
         return
 
     # Create and run battery (temperature=0.0 for reproducibility)
+    # BatteryRunner calls MCP tools internally - doesn't need servers
     runner = BatteryRunner(
-        servers=servers,
         tests=tests,
         models=models_selected,
         temperature=0.0,

@@ -1,27 +1,24 @@
 """MCP tool: list_models - discover available models from configured servers.
 
-This is the first MCP primitive in prompt-prix, establishing the pattern
-for future tools (complete, judge).
+Adapter is retrieved via registry - callers don't manage servers.
 
 Usage:
-    result = await list_models(["http://192.168.1.10:1234", "http://192.168.1.11:1234"])
+    result = await list_models()
     print(result["models"])  # ["model-a", "model-b", ...]
 """
 
-from prompt_prix.adapters.lmstudio import LMStudioAdapter
-from prompt_prix.core import ServerPool
+from prompt_prix.mcp.registry import get_adapter
 
 
-async def list_models(server_urls: list[str]) -> dict:
+async def list_models() -> dict:
     """
     List available models from configured LM Studio servers.
 
     This is an MCP primitive - a self-contained operation that can be called
     by Gradio UI, CLI, or agentic systems.
 
-    Args:
-        server_urls: List of OpenAI-compatible server URLs
-            e.g., ["http://192.168.1.10:1234", "http://localhost:1234"]
+    The adapter is retrieved from the registry and contains all server
+    configuration. Callers don't need to know about server URLs.
 
     Returns:
         {
@@ -34,18 +31,9 @@ async def list_models(server_urls: list[str]) -> dict:
         }
 
     Raises:
-        No exceptions - errors are captured in the response structure.
+        RuntimeError: If no adapter has been registered
     """
-    if not server_urls:
-        return {
-            "models": [],
-            "servers": {},
-            "unreachable": [],
-        }
-
-    # Create adapter stack: URLs -> ServerPool -> LMStudioAdapter
-    pool = ServerPool(server_urls)
-    adapter = LMStudioAdapter(pool)
+    adapter = get_adapter()
 
     # Fetch models (triggers HTTP calls to all servers)
     models = await adapter.get_available_models()
