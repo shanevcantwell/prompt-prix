@@ -330,7 +330,7 @@ class LMStudioAdapter:
             # Delegate to module-level function for actual streaming
             async for chunk in stream_completion(
                 server_url=server_url,
-                model_id=model_id,
+                model_id=actual_model_id,
                 messages=messages,
                 temperature=temperature,
                 max_tokens=max_tokens,

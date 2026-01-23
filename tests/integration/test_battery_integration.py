@@ -313,13 +313,14 @@ async def test_server_affinity_with_multiple_gpus(live_adapter):
         elapsed = time.time() - start
         return model_id, response, elapsed
 
-    # Run both models concurrently - this is where the routing issue shows up
+    # Run both models concurrently with server affinity prefixes
+    # Prefix format: "server_idx:model_name" routes to specific server
     # With proper parallel routing: total_time ~= max(time0, time1)
     # With serialized routing: total_time ~= time0 + time1
     overall_start = time.time()
     results = await asyncio.gather(
-        run_model(model_from_server0),
-        run_model(model_from_server1),
+        run_model(f"0:{model_from_server0}"),
+        run_model(f"1:{model_from_server1}"),
         return_exceptions=True
     )
     overall_elapsed = time.time() - overall_start

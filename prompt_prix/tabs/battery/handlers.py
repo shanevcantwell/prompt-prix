@@ -106,24 +106,38 @@ async def run_handler(
     _ensure_adapter_registered(servers)
 
     # Validate models using MCP primitive (uses registry internally)
+    # Models may have server affinity prefix (e.g., "0:model_name")
+    def strip_prefix(m: str) -> str:
+        """Strip server affinity prefix if present."""
+        if ":" in m and m.split(":")[0].isdigit():
+            return m.split(":", 1)[1]
+        return m
+
     result = await list_models()
     available = set(result["models"])
-    missing = [m for m in models_selected if m not in available]
+    actual_names = [strip_prefix(m) for m in models_selected]
+    missing = [m for m in actual_names if m not in available]
     if missing:
         yield f"❌ Models not available: {', '.join(missing)}", []
         return
 
     # Create and run battery (temperature=0.0 for reproducibility)
     # BatteryRunner calls MCP tools internally - doesn't need servers
-    # max_concurrent=1: serialized execution to prevent model thrashing
-    # TODO: Phase 3 - orchestrated fan-out with server hints for true parallelism
+    # max_concurrent = number of unique servers (from affinity prefixes)
+    # This enables parallel execution across GPUs while keeping each GPU serialized
+    server_indices = {
+        int(m.split(":")[0]) for m in models_selected
+        if ":" in m and m.split(":")[0].isdigit()
+    }
+    max_concurrent = len(server_indices) if server_indices else 1
+
     runner = BatteryRunner(
         tests=tests,
         models=models_selected,
         temperature=0.0,
         max_tokens=max_tokens,
         timeout_seconds=timeout,
-        max_concurrent=1
+        max_concurrent=max_concurrent
     )
 
     # Store state for later detail retrieval
