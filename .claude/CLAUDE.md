@@ -24,7 +24,7 @@ This is a pair programming relationship, not a code generation vending machine. 
 
 **The goal is working software that remains maintainable** - not code that appears to work, not impressive-looking output, not maximum tokens of plausible implementation.
 
-When in doubt: discuss the approach first. Plan mode is opportunity for the idea solution, not a penalty box.
+When in doubt: discuss the approach first. Plan mode is opportunity for the ideal solution, not a penalty box.
 
 ---
 
