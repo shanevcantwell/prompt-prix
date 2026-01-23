@@ -288,16 +288,14 @@ class LMStudioAdapter:
         condition where multiple tasks find the same server "available".
         """
         import time
+        from prompt_prix.server_affinity import parse_server_prefix
+
         start_time = time.time()
         server_url = None
 
         # Parse server affinity prefix (e.g., "0:model_name" -> server_idx=0)
-        server_idx: Optional[int] = None
-        actual_model_id = model_id
-        if ":" in model_id and model_id.split(":")[0].isdigit():
-            parts = model_id.split(":", 1)
-            server_idx = int(parts[0])
-            actual_model_id = parts[1]
+        server_idx, actual_model_id = parse_server_prefix(model_id)
+        if server_idx is not None:
             logger.debug(f"Server affinity: model={actual_model_id} -> server {server_idx}")
 
         # Refresh manifests once at start

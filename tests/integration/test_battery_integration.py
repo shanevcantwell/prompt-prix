@@ -19,7 +19,7 @@ from prompt_prix.config import load_servers_from_env
 from prompt_prix.adapters.lmstudio import LMStudioAdapter
 from prompt_prix.mcp.registry import register_adapter, clear_adapter
 from prompt_prix.benchmarks import CustomJSONLoader
-from prompt_prix.battery import BatteryRunner, TestStatus
+from prompt_prix.battery import BatteryRunner, RunStatus
 from prompt_prix import state
 
 
@@ -96,7 +96,7 @@ async def test_basic_tool_call(live_adapter, first_model, tool_competence_tests)
 
     result = final_state.get_result("basic_tool_call", first_model)
     assert result is not None
-    assert result.status in [TestStatus.COMPLETED, TestStatus.SEMANTIC_FAILURE]
+    assert result.status in [RunStatus.COMPLETED, RunStatus.SEMANTIC_FAILURE]
 
     # Verify tool call format (should NOT be fragmented)
     response = result.response

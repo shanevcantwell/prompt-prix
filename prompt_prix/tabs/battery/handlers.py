@@ -107,15 +107,11 @@ async def run_handler(
 
     # Validate models using MCP primitive (uses registry internally)
     # Models may have server affinity prefix (e.g., "0:model_name")
-    def strip_prefix(m: str) -> str:
-        """Strip server affinity prefix if present."""
-        if ":" in m and m.split(":")[0].isdigit():
-            return m.split(":", 1)[1]
-        return m
+    from prompt_prix.server_affinity import strip_server_prefix, extract_server_indices
 
     result = await list_models()
     available = set(result["models"])
-    actual_names = [strip_prefix(m) for m in models_selected]
+    actual_names = [strip_server_prefix(m) for m in models_selected]
     missing = [m for m in actual_names if m not in available]
     if missing:
         yield f"❌ Models not available: {', '.join(missing)}", []
@@ -125,10 +121,7 @@ async def run_handler(
     # BatteryRunner calls MCP tools internally - doesn't need servers
     # max_concurrent = number of unique servers (from affinity prefixes)
     # This enables parallel execution across GPUs while keeping each GPU serialized
-    server_indices = {
-        int(m.split(":")[0]) for m in models_selected
-        if ":" in m and m.split(":")[0].isdigit()
-    }
+    server_indices = extract_server_indices(models_selected)
     max_concurrent = len(server_indices) if server_indices else 1
 
     runner = BatteryRunner(
@@ -228,7 +221,7 @@ def export_csv():
 
 def get_cell_detail(model: str, test: str) -> str:
     """Get response detail for a (model, test) cell."""
-    from prompt_prix.battery import TestStatus
+    from prompt_prix.battery import RunStatus
 
     if not state.battery_run:
         return "*No battery run available*"
@@ -240,16 +233,16 @@ def get_cell_detail(model: str, test: str) -> str:
     if not result:
         return f"*No result for {model} × {test}*"
 
-    if result.status == TestStatus.ERROR:
+    if result.status == RunStatus.ERROR:
         return f"**Status:** ❌ Error\n\n**Error:** {result.error}"
 
-    if result.status == TestStatus.PENDING:
+    if result.status == RunStatus.PENDING:
         return f"**Status:** — Pending"
 
-    if result.status == TestStatus.RUNNING:
+    if result.status == RunStatus.RUNNING:
         return f"**Status:** ⏳ Running..."
 
-    if result.status == TestStatus.SEMANTIC_FAILURE:
+    if result.status == RunStatus.SEMANTIC_FAILURE:
         latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
         failure = result.failure_reason or "Unknown semantic failure"
         return (
