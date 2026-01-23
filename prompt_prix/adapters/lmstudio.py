@@ -263,17 +263,34 @@ class LMStudioAdapter:
         Finds an available server with the model, acquires it,
         streams the completion, then releases the server.
 
-        Note: find + acquire is atomic (inside same lock) to prevent race
+        Waits for a server to become available if all are busy.
+        Find + acquire is atomic (inside same lock) to prevent race
         condition where multiple tasks find the same server "available".
         """
+        import time
+        start_time = time.time()
         server_url = None
+
+        # Refresh manifests once at start
         async with self._lock:
             await self._pool.refresh_all_manifests()
-            server_url = self._pool.find_available_server(model_id)
-            if server_url is None:
-                raise RuntimeError(f"No server available for model: {model_id}")
-            # Acquire inside lock to prevent TOCTOU race
-            await self._pool.acquire_server(server_url)
+
+        # Wait for a server to become available
+        while True:
+            # Check timeout (use completion timeout as max wait)
+            if time.time() - start_time > timeout_seconds:
+                raise RuntimeError(f"Timeout waiting for server for model: {model_id}")
+
+            async with self._lock:
+                server_url = self._pool.find_available_server(model_id)
+                if server_url is not None:
+                    # Acquire inside lock to prevent TOCTOU race
+                    await self._pool.acquire_server(server_url)
+                    break
+
+            # Server not available, wait briefly and retry
+            # Releasing lock allows other tasks to release their servers
+            await asyncio.sleep(0.2)
         try:
             payload = {
                 "model": model_id,

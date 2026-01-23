@@ -141,3 +141,33 @@ SNAPSHOT_IF_EMPTY_JS = """
     return [servers, temp];
 }
 """
+
+# ─────────────────────────────────────────────────────────────────────
+# JAVASCRIPT: Auto-Download for Exports
+# ─────────────────────────────────────────────────────────────────────
+
+# Triggers immediate download when a file is ready.
+# Uses fileData.url directly instead of DOM scraping (more reliable in Gradio 6.x).
+AUTO_DOWNLOAD_JS = """
+(fileData) => {
+    if (!fileData) return fileData;
+
+    // Gradio 6.x FileData: {path, url, orig_name, size, mime_type, ...}
+    // Use the URL directly to trigger download
+    const url = fileData.url;
+    const filename = fileData.orig_name || fileData.path?.split('/').pop() || 'download';
+
+    if (url) {
+        // Create hidden link and trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    return fileData;
+}
+"""

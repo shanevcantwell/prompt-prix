@@ -15,11 +15,13 @@ from prompt_prix import state
 
 
 def _get_export_basename() -> str:
-    """Get base name for export files from source filename."""
+    """Get base name for export files from source filename with timestamp."""
+    import time
+    timestamp = int(time.time())
     if state.battery_source_file:
         stem = Path(state.battery_source_file).stem
-        return f"{stem}_results"
-    return "battery_results"
+        return f"{stem}_results_{timestamp}"
+    return f"battery_results_{timestamp}"
 
 
 def validate_file(file_obj) -> str:
@@ -113,12 +115,15 @@ async def run_handler(
 
     # Create and run battery (temperature=0.0 for reproducibility)
     # BatteryRunner calls MCP tools internally - doesn't need servers
+    # max_concurrent=1: serialized execution to prevent model thrashing
+    # TODO: Phase 3 - orchestrated fan-out with server hints for true parallelism
     runner = BatteryRunner(
         tests=tests,
         models=models_selected,
         temperature=0.0,
         max_tokens=max_tokens,
-        timeout_seconds=timeout
+        timeout_seconds=timeout,
+        max_concurrent=1
     )
 
     # Store state for later detail retrieval
@@ -155,7 +160,8 @@ def export_json():
                     "status": result.status.value,
                     "response": result.response,
                     "latency_ms": result.latency_ms,
-                    "error": result.error
+                    "error": result.error,
+                    "failure_reason": result.failure_reason
                 })
 
     # Write to temp file with meaningful name
@@ -166,35 +172,44 @@ def export_json():
     with open(filepath, "w") as f:
         json.dump(export_data, f, indent=2)
 
-    return f"✅ Exported {len(export_data['results'])} results", gr.update(visible=True, value=filepath)
+    return f"✅ Exported {len(export_data['results'])} results", gr.update(visible=False, value=filepath)
 
 
 def export_csv():
     """Export battery results as CSV file."""
+    import csv
+
     if not state.battery_run:
         return "❌ No battery results to export", gr.update(visible=False, value=None)
-
-    lines = ["test_id,model_id,status,latency_ms,response"]
-
-    for test_id in state.battery_run.tests:
-        for model_id in state.battery_run.models:
-            result = state.battery_run.get_result(test_id, model_id)
-            if result:
-                response = result.response or ""
-                response = response.replace('"', '""')
-                response = response.replace('\n', '\\n')
-                latency = f"{result.latency_ms:.0f}" if result.latency_ms else ""
-                lines.append(f'"{test_id}","{model_id}","{result.status.value}",{latency},"{response}"')
 
     # Write to temp file with meaningful name
     basename = _get_export_basename()
     temp_dir = tempfile.gettempdir()
     filepath = os.path.join(temp_dir, f"{basename}.csv")
 
-    with open(filepath, "w") as f:
-        f.write("\n".join(lines))
+    row_count = 0
+    with open(filepath, "w", newline='', encoding='utf-8') as f:
+        writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+        writer.writerow(["test_id", "model_id", "status", "latency_ms",
+                         "error", "failure_reason", "response"])
 
-    return f"✅ Exported {len(lines) - 1} results", gr.update(visible=True, value=filepath)
+        for test_id in state.battery_run.tests:
+            for model_id in state.battery_run.models:
+                result = state.battery_run.get_result(test_id, model_id)
+                if result:
+                    latency = f"{result.latency_ms:.0f}" if result.latency_ms else ""
+                    writer.writerow([
+                        result.test_id,
+                        result.model_id,
+                        result.status.value,
+                        latency,
+                        result.error or "",
+                        result.failure_reason or "",
+                        result.response or ""
+                    ])
+                    row_count += 1
+
+    return f"✅ Exported {row_count} results", gr.update(visible=False, value=filepath)
 
 
 def get_cell_detail(model: str, test: str) -> str:

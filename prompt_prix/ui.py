@@ -22,6 +22,7 @@ from prompt_prix.ui_helpers import (
     TAB_STATUS_JS,
     PERSISTENCE_LOAD_JS,
     SAVE_SERVERS_JS,
+    AUTO_DOWNLOAD_JS,
 )
 
 # Import tab-specific handlers
@@ -272,6 +273,14 @@ def create_app() -> gr.Blocks:
             fn=battery_handlers.export_grid_image,
             inputs=[],
             outputs=[battery.status, battery.export_file]
+        )
+
+        # Auto-download when export file is ready
+        battery.export_file.change(
+            fn=None,
+            inputs=[battery.export_file],
+            outputs=[battery.export_file],
+            js=AUTO_DOWNLOAD_JS
         )
 
         # ─────────────────────────────────────────────────────────────
