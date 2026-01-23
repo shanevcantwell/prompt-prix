@@ -25,13 +25,8 @@ dev = [
     "pytest-cov>=4.0.0",
     "respx>=0.20.0",
 ]
-gemini = [
-    "playwright>=1.40.0",
-]
-
 [project.scripts]
 prompt-prix = "prompt_prix.main:run"
-prompt-prix-gemini = "prompt_prix.main:gemini_setup"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -251,13 +251,13 @@ class BatteryRun(BaseModel):
 
 class BatteryRunner:
     """
-    Orchestrates battery execution with work-stealing parallelism.
+    Orchestrates battery execution with concurrent GPU parallelism.
 
     Design per CLAUDE.md:
     - Dependency injection (adapter passed in, not hardcoded)
     - Observable (yields state snapshots for UI updates)
     - Fail loudly (errors recorded in TestResult, not swallowed)
-    - Work-stealing dispatcher for parallel execution across servers
+    - Concurrent dispatcher for parallel execution across servers
     """
 
     def __init__(

@@ -362,38 +362,59 @@ class TestBatteryRunner:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_run_completes_all_tests(self, sample_test_cases):
-        """Test that runner completes all (test, model) combinations."""
+    async def test_run_completes_all_tests_via_mcp(self, sample_test_cases):
+        """Test that runner completes all tests BY CALLING MCP complete_stream.
+
+        This test mocks the MCP layer, not HTTP. If BatteryRunner bypasses MCP
+        and calls core.stream_completion directly, this test will FAIL.
+        """
+        from unittest.mock import patch, AsyncMock, call
+
         models = ["model_a", "model_b"]
 
-        # Mock manifest endpoint
+        # Mock manifest endpoint (still needed for pool.refresh_all_manifests)
         respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
             return_value=httpx.Response(200, json=make_manifest_for_models(models))
         )
 
-        # Mock completion endpoint - return different responses per model
-        def completion_handler(request):
-            return httpx.Response(200, content=make_streaming_body("Test response"))
+        # Track calls to MCP complete_stream
+        mcp_calls = []
 
-        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=completion_handler)
+        async def mock_complete_stream(**kwargs):
+            mcp_calls.append(kwargs)
+            yield "Test response"
 
-        runner = BatteryRunner(
-            servers=[MOCK_SERVER_1],
-            tests=sample_test_cases,
-            models=models
+        # Patch at the MCP layer - BatteryRunner SHOULD call this
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+            runner = BatteryRunner(
+                servers=[MOCK_SERVER_1],
+                tests=sample_test_cases,
+                models=models
+            )
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        # BatteryRunner must call MCP complete_stream for each (test, model)
+        assert len(mcp_calls) == 4, (
+            f"Expected 4 calls to MCP complete_stream (2 tests × 2 models), "
+            f"got {len(mcp_calls)}. BatteryRunner is bypassing MCP layer."
         )
-
-        final_state = None
-        async for state in runner.run():
-            final_state = state
-
         assert final_state is not None
-        assert final_state.completed_count == 4  # 2 tests × 2 models
+        assert final_state.completed_count == 4
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_run_handles_errors(self, sample_test_cases):
-        """Test that runner handles model errors gracefully."""
+    async def test_run_handles_errors_via_mcp(self, sample_test_cases):
+        """Test that runner handles MCP-layer errors gracefully.
+
+        This test mocks the MCP layer. If BatteryRunner bypasses MCP,
+        this test will FAIL.
+        """
+        from unittest.mock import patch
+        from prompt_prix.core import LMStudioError
+
         models = ["model_a", "model_b"]
 
         # Mock manifest endpoint
@@ -401,29 +422,31 @@ class TestBatteryRunner:
             return_value=httpx.Response(200, json=make_manifest_for_models(models))
         )
 
-        # Mock completion - model_a succeeds, model_b fails
-        call_count = {"model_a": 0, "model_b": 0}
+        mcp_calls = []
 
-        def completion_handler(request):
-            # Parse the request to determine which model
-            body = json.loads(request.content)
-            model_id = body.get("model", "")
-
+        async def mock_complete_stream(**kwargs):
+            mcp_calls.append(kwargs)
+            model_id = kwargs.get("model_id", "")
             if model_id == "model_b":
-                return httpx.Response(500, json={"error": {"message": "Connection failed"}})
-            return httpx.Response(200, content=make_streaming_body("Success"))
+                raise LMStudioError("Connection failed")
+            yield "Success"
 
-        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(side_effect=completion_handler)
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+            runner = BatteryRunner(
+                servers=[MOCK_SERVER_1],
+                tests=sample_test_cases[:1],  # Just one test
+                models=models
+            )
 
-        runner = BatteryRunner(
-            servers=[MOCK_SERVER_1],
-            tests=sample_test_cases[:1],  # Just one test
-            models=models
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        # Must have called MCP for both models
+        assert len(mcp_calls) == 2, (
+            f"Expected 2 calls to MCP complete_stream, got {len(mcp_calls)}. "
+            "BatteryRunner is bypassing MCP layer."
         )
-
-        final_state = None
-        async for state in runner.run():
-            final_state = state
 
         # Check model_a succeeded
         result_a = final_state.get_result("test_1", "model_a")
@@ -435,8 +458,14 @@ class TestBatteryRunner:
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_run_yields_state_updates(self, sample_test_cases):
-        """Test that runner yields state updates for UI."""
+    async def test_run_yields_state_updates_via_mcp(self, sample_test_cases):
+        """Test that runner yields state updates for UI.
+
+        This test mocks the MCP layer. If BatteryRunner bypasses MCP,
+        this test will FAIL.
+        """
+        from unittest.mock import patch
+
         models = ["m1"]
 
         # Mock manifest endpoint
@@ -444,28 +473,42 @@ class TestBatteryRunner:
             return_value=httpx.Response(200, json=make_manifest_for_models(models))
         )
 
-        # Mock completion endpoint
-        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
-            return_value=httpx.Response(200, content=make_streaming_body("Response"))
+        mcp_calls = []
+
+        async def mock_complete_stream(**kwargs):
+            mcp_calls.append(kwargs)
+            yield "Response"
+
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+            runner = BatteryRunner(
+                servers=[MOCK_SERVER_1],
+                tests=sample_test_cases[:1],
+                models=models
+            )
+
+            state_count = 0
+            async for state in runner.run():
+                state_count += 1
+
+        # Must have called MCP
+        assert len(mcp_calls) == 1, (
+            f"Expected 1 call to MCP complete_stream, got {len(mcp_calls)}. "
+            "BatteryRunner is bypassing MCP layer."
         )
-
-        runner = BatteryRunner(
-            servers=[MOCK_SERVER_1],
-            tests=sample_test_cases[:1],
-            models=models
-        )
-
-        state_count = 0
-        async for state in runner.run():
-            state_count += 1
-
         # Should yield multiple times for progress tracking
         assert state_count >= 2
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_run_records_latency(self, sample_test_cases):
-        """Test that runner records latency for completed tests."""
+    async def test_run_records_latency_via_mcp(self, sample_test_cases):
+        """Test that runner records latency for completed tests.
+
+        This test mocks the MCP layer. If BatteryRunner bypasses MCP,
+        this test will FAIL.
+        """
+        from unittest.mock import patch
+        import asyncio
+
         models = ["m1"]
 
         # Mock manifest endpoint
@@ -473,20 +516,29 @@ class TestBatteryRunner:
             return_value=httpx.Response(200, json=make_manifest_for_models(models))
         )
 
-        # Mock completion endpoint
-        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
-            return_value=httpx.Response(200, content=make_streaming_body("Response"))
-        )
+        mcp_calls = []
 
-        runner = BatteryRunner(
-            servers=[MOCK_SERVER_1],
-            tests=sample_test_cases[:1],
-            models=models
-        )
+        async def mock_complete_stream(**kwargs):
+            mcp_calls.append(kwargs)
+            await asyncio.sleep(0.01)  # Small delay for latency measurement
+            yield "Response"
 
-        final_state = None
-        async for state in runner.run():
-            final_state = state
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+            runner = BatteryRunner(
+                servers=[MOCK_SERVER_1],
+                tests=sample_test_cases[:1],
+                models=models
+            )
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        # Must have called MCP
+        assert len(mcp_calls) == 1, (
+            f"Expected 1 call to MCP complete_stream, got {len(mcp_calls)}. "
+            "BatteryRunner is bypassing MCP layer."
+        )
 
         result = final_state.get_result("test_1", "m1")
         assert result.latency_ms is not None
@@ -658,3 +710,72 @@ class TestCooperativeCancellation:
         assert state.should_stop() is True
         state.clear_stop()
         assert state.should_stop() is False
+
+
+# ─────────────────────────────────────────────────────────────────────
+# SEMANTIC VALIDATION INTEGRATION TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestBatterySemanticValidation:
+    """Tests verifying BatteryRunner integrates semantic validation."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_refusal_with_required_tools_is_semantic_failure(self):
+        """A refusal when tool_choice='required' must be SEMANTIC_FAILURE.
+
+        If a model says "I'm sorry, but I cannot..." when tools were required,
+        that's a semantic failure - the model completed HTTP but failed the task.
+        """
+        from unittest.mock import patch
+
+        models = ["model_a"]
+
+        # Mock manifest endpoint
+        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+            return_value=httpx.Response(200, json=make_manifest_for_models(models))
+        )
+
+        # MCP returns a refusal (no tool call made)
+        refusal_text = "I'm sorry, but I cannot execute scripts or delete files."
+
+        async def mock_complete_stream(**kwargs):
+            yield refusal_text
+
+        # Create test with tool_choice="required"
+        test_with_tools = TestCase(
+            id="tool_test",
+            user="Delete the file report.pdf",
+            tools=[{
+                "type": "function",
+                "function": {
+                    "name": "delete_file",
+                    "description": "Delete a file",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {"path": {"type": "string"}},
+                        "required": ["path"]
+                    }
+                }
+            }],
+            tool_choice="required"
+        )
+
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+            runner = BatteryRunner(
+                servers=[MOCK_SERVER_1],
+                tests=[test_with_tools],
+                models=models
+            )
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        result = final_state.get_result("tool_test", "model_a")
+
+        # Must be SEMANTIC_FAILURE, not COMPLETED
+        assert result.status == TestStatus.SEMANTIC_FAILURE, (
+            f"Expected SEMANTIC_FAILURE for refusal with tool_choice='required', "
+            f"got {result.status}. Response: {result.response}"
+        )

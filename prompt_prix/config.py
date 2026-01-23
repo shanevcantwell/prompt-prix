@@ -116,21 +116,6 @@ def get_default_servers() -> list[str]:
     ]
 
 
-def get_fara_config() -> tuple[str, str]:
-    """
-    Get Fara vision model server URL and model ID from environment.
-
-    Set in .env:
-        FARA_SERVER_URL=http://192.168.137.2:1234
-        FARA_MODEL_ID=microsoft_fara-7b
-
-    Returns (server_url, model_id) tuple.
-    """
-    server = os.environ.get("FARA_SERVER_URL", "http://localhost:1234")
-    model = os.environ.get("FARA_MODEL_ID", "microsoft_fara-7b")
-    return server, model
-
-
 def get_gradio_port() -> int:
     """
     Get Gradio server port from environment or default.
