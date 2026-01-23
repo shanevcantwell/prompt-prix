@@ -225,8 +225,15 @@ def create_app() -> gr.Blocks:
             file_obj, server0_selected, server1_selected, servers_text,
             timeout, max_tokens, system_prompt, judge_model
         ):
-            """Aggregate selections from both server columns, then run battery."""
-            models_selected = list(server0_selected or []) + list(server1_selected or [])
+            """Aggregate selections from both server columns with server affinity.
+
+            Model names are prefixed with server index (e.g., "0:model_name")
+            so the adapter routes to the correct server.
+            """
+            models_selected = (
+                [f"0:{m}" for m in (server0_selected or [])] +
+                [f"1:{m}" for m in (server1_selected or [])]
+            )
             async for result in battery_handlers.run_handler(
                 file_obj, models_selected, servers_text,
                 timeout, max_tokens, system_prompt, judge_model
@@ -292,8 +299,11 @@ def create_app() -> gr.Blocks:
             server0_selected, server1_selected,
             system_prompt, timeout, max_tokens
         ):
-            # Aggregate selections from both server columns
-            models_selected = list(server0_selected or []) + list(server1_selected or [])
+            # Aggregate selections with server affinity prefixes
+            models_selected = (
+                [f"0:{m}" for m in (server0_selected or [])] +
+                [f"1:{m}" for m in (server1_selected or [])]
+            )
 
             # Temperature fixed at 0.7 for interactive comparison (model default)
             temperature = 0.7

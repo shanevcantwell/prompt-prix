@@ -71,6 +71,23 @@ class _ServerPool:
                 return url
         return None
 
+    def get_server_url_by_index(self, idx: int) -> Optional[str]:
+        """Get server URL by index (0-based)."""
+        server_urls = list(self.servers.keys())
+        if 0 <= idx < len(server_urls):
+            return server_urls[idx]
+        return None
+
+    def find_specific_server(self, server_idx: int, model_id: str) -> Optional[str]:
+        """Find a specific server by index if it has the model and is available."""
+        server_url = self.get_server_url_by_index(server_idx)
+        if server_url is None:
+            return None
+        server = self.servers[server_url]
+        if model_id in server.available_models and not server.is_busy:
+            return server_url
+        return None
+
     def get_all_available_models(self) -> set[str]:
         """Return union of all models across all servers."""
         result = set()
@@ -263,6 +280,9 @@ class LMStudioAdapter:
         Finds an available server with the model, acquires it,
         streams the completion, then releases the server.
 
+        Supports server affinity via prefix: "0:model_name" routes to server 0.
+        Without prefix, finds any available server with the model.
+
         Waits for a server to become available if all are busy.
         Find + acquire is atomic (inside same lock) to prevent race
         condition where multiple tasks find the same server "available".
@@ -270,6 +290,15 @@ class LMStudioAdapter:
         import time
         start_time = time.time()
         server_url = None
+
+        # Parse server affinity prefix (e.g., "0:model_name" -> server_idx=0)
+        server_idx: Optional[int] = None
+        actual_model_id = model_id
+        if ":" in model_id and model_id.split(":")[0].isdigit():
+            parts = model_id.split(":", 1)
+            server_idx = int(parts[0])
+            actual_model_id = parts[1]
+            logger.debug(f"Server affinity: model={actual_model_id} -> server {server_idx}")
 
         # Refresh manifests once at start
         async with self._lock:
@@ -279,10 +308,16 @@ class LMStudioAdapter:
         while True:
             # Check timeout (use completion timeout as max wait)
             if time.time() - start_time > timeout_seconds:
-                raise RuntimeError(f"Timeout waiting for server for model: {model_id}")
+                raise RuntimeError(f"Timeout waiting for server for model: {actual_model_id}")
 
             async with self._lock:
-                server_url = self._pool.find_available_server(model_id)
+                if server_idx is not None:
+                    # Server affinity: only use the specified server
+                    server_url = self._pool.find_specific_server(server_idx, actual_model_id)
+                else:
+                    # No affinity: use any available server
+                    server_url = self._pool.find_available_server(actual_model_id)
+
                 if server_url is not None:
                     # Acquire inside lock to prevent TOCTOU race
                     await self._pool.acquire_server(server_url)
