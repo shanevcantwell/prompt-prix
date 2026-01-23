@@ -204,33 +204,27 @@ class BatteryRun(BaseModel):
 
     def to_grid(
         self, display_mode: GridDisplayMode = GridDisplayMode.SYMBOLS
-    ) -> list[list[str]]:
+    ) -> "pd.DataFrame":
         """
-        Convert to gr.Dataframe format.
+        Convert to pandas DataFrame for Gradio display.
 
         Args:
             display_mode: How to display results (symbols or latency)
 
         Returns:
-            List of rows where:
-            - First row is headers: ["Test", model1, model2, ...]
-            - Data rows are: [test_name, value1, value2, ...]
+            DataFrame with Test column and one column per model.
         """
-        # Header row
-        grid = [["Test"] + self.models]
+        import pandas as pd
 
-        # Data rows
+        data = []
         for test_id in self.tests:
-            row = [test_id]
+            row = {"Test": test_id}
             for model_id in self.models:
                 result = self.get_result(test_id, model_id)
-                if result:
-                    row.append(result.get_display(display_mode))
-                else:
-                    row.append("—")  # No result yet
-            grid.append(row)
+                row[model_id] = result.get_display(display_mode) if result else "—"
+            data.append(row)
 
-        return grid
+        return pd.DataFrame(data)
 
     @property
     def completed_count(self) -> int:
@@ -309,11 +303,13 @@ class BatteryRunner:
         Yields:
             BatteryRun state snapshot periodically for UI updates
         """
-        # Build work items for all (test, model) combinations
+        # Build work items: model-first order (depth-first)
+        # All tests for model1, then all tests for model2, etc.
+        # This minimizes VRAM swapping - each model stays loaded for all its tests
         work_items = [
             BatteryWorkItem(test=test, model_id=model_id)
-            for test in self.tests
             for model_id in self.models
+            for test in self.tests
         ]
 
         semaphore = asyncio.Semaphore(self.max_concurrent)

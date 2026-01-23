@@ -291,15 +291,15 @@ class TestBatteryRun:
         assert retrieved.status == TestStatus.COMPLETED
 
     def test_to_grid(self):
-        """Test converting to grid format."""
+        """Test converting to DataFrame format."""
         run = BatteryRun(tests=["t1", "t2"], models=["m1", "m2"])
         run.set_result(TestResult(test_id="t1", model_id="m1", status=TestStatus.COMPLETED))
         run.set_result(TestResult(test_id="t1", model_id="m2", status=TestStatus.ERROR))
 
-        grid = run.to_grid()
-        assert grid[0] == ["Test", "m1", "m2"]  # Header
-        assert grid[1] == ["t1", "✓", "❌"]      # t1 results
-        assert grid[2] == ["t2", "—", "—"]      # t2 pending
+        df = run.to_grid()
+        assert list(df.columns) == ["Test", "m1", "m2"]
+        assert list(df.iloc[0]) == ["t1", "✓", "❌"]  # t1 results
+        assert list(df.iloc[1]) == ["t2", "—", "—"]  # t2 pending
 
     def test_to_grid_latency_mode(self):
         """Test grid with latency display mode."""
@@ -315,10 +315,10 @@ class TestBatteryRun:
             status=TestStatus.ERROR, latency_ms=2500.0
         ))
 
-        grid = run.to_grid(GridDisplayMode.LATENCY)
-        assert grid[0] == ["Test", "m1", "m2"]  # Header
-        assert grid[1] == ["t1", "1.5s", "2.5s"]  # t1 latencies
-        assert grid[2] == ["t2", "—", "—"]       # t2 pending
+        df = run.to_grid(GridDisplayMode.LATENCY)
+        assert list(df.columns) == ["Test", "m1", "m2"]
+        assert list(df.iloc[0]) == ["t1", "1.5s", "2.5s"]  # t1 latencies
+        assert list(df.iloc[1]) == ["t2", "—", "—"]       # t2 pending
 
     def test_progress_tracking(self):
         """Test progress calculation."""
@@ -547,8 +547,8 @@ class TestBatteryExport:
         status, file_update = export_json()
 
         assert "✅" in status
-        # Returns gr.update(visible=True, value=filepath)
-        assert file_update["visible"] is True
+        # Returns gr.update(visible=False, value=filepath) - triggers auto-download
+        assert file_update["visible"] is False
         filepath = file_update["value"]
         assert filepath is not None
         assert os.path.exists(filepath)
@@ -560,6 +560,8 @@ class TestBatteryExport:
         assert data["tests"] == ["t1", "t2"]
         assert data["models"] == ["m1"]
         assert len(data["results"]) == 2
+        # Verify failure_reason field is present
+        assert "failure_reason" in data["results"][0]
 
         # Cleanup
         state.battery_run = None
@@ -582,8 +584,8 @@ class TestBatteryExport:
         status, file_update = export_csv()
 
         assert "✅" in status
-        # Returns gr.update(visible=True, value=filepath)
-        assert file_update["visible"] is True
+        # Returns gr.update(visible=False, value=filepath) - triggers auto-download
+        assert file_update["visible"] is False
         filepath = file_update["value"]
         assert filepath is not None
         assert filepath.endswith(".csv")
@@ -591,7 +593,9 @@ class TestBatteryExport:
         with open(filepath) as f:
             content = f.read()
 
-        assert "test_id,model_id,status,latency_ms,response" in content
+        # CSV header now includes error and failure_reason columns
+        assert "test_id" in content
+        assert "failure_reason" in content
         assert "t1" in content
         assert "m1" in content
         assert "500" in content
@@ -599,17 +603,19 @@ class TestBatteryExport:
         state.battery_run = None
 
     def test_export_basename_from_source_file(self):
-        """Test export filename derives from source file."""
+        """Test export filename derives from source file with timestamp."""
+        import re
         from prompt_prix import state
         from prompt_prix.tabs.battery.handlers import _get_export_basename
 
         state.battery_source_file = "/path/to/my_test_suite.jsonl"
         basename = _get_export_basename()
-        assert basename == "my_test_suite_results"
+        # Basename should be {stem}_results_{timestamp}
+        assert re.match(r"my_test_suite_results_\d+$", basename)
 
         state.battery_source_file = None
         basename = _get_export_basename()
-        assert basename == "battery_results"
+        assert re.match(r"battery_results_\d+$", basename)
 
 
 class TestBatteryStateClearing:
