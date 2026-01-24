@@ -126,13 +126,9 @@ async def run_handler(
     _ensure_adapter_registered(servers)
 
     # Validate models using MCP primitive (uses registry internally)
-    # Models may have server affinity prefix (e.g., "0:model_name")
-    from prompt_prix.server_affinity import strip_server_prefix
-
     result = await list_models()
     available = set(result["models"])
-    actual_names = [strip_server_prefix(m) for m in models_selected]
-    missing = [m for m in actual_names if m not in available]
+    missing = [m for m in models_selected if m not in available]
     if missing:
         yield f"❌ Models not available: {', '.join(missing)}", []
         return

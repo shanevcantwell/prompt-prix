@@ -25,7 +25,6 @@ from prompt_prix.config import ServerConfig
 class _InferenceTask:
     """Represents a pending inference request."""
     model_id: str
-    server_idx: Optional[int]
     # Future resolves to the server_url when acquired
     future: asyncio.Future[str] = field(default_factory=asyncio.Future)
 
@@ -105,28 +104,6 @@ class _ServerPool:
                     logger.debug(f"Server {url} has model {model_id} but IS BUSY")
         return None
 
-    def find_and_acquire_specific(self, server_idx: int, model_id: str) -> Optional[str]:
-        """
-        Atomically acquire a specific server index if available.
-        """
-        server_url = self.get_server_url_by_index(server_idx)
-        if server_url is None:
-            logger.warning(f"Invalid server index {server_idx} requested")
-            return None
-        
-        server = self.servers[server_url]
-        if model_id in server.available_models:
-            if not server.is_busy:
-                server.is_busy = True
-                logger.info(f"Acquired specific server {server_url} (idx {server_idx}) for {model_id}")
-                return server_url
-            else:
-                logger.debug(f"Specific server {server_url} (idx {server_idx}) IS BUSY")
-        else:
-            logger.warning(f"Specific server {server_url} (idx {server_idx}) does not have model {model_id}")
-            
-        return None
-
     def release_server(self, server_url: str) -> None:
         """Mark server as available and notify listeners."""
         if server_url in self.servers:
@@ -153,19 +130,19 @@ class _ConcurrentDispatcher:
         self._state_changed = asyncio.Event()
         self._dispatcher_task = None # Lazily started
 
-    async def submit(self, model_id: str, server_idx: Optional[int]) -> str:
+    async def submit(self, model_id: str) -> str:
         """
         Submit a request and wait for a server to be acquired.
         Returns the acquired server_url.
         """
-        logger.info(f"Dispatcher.submit: model={model_id}, server_idx={server_idx}")
+        logger.info(f"Dispatcher.submit: model={model_id}")
 
         # Ensure the dispatcher loop is running
         if self._dispatcher_task is None or self._dispatcher_task.done():
             self._dispatcher_task = asyncio.create_task(self._process_queue_loop())
 
         future = asyncio.Future()
-        task = _InferenceTask(model_id=model_id, server_idx=server_idx, future=future)
+        task = _InferenceTask(model_id=model_id, future=future)
 
         self._queue.append(task)
         self._state_changed.set()
@@ -217,12 +194,8 @@ class _ConcurrentDispatcher:
                         self._queue.popleft()
                         continue
 
-                    # Try to acquire
-                    url: Optional[str] = None
-                    if task.server_idx is not None:
-                        url = self.pool.find_and_acquire_specific(task.server_idx, task.model_id)
-                    else:
-                        url = self.pool.find_and_acquire(task.model_id)
+                    # Try to acquire any available server with this model
+                    url = self.pool.find_and_acquire(task.model_id)
 
                     if url:
                         # Success
@@ -322,20 +295,6 @@ class LMStudioAdapter:
         """
         Stream completion from LM Studio server using InferenceTask.
         """
-        import time
-
-        # Task already contains parsed server affinity if caller set it
-        # If not, we might need to parse it from model_id just in case caller didn't
-        if task.preferred_server_idx is None or task.api_model_id is None:
-             # Just to be safe, though caller should handle this
-             from prompt_prix.server_affinity import parse_server_prefix
-             server_idx, actual_model_id = parse_server_prefix(task.model_id)
-             task.preferred_server_idx = server_idx
-             task.api_model_id = actual_model_id
-
-        if task.preferred_server_idx is not None:
-            logger.debug(f"Server affinity: model={task.api_model_id} -> server {task.preferred_server_idx}")
-
         # Lazy manifest initialization: only refresh once if never loaded
         # This avoids serializing all requests while still ensuring manifests exist
         if not self._manifests_loaded:
@@ -350,16 +309,15 @@ class LMStudioAdapter:
         server_url = None
         try:
             # 1. Acquire via Dispatcher (Queue-based)
-            # This replaces the previous polling loop for atomic acquisition
             server_url = await asyncio.wait_for(
-                self._dispatcher.submit(task.api_model_id, task.preferred_server_idx),
+                self._dispatcher.submit(task.model_id),
                 timeout=task.timeout_seconds
             )
 
             # 2. Stream
             async for chunk in stream_completion(
                 server_url=server_url,
-                model_id=task.api_model_id,
+                model_id=task.model_id,
                 messages=task.messages,
                 temperature=task.temperature,
                 max_tokens=task.max_tokens,
@@ -371,7 +329,7 @@ class LMStudioAdapter:
                 yield chunk
 
         except asyncio.TimeoutError:
-             raise RuntimeError(f"Timeout waiting for server/completion for model: {task.api_model_id}")
+            raise RuntimeError(f"Timeout waiting for server/completion for model: {task.model_id}")
         finally:
             if server_url:
                 # 3. Release (Notifies Dispatcher)

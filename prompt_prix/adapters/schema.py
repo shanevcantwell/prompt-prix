@@ -15,14 +15,7 @@ class InferenceTask(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     seed: Optional[int] = None
     repeat_penalty: Optional[float] = None
-    # Server affinity override (0:model -> server 0)
-    preferred_server_idx: Optional[int] = None 
-    # The actual stripped model ID to send to the API
-    api_model_id: Optional[str] = None
 
-    def model_post_init(self, __context: Any) -> None:
-        if self.api_model_id is None:
-             self.api_model_id = self.model_id
 
 class InferenceResult(BaseModel):
     """
