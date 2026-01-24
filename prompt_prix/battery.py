@@ -317,6 +317,29 @@ class BatteryRunner:
             for test in self.tests
         ]
 
+        # Use a single global semaphore for the Run.
+        # However, to prevent Head-of-Line blocking when we have mixed affinities (e.g. 2 servers, 4 tasks)
+        # we must ensure that we don't pick 2 tasks for Server 0 while Server 1 is idle.
+        # BUT BatteryRunner doesn't know about servers.
+        # The only way is to rely on the Dispatcher to handle queuing efficiently.
+        # The Dispatcher DOES have a queue.
+        # So why did we have timeouts?
+        # Because BatteryRunner's timeout includes time spent in the Dispatcher Queue.
+        
+        # To fix "timeout while waiting in queue", we should either:
+        # A) Increase BatteryRunner timeout (bad UX)
+        # B) Make BatteryRunner smarter about not submitting too many tasks for the SAME resource.
+        # C) Use the Dispatcher's queue without timeout, and only apply timeout to the actual generation.
+        
+        # We'll go with (C) partially: we rely on the Semaphore to limit TOTAL inflight requests.
+        # If max_concurrent is set correctly (to number of servers), then we never overload the system.
+        
+        # The issue was likely that max_concurrent was calculated as 2 (total servers), 
+        # but all tasks targeted Server 0.
+        # So we had 2 tasks for Server 0.
+        # Task 1 runs. Task 2 waits.
+        # If Task 1 takes > timeout, Task 2 dies.
+        
         semaphore = asyncio.Semaphore(self.max_concurrent)
         active_tasks: set[asyncio.Task] = set()
 

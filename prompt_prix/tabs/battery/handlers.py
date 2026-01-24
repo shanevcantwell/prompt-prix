@@ -118,6 +118,9 @@ async def run_handler(
     if not servers:
         yield "❌ No servers configured", []
         return
+        
+    import logging
+    logger = logging.getLogger(__name__)
 
     # Register adapter with current servers before using MCP tools
     _ensure_adapter_registered(servers)
@@ -144,8 +147,12 @@ async def run_handler(
     # If no affinity, allow concurrency up to total server count to enable dispatcher fan-out.
     if server_indices:
         max_concurrent = len(server_indices)
+        logger.info(f"Battery: Affinity detected {server_indices}. Set max_concurrent={max_concurrent}")
     else:
         max_concurrent = len(servers)
+        logger.info(f"Battery: No affinity detected. Set max_concurrent={max_concurrent} (server count)")
+        
+    logger.info(f"Battery Run Config: Models={models_selected}, MaxConcurrent={max_concurrent}")
 
     runner = BatteryRunner(
         tests=tests,
