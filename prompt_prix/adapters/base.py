@@ -6,7 +6,7 @@ See lmstudio.py for concrete implementation.
 """
 
 from typing import Protocol, AsyncGenerator, Optional
-
+from prompt_prix.adapters.schema import InferenceTask
 
 class HostAdapter(Protocol):
     """
@@ -30,25 +30,20 @@ class HostAdapter(Protocol):
         """
         ...
 
-    async def stream_completion(
-        self,
-        model_id: str,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-        timeout_seconds: int,
-        tools: Optional[list[dict]] = None
-    ) -> AsyncGenerator[str, None]:
+    def get_models_by_server(self) -> dict[str, list[str]]:
+        """Return models grouped by server URL."""
+        ...
+
+    def get_unreachable_servers(self) -> list[str]:
+        """Return list of servers that returned no models."""
+        ...
+
+    async def stream_completion(self, task: InferenceTask) -> AsyncGenerator[str, None]:
         """
-        Stream completion chunks from the model.
+        Stream completion chunks from the model based on the task.
 
         Args:
-            model_id: Model identifier
-            messages: OpenAI-format messages [{"role": "...", "content": "..."}]
-            temperature: Sampling temperature (0.0-2.0)
-            max_tokens: Maximum tokens to generate
-            timeout_seconds: Request timeout
-            tools: Optional OpenAI-format tool definitions
+            task: Strongly-typed InferenceTask containing model_id, messages, etc.
 
         Yields:
             Text chunks as they arrive from the model

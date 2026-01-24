@@ -21,6 +21,8 @@ Usage:
 from typing import AsyncGenerator, Optional
 
 from prompt_prix.mcp.registry import get_adapter
+from prompt_prix.adapters.schema import InferenceTask
+from prompt_prix.server_affinity import parse_server_prefix
 
 
 async def complete(
@@ -38,43 +40,29 @@ async def complete(
 
     Non-streaming variant - returns complete response.
     Adapter handles server selection internally.
-
-    This is an MCP primitive - a self-contained operation that can be called
-    by orchestration layers (BatteryRunner), Gradio UI, CLI,
-    or agentic systems.
-
-    Args:
-        model_id: Model identifier (must be available on at least one server)
-        messages: OpenAI-format messages array
-            e.g., [{"role": "user", "content": "Hello"}]
-        temperature: Sampling temperature (default 0.7)
-        max_tokens: Maximum response tokens (default 2048)
-        timeout_seconds: Request timeout (default 300)
-        tools: Optional tool definitions in OpenAI format
-        seed: Optional seed for reproducibility
-        repeat_penalty: Optional penalty for repeated tokens
-
-    Returns:
-        Complete response text
-
-    Raises:
-        RuntimeError: If no adapter registered or no server available
-        LMStudioError: On API errors
     """
     adapter = get_adapter()
+    
+    # Parse affinity
+    server_idx, actual_model_id = parse_server_prefix(model_id)
 
-    # Collect streaming response into final string
-    response_parts = []
-    async for chunk in adapter.stream_completion(
+    # Create strongly-typed task
+    task = InferenceTask(
         model_id=model_id,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=float(timeout_seconds),
         tools=tools,
         seed=seed,
         repeat_penalty=repeat_penalty,
-    ):
+        preferred_server_idx=server_idx,
+        api_model_id=actual_model_id
+    )
+
+    # Collect streaming response into final string
+    response_parts = []
+    async for chunk in adapter.stream_completion(task):
         response_parts.append(chunk)
 
     return "".join(response_parts)
@@ -95,37 +83,25 @@ async def complete_stream(
 
     Streaming variant - yields chunks as they arrive.
     Adapter handles server selection internally.
-
-    This is an MCP primitive - a self-contained operation that can be called
-    by UI layers that need responsive streaming output.
-
-    Args:
-        model_id: Model identifier (must be available on at least one server)
-        messages: OpenAI-format messages array
-        temperature: Sampling temperature (default 0.7)
-        max_tokens: Maximum response tokens (default 2048)
-        timeout_seconds: Request timeout (default 300)
-        tools: Optional tool definitions in OpenAI format
-        seed: Optional seed for reproducibility
-        repeat_penalty: Optional penalty for repeated tokens
-
-    Yields:
-        Text chunks as they arrive from the model
-
-    Raises:
-        RuntimeError: If no adapter registered or no server available
-        LMStudioError: On API errors
     """
     adapter = get_adapter()
+    
+    # Parse affinity
+    server_idx, actual_model_id = parse_server_prefix(model_id)
 
-    async for chunk in adapter.stream_completion(
+    # Create strongly-typed task
+    task = InferenceTask(
         model_id=model_id,
         messages=messages,
         temperature=temperature,
         max_tokens=max_tokens,
-        timeout_seconds=timeout_seconds,
+        timeout_seconds=float(timeout_seconds),
         tools=tools,
         seed=seed,
         repeat_penalty=repeat_penalty,
-    ):
+        preferred_server_idx=server_idx,
+        api_model_id=actual_model_id
+    )
+
+    async for chunk in adapter.stream_completion(task):
         yield chunk

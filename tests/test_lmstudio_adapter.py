@@ -9,6 +9,7 @@ import respx
 import httpx
 
 from prompt_prix.adapters.lmstudio import LMStudioAdapter
+from prompt_prix.adapters.schema import InferenceTask
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -115,13 +116,14 @@ class TestStreamCompletionServerIndex:
 
         adapter = LMStudioAdapter(two_server_urls)
         response = ""
-        async for chunk in adapter.stream_completion(
+        task = InferenceTask(
             model_id="0:modelA",
             messages=[{"role": "user", "content": "Hi"}],
             temperature=0.7,
             max_tokens=100,
-            timeout_seconds=5
-        ):
+            timeout_seconds=5.0
+        )
+        async for chunk in adapter.stream_completion(task):
             response += chunk
 
         assert "Hello" in response
@@ -141,13 +143,14 @@ class TestStreamCompletionServerIndex:
         adapter = LMStudioAdapter(two_server_urls)
 
         with pytest.raises(RuntimeError, match="Timeout"):
-            async for _ in adapter.stream_completion(
+            task = InferenceTask(
                 model_id="0:modelB",
                 messages=[{"role": "user", "content": "Hi"}],
                 temperature=0.7,
                 max_tokens=100,
-                timeout_seconds=1  # Short timeout
-            ):
+                timeout_seconds=1.0  # Short timeout
+            )
+            async for _ in adapter.stream_completion(task):
                 pass
 
     @pytest.mark.asyncio
@@ -164,13 +167,14 @@ class TestStreamCompletionServerIndex:
         adapter = LMStudioAdapter(two_server_urls)
 
         with pytest.raises(RuntimeError, match="Timeout"):
-            async for _ in adapter.stream_completion(
+            task = InferenceTask(
                 model_id="999:modelA",
                 messages=[{"role": "user", "content": "Hi"}],
                 temperature=0.7,
                 max_tokens=100,
-                timeout_seconds=1  # Short timeout
-            ):
+                timeout_seconds=1.0  # Short timeout
+            )
+            async for _ in adapter.stream_completion(task):
                 pass
 
     @pytest.mark.asyncio
@@ -190,13 +194,14 @@ class TestStreamCompletionServerIndex:
         # "-1:model" is treated as a model name, not a server prefix
         # Since no server has this model, it should timeout
         with pytest.raises(RuntimeError, match="Timeout"):
-            async for _ in adapter.stream_completion(
+            task = InferenceTask(
                 model_id="-1:model",
                 messages=[{"role": "user", "content": "Hi"}],
                 temperature=0.7,
                 max_tokens=100,
-                timeout_seconds=1
-            ):
+                timeout_seconds=1.0
+            )
+            async for _ in adapter.stream_completion(task):
                 pass
 
 
@@ -221,13 +226,14 @@ class TestStreamCompletionModelAvailability:
         adapter = LMStudioAdapter(two_server_urls)
 
         with pytest.raises(RuntimeError, match="Timeout"):
-            async for _ in adapter.stream_completion(
+            task = InferenceTask(
                 model_id="nonexistent",
                 messages=[{"role": "user", "content": "Hi"}],
                 temperature=0.7,
                 max_tokens=100,
-                timeout_seconds=1
-            ):
+                timeout_seconds=1.0
+            )
+            async for _ in adapter.stream_completion(task):
                 pass
 
     @pytest.mark.asyncio
@@ -247,13 +253,14 @@ class TestStreamCompletionModelAvailability:
 
         adapter = LMStudioAdapter(two_server_urls)
         response = ""
-        async for chunk in adapter.stream_completion(
+        task = InferenceTask(
             model_id="modelB",  # No prefix, should find on server 1
             messages=[{"role": "user", "content": "Hi"}],
             temperature=0.7,
             max_tokens=100,
-            timeout_seconds=5
-        ):
+            timeout_seconds=5.0
+        )
+        async for chunk in adapter.stream_completion(task):
             response += chunk
 
         assert "World" in response
@@ -337,25 +344,27 @@ class TestConcurrentDispatch:
 
         async def call_server0():
             result = ""
-            async for chunk in adapter.stream_completion(
+            task = InferenceTask(
                 model_id="0:modelA",
                 messages=[{"role": "user", "content": "Hi"}],
                 temperature=0.7,
                 max_tokens=100,
-                timeout_seconds=5
-            ):
+                timeout_seconds=5.0
+            )
+            async for chunk in adapter.stream_completion(task):
                 result += chunk
             return result
 
         async def call_server1():
             result = ""
-            async for chunk in adapter.stream_completion(
+            task = InferenceTask(
                 model_id="1:modelB",
                 messages=[{"role": "user", "content": "Hi"}],
                 temperature=0.7,
                 max_tokens=100,
-                timeout_seconds=5
-            ):
+                timeout_seconds=5.0
+            )
+            async for chunk in adapter.stream_completion(task):
                 result += chunk
             return result
 

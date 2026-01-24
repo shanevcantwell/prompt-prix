@@ -11,13 +11,23 @@ Orchestration and MCP layers only see the HostAdapter protocol interface.
 """
 
 import asyncio
+import collections
 import json
 import logging
 import httpx
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import AsyncGenerator, Callable, Coroutine, Optional, Protocol, TypeVar
 
 from prompt_prix.config import ServerConfig
+
+# INTERNAL SCHEMA
+@dataclass
+class _InferenceTask:
+    """Represents a pending inference request."""
+    model_id: str
+    server_idx: Optional[int]
+    # Future resolves to the server_url when acquired
+    future: asyncio.Future[str] = field(default_factory=asyncio.Future)
 
 logger = logging.getLogger(__name__)
 
@@ -33,19 +43,18 @@ class LMStudioError(Exception):
 
 class _ServerPool:
     """
-    INTERNAL: Manages multiple LM Studio servers.
-
-    This class is internal to LMStudioAdapter. Per ADR-006, no code outside
-    this module should reference ServerPool.
+    INTERNAL: Manages multiple LM Studio servers with atomic acquisition.
+    
+    Provides atomic find_and_acquire operations and strictly synchronous
+    is_busy state management to prevent race conditions.
     """
 
     def __init__(self, server_urls: list[str]):
         self.servers: dict[str, ServerConfig] = {
             url: ServerConfig(url=url) for url in server_urls
         }
-        self._locks: dict[str, asyncio.Lock] = {
-            url: asyncio.Lock() for url in server_urls
-        }
+        # Event triggered whenever a server becomes available (released)
+        self.resource_available = asyncio.Event()
 
     async def refresh_all_manifests(self) -> None:
         """Fetch model lists from all servers."""
@@ -64,12 +73,12 @@ class _ServerPool:
         except Exception:
             self.servers[server_url].available_models = []
 
-    def find_available_server(self, model_id: str) -> Optional[str]:
-        """Find a server that has the model and is not busy."""
-        for url, server in self.servers.items():
-            if model_id in server.available_models and not server.is_busy:
-                return url
-        return None
+    def get_all_available_models(self) -> set[str]:
+        """Return union of all models across all servers."""
+        result = set()
+        for server in self.servers.values():
+            result.update(server.available_models)
+        return result
 
     def get_server_url_by_index(self, idx: int) -> Optional[str]:
         """Get server URL by index (0-based)."""
@@ -78,131 +87,152 @@ class _ServerPool:
             return server_urls[idx]
         return None
 
-    def find_specific_server(self, server_idx: int, model_id: str) -> Optional[str]:
-        """Find a specific server by index if it has the model and is available."""
+    def find_and_acquire(self, model_id: str) -> Optional[str]:
+        """
+        Atomically find a free server with the model and mark it busy.
+        Returns server_url if successful, None otherwise.
+        """
+        for url, server in self.servers.items():
+            # Check availability AND busy status in the same synchronous block
+            if model_id in server.available_models and not server.is_busy:
+                server.is_busy = True
+                return url
+        return None
+
+    def find_and_acquire_specific(self, server_idx: int, model_id: str) -> Optional[str]:
+        """
+        Atomically acquire a specific server index if available.
+        """
         server_url = self.get_server_url_by_index(server_idx)
         if server_url is None:
             return None
+        
         server = self.servers[server_url]
         if model_id in server.available_models and not server.is_busy:
+            server.is_busy = True
             return server_url
         return None
 
-    def get_all_available_models(self) -> set[str]:
-        """Return union of all models across all servers."""
-        result = set()
-        for server in self.servers.values():
-            result.update(server.available_models)
-        return result
-
-    async def acquire_server(self, server_url: str) -> None:
-        """Mark server as busy."""
-        await self._locks[server_url].acquire()
-        self.servers[server_url].is_busy = True
-
     def release_server(self, server_url: str) -> None:
-        """Mark server as available."""
-        self.servers[server_url].is_busy = False
-        try:
-            self._locks[server_url].release()
-        except RuntimeError:
-            pass
+        """Mark server as available and notify listeners."""
+        if server_url in self.servers:
+            self.servers[server_url].is_busy = False
+            self.resource_available.set()
 
 
 # ─────────────────────────────────────────────────────────────────────
 # INTERNAL: ConcurrentDispatcher (not exported)
 # ─────────────────────────────────────────────────────────────────────
 
-class _WorkItem(Protocol):
-    """Protocol for dispatchable work items."""
-    @property
-    def model_id(self) -> str: ...
-
-
-_T = TypeVar("_T", bound=_WorkItem)
-_CancellationCheck = Optional[Callable[[], bool]]
-
-
 class _ConcurrentDispatcher:
     """
-    INTERNAL: Parallel dispatch across multiple LM Studio servers.
-
-    This class is internal to LMStudioAdapter. Per ADR-006, no code outside
-    this module should reference ConcurrentDispatcher.
+    INTERNAL: Queue-based dispatcher for inference tasks.
+    
+    Maintains a queue of pending requests and manages the lifecycle of
+    assigning them to available servers in the pool.
     """
 
     def __init__(self, pool: _ServerPool):
         self.pool = pool
+        self._queue: collections.deque[_InferenceTask] = collections.deque()
+        self._state_changed = asyncio.Event()
+        self._dispatcher_task = asyncio.create_task(self._process_queue_loop())
 
-    async def dispatch(
-        self,
-        work_items: list[_T],
-        execute_fn: Callable[[_T, str], Coroutine[None, None, None]],
-        should_cancel: _CancellationCheck = None,
-    ) -> AsyncGenerator[int, None]:
-        """Execute work items across available servers."""
-        work_queue = list(work_items)
-        active_tasks: dict[str, asyncio.Task] = {}
-        completed = 0
-
-        yield completed
-
-        while work_queue or active_tasks:
-            if should_cancel and should_cancel():
-                logger.info("Cancellation requested, clearing work queue")
-                work_queue.clear()
-
-            for server_url, server in self.pool.servers.items():
-                if server.is_busy:
-                    continue
-
-                matched_item = None
-                for item in work_queue:
-                    if item.model_id in server.available_models:
-                        matched_item = item
-                        break
-
-                if matched_item:
-                    work_queue.remove(matched_item)
-                    await self.pool.acquire_server(server_url)
-                    task = asyncio.create_task(
-                        self._run_and_release(matched_item, server_url, execute_fn)
-                    )
-                    active_tasks[server_url] = task
-
-            await asyncio.sleep(0.1)
-            yield completed
-
-            for url in list(active_tasks.keys()):
-                if active_tasks[url].done():
-                    try:
-                        active_tasks[url].result()
-                    except Exception:
-                        pass
-                    completed += 1
-                    del active_tasks[url]
-
-            if work_queue and not active_tasks:
-                await self.pool.refresh_all_manifests()
-
-        yield completed
-
-    async def _run_and_release(
-        self,
-        item: _T,
-        server_url: str,
-        execute_fn: Callable[[_T, str], Coroutine[None, None, None]],
-    ) -> None:
-        """Execute work item and release server when done."""
-        logger.debug(f"Acquired server {server_url} for model {item.model_id}")
+    async def submit(self, model_id: str, server_idx: Optional[int]) -> str:
+        """
+        Submit a request and wait for a server to be acquired.
+        Returns the acquired server_url.
+        """
+        future = asyncio.Future()
+        task = _InferenceTask(model_id=model_id, server_idx=server_idx, future=future)
+        
+        self._queue.append(task)
+        self._state_changed.set()
+        
         try:
-            await execute_fn(item, server_url)
-        except Exception as e:
-            logger.warning(f"Task failed on {server_url}: {e}")
+            # Wait for the dispatcher to assign a server
+            return await future
+        except asyncio.CancelledError:
+            # If we were cancelled, but we actually got a server (race condition), we must release it!
+            if future.done() and not future.cancelled():
+                try:
+                    server_url = future.result()
+                    self.pool.release_server(server_url)
+                except Exception:
+                    pass
+            
+            # If not done, cancel the future so dispatcher knows to skip/remove it
+            if not future.done():
+                future.cancel()
             raise
-        finally:
-            logger.debug(f"Releasing server {server_url}")
-            self.pool.release_server(server_url)
+
+    async def _process_queue_loop(self) -> None:
+        """Background loop creating matches between Tasks and Servers."""
+        try:
+            while True:
+                # Wait for either a new task or a server release
+                # We clear the events before processing to ensure we catch updates during processing
+                self._state_changed.clear()
+                self.pool.resource_available.clear()
+
+                if not self._queue:
+                    # If nothing in queue, wait for a new task
+                    await self._state_changed.wait()
+                
+                # Processing cycle
+                # We rotate the queue to handle head-of-line blocking if a specific 
+                # model/server combo is unavailable but others are not.
+                rotated_tasks = 0
+                queue_len = len(self._queue)
+                
+                for _ in range(queue_len):
+                    if not self._queue:
+                        break
+                    
+                    task = self._queue[0] # Peek
+
+                    # Cleanup cancelled tasks
+                    if task.future.done():
+                        self._queue.popleft()
+                        continue
+
+                    # Try to acquire
+                    url: Optional[str] = None
+                    if task.server_idx is not None:
+                        url = self.pool.find_and_acquire_specific(task.server_idx, task.model_id)
+                    else:
+                        url = self.pool.find_and_acquire(task.model_id)
+
+                    if url:
+                        # Success
+                        self._queue.popleft()
+                        try:
+                            task.future.set_result(url)
+                        except asyncio.InvalidStateError:
+                            # Future was cancelled/completed concurrently. Release server.
+                            self.pool.release_server(url)
+                    else:
+                        # Failed to acquire, move to back to let others try
+                        # (Simple round-robin for availability)
+                        self._queue.rotate(-1)
+                        rotated_tasks += 1
+
+                # If we still have tasks pending, we wait for a resource to free up
+                # OR for a new task to come in.
+                if self._queue:
+                    # We wait for either event
+                    wait_objs = [
+                        asyncio.create_task(self.pool.resource_available.wait()),
+                        asyncio.create_task(self._state_changed.wait())
+                    ]
+                    done, pending = await asyncio.wait(
+                        wait_objs, 
+                        return_when=asyncio.FIRST_COMPLETED
+                    )
+                    for p in pending:
+                        p.cancel()
+        except Exception as e:
+            logger.error(f"Dispatcher loop crashed: {e}", exc_info=True)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -219,6 +249,8 @@ def _normalize_tools_for_openai(tools: list[dict]) -> list[dict]:
             normalized.append({"type": "function", "function": tool})
     return normalized
 
+
+from prompt_prix.adapters.schema import InferenceTask
 
 # ─────────────────────────────────────────────────────────────────────
 # PUBLIC: LMStudioAdapter
@@ -263,84 +295,57 @@ class LMStudioAdapter:
             if not server.available_models
         ]
 
-    async def stream_completion(
-        self,
-        model_id: str,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-        timeout_seconds: int,
-        tools: Optional[list[dict]] = None,
-        seed: Optional[int] = None,
-        repeat_penalty: Optional[float] = None
-    ) -> AsyncGenerator[str, None]:
+    async def stream_completion(self, task: InferenceTask) -> AsyncGenerator[str, None]:
         """
-        Stream completion from LM Studio server.
-
-        Finds an available server with the model, acquires it,
-        streams the completion, then releases the server.
-
-        Supports server affinity via prefix: "0:model_name" routes to server 0.
-        Without prefix, finds any available server with the model.
-
-        Waits for a server to become available if all are busy.
-        Find + acquire is atomic (inside same lock) to prevent race
-        condition where multiple tasks find the same server "available".
+        Stream completion from LM Studio server using InferenceTask.
         """
         import time
-        from prompt_prix.server_affinity import parse_server_prefix
 
-        start_time = time.time()
-        server_url = None
+        # Task already contains parsed server affinity if caller set it
+        # If not, we might need to parse it from model_id just in case caller didn't
+        if task.preferred_server_idx is None or task.api_model_id is None:
+             # Just to be safe, though caller should handle this
+             from prompt_prix.server_affinity import parse_server_prefix
+             server_idx, actual_model_id = parse_server_prefix(task.model_id)
+             task.preferred_server_idx = server_idx
+             task.api_model_id = actual_model_id
 
-        # Parse server affinity prefix (e.g., "0:model_name" -> server_idx=0)
-        server_idx, actual_model_id = parse_server_prefix(model_id)
-        if server_idx is not None:
-            logger.debug(f"Server affinity: model={actual_model_id} -> server {server_idx}")
+        if task.preferred_server_idx is not None:
+            logger.debug(f"Server affinity: model={task.api_model_id} -> server {task.preferred_server_idx}")
 
         # Refresh manifests once at start (adapter lock protects manifest state)
         async with self._lock:
             await self._pool.refresh_all_manifests()
 
-        # Wait for a server to become available
-        # No adapter-level lock here - per-server locks in _ServerPool handle contention.
-        # This allows parallel dispatch to different servers.
-        while True:
-            # Check timeout (use completion timeout as max wait)
-            if time.time() - start_time > timeout_seconds:
-                raise RuntimeError(f"Timeout waiting for server for model: {actual_model_id}")
-
-            if server_idx is not None:
-                # Server affinity: only use the specified server
-                server_url = self._pool.find_specific_server(server_idx, actual_model_id)
-            else:
-                # No affinity: use any available server
-                server_url = self._pool.find_available_server(actual_model_id)
-
-            if server_url is not None:
-                # Per-server lock blocks if this specific server is busy.
-                # Other tasks targeting different servers proceed in parallel.
-                await self._pool.acquire_server(server_url)
-                break
-
-            # No server available, wait briefly and retry
-            await asyncio.sleep(0.2)
+        server_url = None
         try:
-            # Delegate to module-level function for actual streaming
+            # 1. Acquire via Dispatcher (Queue-based)
+            # This replaces the previous polling loop for atomic acquisition
+            server_url = await asyncio.wait_for(
+                self._dispatcher.submit(task.api_model_id, task.preferred_server_idx),
+                timeout=task.timeout_seconds
+            )
+
+            # 2. Stream
             async for chunk in stream_completion(
                 server_url=server_url,
-                model_id=actual_model_id,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout_seconds=timeout_seconds,
-                tools=tools,
-                seed=seed,
-                repeat_penalty=repeat_penalty,
+                model_id=task.api_model_id,
+                messages=task.messages,
+                temperature=task.temperature,
+                max_tokens=task.max_tokens,
+                timeout_seconds=int(task.timeout_seconds),
+                tools=task.tools,
+                seed=task.seed,
+                repeat_penalty=task.repeat_penalty,
             ):
                 yield chunk
+
+        except asyncio.TimeoutError:
+             raise RuntimeError(f"Timeout waiting for server/completion for model: {task.api_model_id}")
         finally:
-            self._pool.release_server(server_url)
+            if server_url:
+                # 3. Release (Notifies Dispatcher)
+                self._pool.release_server(server_url)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -363,7 +368,7 @@ async def stream_completion(
 
     This is a raw function for cases where the caller manages
     server selection directly. For most use cases, use the
-    adapter's stream_completion method via the MCP registry.
+    adapter stream_completion method via the MCP registry.
     """
     payload = {
         "model": model_id,
@@ -396,7 +401,7 @@ async def stream_completion(
                         msg = str(error)
                 except Exception:
                     msg = error_body.decode()[:200]
-                raise LMStudioError(f"LM Studio error for '{model_id}': {msg}")
+                raise LMStudioError(f"LM Studio error for {model_id}: {msg}")
 
             # Accumulate tool calls until stream completes
             tool_call_accumulator: dict[int, dict] = {}
@@ -429,6 +434,6 @@ async def stream_completion(
             # Yield accumulated tool calls after stream completes
             for tc_data in tool_call_accumulator.values():
                 if tc_data["name"]:
-                    yield f"\n**Tool Call:** `{tc_data['name']}`\n"
+                    yield f"\n**Tool Call:** `{tc_data["name"]}`\n"
                 if tc_data["arguments"]:
-                    yield f"```json\n{tc_data['arguments']}\n```\n"
+                    yield f"```json\n{tc_data["arguments"]}\n```\n"
