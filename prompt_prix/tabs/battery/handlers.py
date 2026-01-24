@@ -14,6 +14,11 @@ import gradio as gr
 from prompt_prix import state
 
 
+def _is_yaml_file(file_path) -> bool:
+    """Check if file has YAML extension."""
+    return Path(file_path).suffix.lower() in ['.yaml', '.yml']
+
+
 def _get_export_basename() -> str:
     """Get base name for export files from source filename with timestamp."""
     import time
@@ -28,14 +33,19 @@ def validate_file(file_obj) -> str:
     """
     Validate benchmark file before enabling Run button.
 
+    Supports JSON, JSONL, and promptfoo YAML formats.
     Returns validation message string. Starts with ✅ if valid, ❌ if not.
     """
     if file_obj is None:
-        return "Upload a benchmark JSON file"
+        return "Upload a benchmark file (JSON/JSONL/YAML)"
 
-    from prompt_prix.benchmarks import CustomJSONLoader
+    if _is_yaml_file(file_obj):
+        from prompt_prix.benchmarks import PromptfooLoader
+        valid, message = PromptfooLoader.validate(file_obj)
+    else:
+        from prompt_prix.benchmarks import CustomJSONLoader
+        valid, message = CustomJSONLoader.validate(file_obj)
 
-    valid, message = CustomJSONLoader.validate(file_obj)
     return message
 
 
@@ -44,10 +54,13 @@ def get_test_ids(file_obj) -> list[str]:
     if file_obj is None:
         return []
 
-    from prompt_prix.benchmarks import CustomJSONLoader
-
     try:
-        tests = CustomJSONLoader.load(file_obj)
+        if _is_yaml_file(file_obj):
+            from prompt_prix.benchmarks import PromptfooLoader
+            tests = PromptfooLoader.load(file_obj)
+        else:
+            from prompt_prix.benchmarks import CustomJSONLoader
+            tests = CustomJSONLoader.load(file_obj)
         return [t.id for t in tests]
     except Exception:
         return []
@@ -83,15 +96,19 @@ async def run_handler(
         yield "❌ No models selected", []
         return
 
-    from prompt_prix.benchmarks import CustomJSONLoader
     from prompt_prix.battery import BatteryRunner
     from prompt_prix.mcp.tools.list_models import list_models
     from prompt_prix.parsers import parse_servers_input
     from prompt_prix.handlers import _ensure_adapter_registered
 
-    # Load test cases
+    # Load test cases (auto-detect format by extension)
     try:
-        tests = CustomJSONLoader.load(file_obj)
+        if _is_yaml_file(file_obj):
+            from prompt_prix.benchmarks import PromptfooLoader
+            tests = PromptfooLoader.load(file_obj)
+        else:
+            from prompt_prix.benchmarks import CustomJSONLoader
+            tests = CustomJSONLoader.load(file_obj)
     except Exception as e:
         yield f"❌ Failed to load tests: {e}", []
         return

@@ -18,13 +18,13 @@ def render_tab():
         with gr.Row():
             with gr.Column(scale=1):
                 battery_file = gr.File(
-                    label="Test Suite (JSON/JSONL)",
-                    file_types=[".json", ".jsonl"],
+                    label="Test Suite (JSON/JSONL/YAML)",
+                    file_types=[".json", ".jsonl", ".yaml", ".yml"],
                     type="filepath"
                 )
                 battery_validation = gr.Textbox(
                     label="Validation",
-                    value="Upload a benchmark file",
+                    value="Upload a benchmark file (JSON/JSONL/YAML)",
                     interactive=False,
                     lines=1
                 )
