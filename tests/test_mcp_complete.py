@@ -20,7 +20,7 @@ def mock_adapter():
     adapter.get_available_models = AsyncMock(return_value=["model-1", "model-2"])
 
     # Mock stream_completion - default yields a simple response
-    async def default_stream(*args, **kwargs):
+    async def default_stream(task):
         yield "Hello "
         yield "World"
 
@@ -51,10 +51,10 @@ class TestComplete:
     @pytest.mark.asyncio
     async def test_complete_passes_model_id(self, mock_adapter):
         """Test complete() passes model_id to adapter."""
-        call_args = {}
+        captured_task = {}
 
-        async def capture_stream(*args, **kwargs):
-            call_args.update(kwargs)
+        async def capture_stream(task):
+            captured_task["task"] = task
             yield "response"
 
         mock_adapter.stream_completion = capture_stream
@@ -64,15 +64,15 @@ class TestComplete:
             messages=[{"role": "user", "content": "Hello"}],
         )
 
-        assert call_args["model_id"] == "qwen2.5-7b"
+        assert captured_task["task"].model_id == "qwen2.5-7b"
 
     @pytest.mark.asyncio
     async def test_complete_passes_messages(self, mock_adapter):
         """Test complete() passes messages to adapter."""
-        call_args = {}
+        captured_task = {}
 
-        async def capture_stream(*args, **kwargs):
-            call_args.update(kwargs)
+        async def capture_stream(task):
+            captured_task["task"] = task
             yield "response"
 
         mock_adapter.stream_completion = capture_stream
@@ -83,15 +83,15 @@ class TestComplete:
         ]
         await complete(model_id="model-1", messages=messages)
 
-        assert call_args["messages"] == messages
+        assert captured_task["task"].messages == messages
 
     @pytest.mark.asyncio
     async def test_complete_passes_temperature(self, mock_adapter):
         """Test complete() passes temperature to adapter."""
-        call_args = {}
+        captured_task = {}
 
-        async def capture_stream(*args, **kwargs):
-            call_args.update(kwargs)
+        async def capture_stream(task):
+            captured_task["task"] = task
             yield "response"
 
         mock_adapter.stream_completion = capture_stream
@@ -102,15 +102,15 @@ class TestComplete:
             temperature=0.3,
         )
 
-        assert call_args["temperature"] == 0.3
+        assert captured_task["task"].temperature == 0.3
 
     @pytest.mark.asyncio
     async def test_complete_passes_max_tokens(self, mock_adapter):
         """Test complete() passes max_tokens to adapter."""
-        call_args = {}
+        captured_task = {}
 
-        async def capture_stream(*args, **kwargs):
-            call_args.update(kwargs)
+        async def capture_stream(task):
+            captured_task["task"] = task
             yield "response"
 
         mock_adapter.stream_completion = capture_stream
@@ -121,15 +121,15 @@ class TestComplete:
             max_tokens=100,
         )
 
-        assert call_args["max_tokens"] == 100
+        assert captured_task["task"].max_tokens == 100
 
     @pytest.mark.asyncio
     async def test_complete_passes_tools(self, mock_adapter):
         """Test complete() passes tools through to adapter."""
-        call_args = {}
+        captured_task = {}
 
-        async def capture_stream(*args, **kwargs):
-            call_args.update(kwargs)
+        async def capture_stream(task):
+            captured_task["task"] = task
             yield "response"
 
         mock_adapter.stream_completion = capture_stream
@@ -150,12 +150,12 @@ class TestComplete:
             tools=tools,
         )
 
-        assert call_args["tools"] == tools
+        assert captured_task["task"].tools == tools
 
     @pytest.mark.asyncio
     async def test_complete_raises_on_adapter_error(self, mock_adapter):
         """Test complete() propagates adapter exceptions."""
-        async def error_stream(*args, **kwargs):
+        async def error_stream(task):
             raise LMStudioError("API error: model not found")
             yield  # Make it a generator
 
@@ -198,7 +198,7 @@ class TestCompleteStream:
     @pytest.mark.asyncio
     async def test_complete_stream_multiple_chunks(self, mock_adapter):
         """Test complete_stream() handles many chunks."""
-        async def multi_chunk_stream(*args, **kwargs):
+        async def multi_chunk_stream(task):
             for word in "The quick brown fox jumps".split():
                 yield word + " "
 
@@ -233,10 +233,10 @@ class TestCompleteStream:
     @pytest.mark.asyncio
     async def test_complete_stream_passes_all_params(self, mock_adapter):
         """Test complete_stream() passes all parameters to adapter."""
-        call_args = {}
+        captured_task = {}
 
-        async def capture_stream(*args, **kwargs):
-            call_args.update(kwargs)
+        async def capture_stream(task):
+            captured_task["task"] = task
             yield "response"
 
         mock_adapter.stream_completion = capture_stream
@@ -255,13 +255,14 @@ class TestCompleteStream:
         ):
             pass
 
-        assert call_args["model_id"] == "test-model"
-        assert call_args["temperature"] == 0.5
-        assert call_args["max_tokens"] == 500
-        assert call_args["timeout_seconds"] == 120
-        assert call_args["tools"] == tools
-        assert call_args["seed"] == 42
-        assert call_args["repeat_penalty"] == 1.1
+        task = captured_task["task"]
+        assert task.model_id == "test-model"
+        assert task.temperature == 0.5
+        assert task.max_tokens == 500
+        assert task.timeout_seconds == 120
+        assert task.tools == tools
+        assert task.seed == 42
+        assert task.repeat_penalty == 1.1
 
 
 class TestCompleteIntegration:

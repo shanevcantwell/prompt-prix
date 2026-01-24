@@ -19,7 +19,7 @@ def mock_adapter():
     adapter.get_available_models = AsyncMock(return_value=["judge-model"])
 
     # Default stream_completion - will be overridden in tests
-    async def default_stream(*args, **kwargs):
+    async def default_stream(task):
         yield '{"pass": true, "reason": "Default", "score": null}'
 
     adapter.stream_completion = default_stream
@@ -38,7 +38,7 @@ def make_judge_stream(pass_value: bool, reason: str, score=None):
     import json
     response = json.dumps({"pass": pass_value, "reason": reason, "score": score})
 
-    async def stream(*args, **kwargs):
+    async def stream(task):
         yield response
 
     return stream
@@ -124,10 +124,10 @@ class TestJudge:
     @pytest.mark.asyncio
     async def test_judge_passes_correct_params(self, mock_adapter):
         """Test judge() passes model_id and other params to adapter."""
-        call_args = {}
+        captured_task = {}
 
-        async def capture_stream(*args, **kwargs):
-            call_args.update(kwargs)
+        async def capture_stream(task):
+            captured_task["task"] = task
             yield '{"pass": true, "reason": "OK", "score": null}'
 
         mock_adapter.stream_completion = capture_stream
@@ -140,9 +140,10 @@ class TestJudge:
             max_tokens=128,
         )
 
-        assert call_args["model_id"] == "my-judge-model"
-        assert call_args["temperature"] == 0.2
-        assert call_args["max_tokens"] == 128
+        task = captured_task["task"]
+        assert task.model_id == "my-judge-model"
+        assert task.temperature == 0.2
+        assert task.max_tokens == 128
 
     @pytest.mark.asyncio
     async def test_judge_no_adapter_registered(self):

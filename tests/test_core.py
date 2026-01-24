@@ -19,7 +19,7 @@ def mock_adapter():
     adapter.get_models_by_server = MagicMock(return_value={"http://localhost:1234": ["model-1", "model-2"]})
     adapter.get_unreachable_servers = MagicMock(return_value=[])
 
-    async def default_stream(*args, **kwargs):
+    async def default_stream(task):
         yield "Response text"
 
     adapter.stream_completion = default_stream
@@ -107,10 +107,10 @@ class TestComparisonSession:
         # Make adapter raise for model-2
         call_count = 0
 
-        async def error_on_second(*args, **kwargs):
+        async def error_on_second(task):
             nonlocal call_count
             call_count += 1
-            if kwargs.get("model_id") == "model-2":
+            if task.model_id == "model-2":
                 raise LMStudioError("Server error")
             yield "Response"
 

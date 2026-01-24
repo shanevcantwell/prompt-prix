@@ -291,11 +291,13 @@ class LMStudioAdapter:
         self._pool = _ServerPool(server_urls)
         self._dispatcher = _ConcurrentDispatcher(self._pool)
         self._lock = asyncio.Lock()
+        self._manifests_loaded = False
 
     async def get_available_models(self) -> list[str]:
         """Return list of all models available across all servers."""
         async with self._lock:
             await self._pool.refresh_all_manifests()
+            self._manifests_loaded = True
             return list(self._pool.get_all_available_models())
 
     def get_models_by_server(self) -> dict[str, list[str]]:
@@ -330,9 +332,13 @@ class LMStudioAdapter:
         if task.preferred_server_idx is not None:
             logger.debug(f"Server affinity: model={task.api_model_id} -> server {task.preferred_server_idx}")
 
-        # Refresh manifests once at start (adapter lock protects manifest state)
-        async with self._lock:
-            await self._pool.refresh_all_manifests()
+        # Lazy manifest initialization: only refresh once if never loaded
+        # This avoids serializing all requests while still ensuring manifests exist
+        if not self._manifests_loaded:
+            async with self._lock:
+                if not self._manifests_loaded:  # Double-check after acquiring lock
+                    await self._pool.refresh_all_manifests()
+                    self._manifests_loaded = True
 
         server_url = None
         try:
