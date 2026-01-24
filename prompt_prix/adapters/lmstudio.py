@@ -94,9 +94,13 @@ class _ServerPool:
         """
         for url, server in self.servers.items():
             # Check availability AND busy status in the same synchronous block
-            if model_id in server.available_models and not server.is_busy:
-                server.is_busy = True
-                return url
+            if model_id in server.available_models:
+                if not server.is_busy:
+                    server.is_busy = True
+                    logger.info(f"Acquired server {url} for {model_id}")
+                    return url
+                else:
+                    logger.debug(f"Server {url} has model {model_id} but IS BUSY")
         return None
 
     def find_and_acquire_specific(self, server_idx: int, model_id: str) -> Optional[str]:
@@ -105,18 +109,27 @@ class _ServerPool:
         """
         server_url = self.get_server_url_by_index(server_idx)
         if server_url is None:
+            logger.warning(f"Invalid server index {server_idx} requested")
             return None
         
         server = self.servers[server_url]
-        if model_id in server.available_models and not server.is_busy:
-            server.is_busy = True
-            return server_url
+        if model_id in server.available_models:
+            if not server.is_busy:
+                server.is_busy = True
+                logger.info(f"Acquired specific server {server_url} (idx {server_idx}) for {model_id}")
+                return server_url
+            else:
+                logger.debug(f"Specific server {server_url} (idx {server_idx}) IS BUSY")
+        else:
+            logger.warning(f"Specific server {server_url} (idx {server_idx}) does not have model {model_id}")
+            
         return None
 
     def release_server(self, server_url: str) -> None:
         """Mark server as available and notify listeners."""
         if server_url in self.servers:
             self.servers[server_url].is_busy = False
+            logger.info(f"Released server {server_url}")
             self.resource_available.set()
 
 

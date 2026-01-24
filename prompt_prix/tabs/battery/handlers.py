@@ -136,10 +136,16 @@ async def run_handler(
 
     # Create and run battery (temperature=0.0 for reproducibility)
     # BatteryRunner calls MCP tools internally - doesn't need servers
-    # max_concurrent = number of unique servers (from affinity prefixes)
+    # max_concurrent = number of unique servers (from affinity prefixes) OR total servers
     # This enables parallel execution across GPUs while keeping each GPU serialized
     server_indices = extract_server_indices(models_selected)
-    max_concurrent = len(server_indices) if server_indices else 1
+    
+    # If explicit affinity is used, max_concurrent matches unique targeted servers.
+    # If no affinity, allow concurrency up to total server count to enable dispatcher fan-out.
+    if server_indices:
+        max_concurrent = len(server_indices)
+    else:
+        max_concurrent = len(servers)
 
     runner = BatteryRunner(
         tests=tests,
