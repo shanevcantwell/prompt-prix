@@ -141,7 +141,8 @@ class RunResult(BaseModel):
     model_id: str
     status: RunStatus = RunStatus.PENDING
     response: str = ""
-    latency_ms: Optional[float] = None
+    latency_ms: Optional[float] = None  # Inference time only (Phase 1)
+    judge_latency_ms: Optional[float] = None  # Judge evaluation time (Phase 2)
     error: Optional[str] = None
     failure_reason: Optional[str] = None  # Explains semantic failures
     judge_result: Optional[dict] = None  # LLM judge evaluation result
@@ -190,6 +191,11 @@ class BatteryRun(BaseModel):
     tests: list[str]  # Test IDs (row labels)
     models: list[str]  # Model IDs (column labels)
     results: dict[str, RunResult] = {}  # key = f"{test_id}:{model_id}"
+
+    # Two-phase execution tracking (ADR-008)
+    phase: str = "inference"  # "inference" or "judging"
+    judge_total: int = 0      # How many results need judging
+    judge_completed: int = 0  # How many have been judged
 
     def get_key(self, test_id: str, model_id: str) -> str:
         """Generate result key from test and model IDs."""
@@ -388,6 +394,11 @@ class BatteryRunner:
         if not results_to_judge:
             return
 
+        # Set phase tracking for UI status
+        self.state.phase = "judging"
+        self.state.judge_total = len(results_to_judge)
+        self.state.judge_completed = 0
+
         active_tasks: set[asyncio.Task] = set()
 
         # Create judge tasks for all eligible results
@@ -435,12 +446,13 @@ class BatteryRunner:
         """
         Judge a single completed result.
 
-        Updates the result in-place with verdict.
+        Updates the result in-place with verdict and timing.
         """
         test = self._get_test_by_id(result.test_id)
         if not test:
             return
 
+        start_time = time.time()
         try:
             criteria = test.pass_criteria or f"Response must NOT: {test.fail_criteria}"
             judge_result = await judge(
@@ -448,6 +460,7 @@ class BatteryRunner:
                 criteria=criteria,
                 judge_model=self.judge_model,
             )
+            judge_latency_ms = (time.time() - start_time) * 1000
 
             if not judge_result["pass"]:
                 # Update to SEMANTIC_FAILURE with judge verdict
@@ -457,6 +470,7 @@ class BatteryRunner:
                     status=RunStatus.SEMANTIC_FAILURE,
                     response=result.response,
                     latency_ms=result.latency_ms,
+                    judge_latency_ms=judge_latency_ms,
                     failure_reason=judge_result["reason"],
                     judge_result=judge_result
                 ))
@@ -468,10 +482,12 @@ class BatteryRunner:
                     status=RunStatus.COMPLETED,
                     response=result.response,
                     latency_ms=result.latency_ms,
+                    judge_latency_ms=judge_latency_ms,
                     judge_result=judge_result
                 ))
 
         except Exception as e:
+            judge_latency_ms = (time.time() - start_time) * 1000
             # Judge failed - mark as error
             self.state.set_result(RunResult(
                 test_id=result.test_id,
@@ -479,8 +495,12 @@ class BatteryRunner:
                 status=RunStatus.ERROR,
                 response=result.response,
                 latency_ms=result.latency_ms,
+                judge_latency_ms=judge_latency_ms,
                 error=f"Judge evaluation failed: {e}"
             ))
+        finally:
+            # Increment judge progress counter
+            self.state.judge_completed += 1
 
     async def _execute_test(self, item: BatteryWorkItem) -> None:
         """

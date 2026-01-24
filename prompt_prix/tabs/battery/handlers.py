@@ -133,6 +133,15 @@ async def run_handler(
         yield f"❌ Models not available: {', '.join(missing)}", []
         return
 
+    # Pre-flight check: warn if tests have criteria but no judge model (#103)
+    tests_with_criteria = [t for t in tests if t.pass_criteria or t.fail_criteria]
+    if tests_with_criteria and not judge_model:
+        yield (
+            f"⚠️ {len(tests_with_criteria)} tests have pass/fail criteria but no judge model selected. "
+            "Results will show ✓ but won't be evaluated against criteria.",
+            []
+        )
+
     # Create and run battery (temperature=0.0 for reproducibility)
     # BatteryRunner calls MCP tools internally - doesn't need servers
     # Adapter handles concurrency via per-server locks
@@ -153,7 +162,11 @@ async def run_handler(
     # Stream state updates to UI
     async for battery_state in runner.run():
         grid = battery_state.to_grid()
-        progress = f"⏳ Running... ({battery_state.completed_count}/{battery_state.total_count})"
+        # Show different status based on phase (ADR-008 two-phase execution)
+        if battery_state.phase == "judging":
+            progress = f"⏳ Judging... ({battery_state.judge_completed}/{battery_state.judge_total})"
+        else:
+            progress = f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
         yield progress, grid
 
     # Final status
@@ -181,6 +194,7 @@ def export_json():
                     "status": result.status.value,
                     "response": result.response,
                     "latency_ms": result.latency_ms,
+                    "judge_latency_ms": result.judge_latency_ms,
                     "error": result.error,
                     "failure_reason": result.failure_reason
                 })
@@ -211,7 +225,7 @@ def export_csv():
     row_count = 0
     with open(filepath, "w", newline='', encoding='utf-8') as f:
         writer = csv.writer(f, quoting=csv.QUOTE_ALL)
-        writer.writerow(["test_id", "model_id", "status", "latency_ms",
+        writer.writerow(["test_id", "model_id", "status", "latency_ms", "judge_latency_ms",
                          "error", "failure_reason", "response"])
 
         for test_id in state.battery_run.tests:
@@ -219,11 +233,13 @@ def export_csv():
                 result = state.battery_run.get_result(test_id, model_id)
                 if result:
                     latency = f"{result.latency_ms:.0f}" if result.latency_ms else ""
+                    judge_latency = f"{result.judge_latency_ms:.0f}" if result.judge_latency_ms else ""
                     writer.writerow([
                         result.test_id,
                         result.model_id,
                         result.status.value,
                         latency,
+                        judge_latency,
                         result.error or "",
                         result.failure_reason or "",
                         result.response or ""
@@ -263,7 +279,8 @@ def get_cell_detail(model: str, test: str) -> str:
         if result.judge_result:
             score = result.judge_result.get("score")
             score_str = f" (score: {score})" if score is not None else ""
-            judge_info = f"\n\n**Judged by:** LLM{score_str}"
+            judge_latency = f" in {result.judge_latency_ms:.0f}ms" if result.judge_latency_ms else ""
+            judge_info = f"\n\n**Judged by:** LLM{score_str}{judge_latency}"
         return (
             f"**Status:** ❌ Semantic Failure\n\n"
             f"**Reason:** {failure}{judge_info}\n\n"
@@ -272,7 +289,11 @@ def get_cell_detail(model: str, test: str) -> str:
         )
 
     latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
-    return f"**Status:** ✓ Completed\n\n**Latency:** {latency}\n\n---\n\n{result.response}"
+    judge_info = ""
+    if result.judge_result:
+        judge_latency = f" (judged in {result.judge_latency_ms:.0f}ms)" if result.judge_latency_ms else ""
+        judge_info = f"\n\n**Judge:** ✓ Passed{judge_latency}"
+    return f"**Status:** ✓ Completed\n\n**Latency:** {latency}{judge_info}\n\n---\n\n{result.response}"
 
 
 def refresh_grid(display_mode_str: str) -> list:
