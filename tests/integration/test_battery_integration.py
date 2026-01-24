@@ -415,3 +415,248 @@ async def test_tool_call_not_fragmented(live_adapter, first_model, tool_competen
                 assert "city" in parsed, f"Missing 'city' in tool call args: {parsed}"
             except json.JSONDecodeError as e:
                 pytest.fail(f"Invalid JSON in tool call: {match}\nError: {e}")
+
+
+# --- Fan-out verification tests (Issue #104) ---
+# These tests verify that concurrent requests fan out across servers
+# when the same model exists on multiple servers and NO prefix is used.
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_adapter_fans_out_same_model(live_adapter):
+    """
+    Layer 1: Test adapter fans out when same model on both servers, no prefix.
+
+    This verifies the adapter's find_and_acquire correctly routes Task 2
+    to Server 1 when Server 0 is busy with Task 1.
+    """
+    import asyncio
+    import time
+    from prompt_prix.adapters.schema import InferenceTask
+
+    await live_adapter.get_available_models()
+    models_by_server = live_adapter.get_models_by_server()
+
+    server_urls = list(models_by_server.keys())
+    if len(server_urls) < 2:
+        pytest.skip("Need 2+ servers")
+
+    shared = set(models_by_server[server_urls[0]]) & set(models_by_server[server_urls[1]])
+    shared_llms = [m for m in shared if _is_llm_model(m)]
+    if not shared_llms:
+        pytest.skip(f"No shared LLM models. Server0: {models_by_server[server_urls[0]]}, Server1: {models_by_server[server_urls[1]]}")
+
+    model = shared_llms[0]
+    print(f"\n[Adapter] Testing with shared model: {model}")
+    print(f"  Server 0: {server_urls[0]}")
+    print(f"  Server 1: {server_urls[1]}")
+
+    async def call_adapter():
+        task = InferenceTask(
+            model_id=model,  # NO prefix
+            messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
+            temperature=0.0,
+            max_tokens=50,
+            timeout_seconds=60
+        )
+        start = time.time()
+        response = ""
+        async for chunk in live_adapter.stream_completion(task):
+            response += chunk
+        return time.time() - start, response
+
+    start = time.time()
+    results = await asyncio.gather(call_adapter(), call_adapter())
+    wall = time.time() - start
+
+    times = [r[0] for r in results]
+    print(f"  Individual times: {times[0]:.1f}s, {times[1]:.1f}s")
+    print(f"  Sum: {sum(times):.1f}s, Wall: {wall:.1f}s")
+
+    if wall >= sum(times) * 0.9:
+        pytest.fail(f"Adapter serialized: wall={wall:.1f}s >= 0.9 * sum={sum(times):.1f}s")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_mcp_complete_fans_out_same_model(live_adapter):
+    """
+    Layer 2: Test complete() MCP primitive fans out when same model on both servers.
+
+    This verifies the MCP layer correctly constructs InferenceTask and
+    the adapter routes concurrently.
+    """
+    import asyncio
+    import time
+    from prompt_prix.mcp.tools.complete import complete
+
+    await live_adapter.get_available_models()
+    models_by_server = live_adapter.get_models_by_server()
+
+    server_urls = list(models_by_server.keys())
+    if len(server_urls) < 2:
+        pytest.skip("Need 2+ servers")
+
+    shared = set(models_by_server[server_urls[0]]) & set(models_by_server[server_urls[1]])
+    shared_llms = [m for m in shared if _is_llm_model(m)]
+    if not shared_llms:
+        pytest.skip("No shared LLM models")
+
+    model = shared_llms[0]
+    print(f"\n[MCP complete()] Testing with shared model: {model}")
+
+    async def call_complete():
+        start = time.time()
+        response = await complete(
+            model_id=model,  # NO prefix
+            messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
+            temperature=0.0,
+            max_tokens=50,
+            timeout_seconds=60
+        )
+        return time.time() - start
+
+    start = time.time()
+    times = await asyncio.gather(call_complete(), call_complete())
+    wall = time.time() - start
+
+    print(f"  Individual times: {times[0]:.1f}s, {times[1]:.1f}s")
+    print(f"  Sum: {sum(times):.1f}s, Wall: {wall:.1f}s")
+
+    if wall >= sum(times) * 0.9:
+        pytest.fail(f"MCP complete() serialized: wall={wall:.1f}s >= 0.9 * sum={sum(times):.1f}s")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_battery_runner_fans_out_same_model(live_adapter):
+    """
+    Layer 3: Test BatteryRunner fans out when running 2 tests with same model.
+
+    This verifies the orchestration layer correctly schedules concurrent
+    work items that reach different servers.
+    """
+    import time
+    from prompt_prix.benchmarks.base import BenchmarkCase
+
+    await live_adapter.get_available_models()
+    models_by_server = live_adapter.get_models_by_server()
+
+    server_urls = list(models_by_server.keys())
+    if len(server_urls) < 2:
+        pytest.skip("Need 2+ servers")
+
+    shared = set(models_by_server[server_urls[0]]) & set(models_by_server[server_urls[1]])
+    shared_llms = [m for m in shared if _is_llm_model(m)]
+    if not shared_llms:
+        pytest.skip("No shared LLM models")
+
+    model = shared_llms[0]
+    print(f"\n[BatteryRunner] Testing with shared model: {model}")
+
+    # Two test cases, same model - should fan out to both servers
+    tests = [
+        BenchmarkCase(id="fanout_test1", user="Say 'one' and nothing else."),
+        BenchmarkCase(id="fanout_test2", user="Say 'two' and nothing else."),
+    ]
+
+    runner = BatteryRunner(
+        tests=tests,
+        models=[model],  # Single model, NO prefix
+        temperature=0.0,
+        max_tokens=50,
+        timeout_seconds=60,
+    )
+
+    start = time.time()
+    final_state = None
+    async for battery_state in runner.run():
+        final_state = battery_state
+    wall = time.time() - start
+
+    # Get individual latencies
+    r1 = final_state.get_result("fanout_test1", model)
+    r2 = final_state.get_result("fanout_test2", model)
+
+    assert r1 is not None, "Result 1 missing"
+    assert r2 is not None, "Result 2 missing"
+
+    if r1.latency_ms and r2.latency_ms:
+        sum_ms = r1.latency_ms + r2.latency_ms
+        wall_ms = wall * 1000
+        print(f"  Latencies: {r1.latency_ms:.0f}ms + {r2.latency_ms:.0f}ms = {sum_ms:.0f}ms")
+        print(f"  Wall: {wall_ms:.0f}ms")
+
+        if wall_ms >= sum_ms * 0.9:
+            pytest.fail(f"BatteryRunner serialized: wall={wall_ms:.0f}ms >= 0.9 * sum={sum_ms:.0f}ms")
+    else:
+        print(f"  Warning: Could not compare latencies. R1={r1.status}, R2={r2.status}")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_handler_fans_out_same_model(live_adapter):
+    """
+    Layer 4: Test full handler path fans out when same model on both servers.
+
+    This verifies the complete flow from UI handler through BatteryRunner
+    to adapter correctly fans out.
+    """
+    import time
+    import tempfile
+    from prompt_prix.tabs.battery.handlers import run_handler
+    from prompt_prix.config import load_servers_from_env
+
+    await live_adapter.get_available_models()
+    models_by_server = live_adapter.get_models_by_server()
+
+    server_urls = list(models_by_server.keys())
+    if len(server_urls) < 2:
+        pytest.skip("Need 2+ servers")
+
+    shared = set(models_by_server[server_urls[0]]) & set(models_by_server[server_urls[1]])
+    shared_llms = [m for m in shared if _is_llm_model(m)]
+    if not shared_llms:
+        pytest.skip("No shared LLM models")
+
+    model = shared_llms[0]
+    print(f"\n[Handler] Testing with shared model: {model}")
+
+    # Create temp benchmark file with 2 tests
+    benchmark = {
+        "prompts": [
+            {"id": "handler_test1", "user": "Say 'alpha' and nothing else."},
+            {"id": "handler_test2", "user": "Say 'beta' and nothing else."},
+        ]
+    }
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+        json.dump(benchmark, f)
+        benchmark_file = f.name
+
+    servers_text = "\n".join(load_servers_from_env())
+
+    start = time.time()
+    final_status = None
+    async for status, grid in run_handler(
+        file_obj=benchmark_file,
+        models_selected=[model],  # NO prefix
+        servers_text=servers_text,
+        timeout=60,
+        max_tokens=50,
+        system_prompt="",
+        judge_model=None
+    ):
+        final_status = status
+
+    wall = time.time() - start
+    print(f"  Handler wall time: {wall:.1f}s")
+    print(f"  Final status: {final_status}")
+
+    # Cleanup
+    Path(benchmark_file).unlink(missing_ok=True)
+
+    # For 2 simple prompts, wall time should be < 15s if parallel
+    # If serialized on slow model, could be 20-30s
+    if wall > 15:
+        pytest.fail(f"Handler appears serialized: {wall:.1f}s for 2 simple prompts")

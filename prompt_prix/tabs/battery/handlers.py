@@ -127,7 +127,7 @@ async def run_handler(
 
     # Validate models using MCP primitive (uses registry internally)
     # Models may have server affinity prefix (e.g., "0:model_name")
-    from prompt_prix.server_affinity import strip_server_prefix, extract_server_indices
+    from prompt_prix.server_affinity import strip_server_prefix
 
     result = await list_models()
     available = set(result["models"])
@@ -139,20 +139,8 @@ async def run_handler(
 
     # Create and run battery (temperature=0.0 for reproducibility)
     # BatteryRunner calls MCP tools internally - doesn't need servers
-    # max_concurrent = number of unique servers (from affinity prefixes) OR total servers
-    # This enables parallel execution across GPUs while keeping each GPU serialized
-    server_indices = extract_server_indices(models_selected)
-    
-    # If explicit affinity is used, max_concurrent matches unique targeted servers.
-    # If no affinity, allow concurrency up to total server count to enable dispatcher fan-out.
-    if server_indices:
-        max_concurrent = len(server_indices)
-        logger.info(f"Battery: Affinity detected {server_indices}. Set max_concurrent={max_concurrent}")
-    else:
-        max_concurrent = len(servers)
-        logger.info(f"Battery: No affinity detected. Set max_concurrent={max_concurrent} (server count)")
-        
-    logger.info(f"Battery Run Config: Models={models_selected}, MaxConcurrent={max_concurrent}")
+    # Adapter handles concurrency via per-server locks
+    logger.info(f"Battery Run Config: Models={models_selected}")
 
     runner = BatteryRunner(
         tests=tests,
@@ -160,7 +148,6 @@ async def run_handler(
         temperature=0.0,
         max_tokens=max_tokens,
         timeout_seconds=timeout,
-        max_concurrent=max_concurrent,
         judge_model=judge_model
     )
 

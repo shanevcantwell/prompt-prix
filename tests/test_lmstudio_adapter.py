@@ -388,6 +388,65 @@ class TestConcurrentDispatch:
         assert "server0_start" in events
         assert "server1_start" in events
 
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_same_model_both_servers_no_prefix_fans_out(self, two_server_urls):
+        """Same model on both servers, no prefix → should use both GPUs.
+
+        This is the actual battery scenario: user selects a model that exists
+        on both servers, without explicit affinity prefix. Two concurrent calls
+        should fan out to both servers, not queue for server 0.
+        """
+        import time
+
+        # BOTH servers have the SAME model
+        respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["shared-model"]))
+        )
+        respx.get("http://server1:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["shared-model"]))
+        )
+
+        servers_used = []
+
+        async def track_server0(request):
+            servers_used.append("server0")
+            await asyncio.sleep(0.3)
+            return httpx.Response(200, content=sse_stream("from 0"))
+
+        async def track_server1(request):
+            servers_used.append("server1")
+            await asyncio.sleep(0.3)
+            return httpx.Response(200, content=sse_stream("from 1"))
+
+        respx.post("http://server0:1234/v1/chat/completions").mock(side_effect=track_server0)
+        respx.post("http://server1:1234/v1/chat/completions").mock(side_effect=track_server1)
+
+        adapter = LMStudioAdapter(two_server_urls)
+
+        async def call_model():
+            task = InferenceTask(
+                model_id="shared-model",  # NO prefix - should auto-discover
+                messages=[{"role": "user", "content": "Hi"}],
+                timeout_seconds=5.0
+            )
+            result = ""
+            async for chunk in adapter.stream_completion(task):
+                result += chunk
+            return result
+
+        # Two concurrent calls with SAME model, NO prefix
+        start = time.time()
+        results = await asyncio.gather(call_model(), call_model())
+        elapsed = time.time() - start
+
+        # BOTH servers should be used (fan-out)
+        assert "server0" in servers_used, f"Server 0 never called. Used: {servers_used}"
+        assert "server1" in servers_used, f"Server 1 never called. Used: {servers_used}"
+
+        # Should complete in parallel (~0.3s), not sequential (~0.6s)
+        assert elapsed < 0.5, f"Expected parallel execution (<0.5s), got {elapsed:.2f}s"
+
 
 # ─────────────────────────────────────────────────────────────────────
 # get_unreachable_servers() TESTS

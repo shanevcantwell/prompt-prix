@@ -255,11 +255,11 @@ class BatteryRunner:
 
     Per ADR-006 (Orchestration Layer):
     - Defines WHAT to run (test matrix across models)
-    - Controls concurrency via asyncio.Semaphore
     - Calls MCP primitives ONLY (complete_stream) — never adapters directly
     - DOES NOT know about servers, ServerPool, or ConcurrentDispatcher
 
-    The adapter (registered in MCP registry) handles server selection internally.
+    The adapter (registered in MCP registry) handles server selection and
+    concurrency internally via per-server locks.
     """
 
     def __init__(
@@ -269,7 +269,6 @@ class BatteryRunner:
         temperature: float = 0.0,  # Deterministic for evals
         max_tokens: int = 2048,
         timeout_seconds: int = 300,
-        max_concurrent: int = 4,  # Semaphore limit
         judge_model: Optional[str] = None,  # Model for LLM-as-judge evaluation
     ):
         """
@@ -281,7 +280,6 @@ class BatteryRunner:
             temperature: Sampling temperature (default 0.0 for reproducibility)
             max_tokens: Maximum tokens per response
             timeout_seconds: Timeout per request
-            max_concurrent: Maximum concurrent requests (semaphore limit)
             judge_model: Model ID for LLM-as-judge evaluation (optional)
         """
         self.tests = tests
@@ -289,7 +287,6 @@ class BatteryRunner:
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
-        self.max_concurrent = max_concurrent
         self.judge_model = judge_model
 
         # Initialize state
@@ -302,8 +299,8 @@ class BatteryRunner:
         """
         Execute all tests across all models.
 
-        Uses asyncio.Semaphore to limit concurrent requests.
-        The adapter (via MCP registry) handles server selection internally.
+        All tasks are submitted immediately. The adapter handles concurrency
+        via per-server locks, enabling parallel execution across GPUs.
 
         Yields:
             BatteryRun state snapshot periodically for UI updates
@@ -317,45 +314,17 @@ class BatteryRunner:
             for test in self.tests
         ]
 
-        # Use a single global semaphore for the Run.
-        # However, to prevent Head-of-Line blocking when we have mixed affinities (e.g. 2 servers, 4 tasks)
-        # we must ensure that we don't pick 2 tasks for Server 0 while Server 1 is idle.
-        # BUT BatteryRunner doesn't know about servers.
-        # The only way is to rely on the Dispatcher to handle queuing efficiently.
-        # The Dispatcher DOES have a queue.
-        # So why did we have timeouts?
-        # Because BatteryRunner's timeout includes time spent in the Dispatcher Queue.
-        
-        # To fix "timeout while waiting in queue", we should either:
-        # A) Increase BatteryRunner timeout (bad UX)
-        # B) Make BatteryRunner smarter about not submitting too many tasks for the SAME resource.
-        # C) Use the Dispatcher's queue without timeout, and only apply timeout to the actual generation.
-        
-        # We'll go with (C) partially: we rely on the Semaphore to limit TOTAL inflight requests.
-        # If max_concurrent is set correctly (to number of servers), then we never overload the system.
-        
-        # The issue was likely that max_concurrent was calculated as 2 (total servers), 
-        # but all tasks targeted Server 0.
-        # So we had 2 tasks for Server 0.
-        # Task 1 runs. Task 2 waits.
-        # If Task 1 takes > timeout, Task 2 dies.
-        
-        semaphore = asyncio.Semaphore(self.max_concurrent)
         active_tasks: set[asyncio.Task] = set()
 
         # Initial yield
         yield self.state
 
-        async def execute_with_semaphore(item: BatteryWorkItem) -> None:
-            """Execute a single test with semaphore-based concurrency control."""
-            async with semaphore:
-                await self._execute_test(item)
-
         # Create tasks for all work items
+        # All tasks submitted immediately - the adapter's per-server locks handle concurrency
         for item in work_items:
             if app_state.should_stop():
                 break
-            task = asyncio.create_task(execute_with_semaphore(item))
+            task = asyncio.create_task(self._execute_test(item))
             active_tasks.add(task)
             task.add_done_callback(active_tasks.discard)
 

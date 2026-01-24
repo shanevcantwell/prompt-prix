@@ -70,7 +70,9 @@ class _ServerPool:
                 data = response.json()
                 model_ids = [m["id"] for m in data.get("data", [])]
                 self.servers[server_url].available_models = model_ids
-        except Exception:
+                logger.info(f"Manifest refresh: {server_url} has models: {model_ids}")
+        except Exception as e:
+            logger.error(f"Manifest refresh FAILED for {server_url}: {e}")
             self.servers[server_url].available_models = []
 
     def get_all_available_models(self) -> set[str]:
@@ -156,13 +158,15 @@ class _ConcurrentDispatcher:
         Submit a request and wait for a server to be acquired.
         Returns the acquired server_url.
         """
+        logger.info(f"Dispatcher.submit: model={model_id}, server_idx={server_idx}")
+
         # Ensure the dispatcher loop is running
         if self._dispatcher_task is None or self._dispatcher_task.done():
             self._dispatcher_task = asyncio.create_task(self._process_queue_loop())
 
         future = asyncio.Future()
         task = _InferenceTask(model_id=model_id, server_idx=server_idx, future=future)
-        
+
         self._queue.append(task)
         self._state_changed.set()
         
@@ -339,6 +343,9 @@ class LMStudioAdapter:
                 if not self._manifests_loaded:  # Double-check after acquiring lock
                     await self._pool.refresh_all_manifests()
                     self._manifests_loaded = True
+                    # Log server state for debugging
+                    for idx, (url, server) in enumerate(self._pool.servers.items()):
+                        logger.info(f"Server[{idx}] {url}: models={server.available_models}")
 
         server_url = None
         try:
