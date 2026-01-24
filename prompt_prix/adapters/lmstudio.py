@@ -149,13 +149,17 @@ class _ConcurrentDispatcher:
         self.pool = pool
         self._queue: collections.deque[_InferenceTask] = collections.deque()
         self._state_changed = asyncio.Event()
-        self._dispatcher_task = asyncio.create_task(self._process_queue_loop())
+        self._dispatcher_task = None # Lazily started
 
     async def submit(self, model_id: str, server_idx: Optional[int]) -> str:
         """
         Submit a request and wait for a server to be acquired.
         Returns the acquired server_url.
         """
+        # Ensure the dispatcher loop is running
+        if self._dispatcher_task is None or self._dispatcher_task.done():
+            self._dispatcher_task = asyncio.create_task(self._process_queue_loop())
+
         future = asyncio.Future()
         task = _InferenceTask(model_id=model_id, server_idx=server_idx, future=future)
         
