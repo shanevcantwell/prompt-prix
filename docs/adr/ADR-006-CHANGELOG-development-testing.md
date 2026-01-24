@@ -92,7 +92,6 @@ ADAPTER (LMStudioAdapter owns ServerPool, httpx)
 | Issue | Description | Commit |
 |-------|-------------|--------|
 | #96 | Column-per-GPU model selector | `faea261` |
-| #97 | Layer violation in handlers.py | `b79ff2c` |
 | #101 | Variable naming confusion (model_id vs actual_model_id) | `609b6be` |
 
 ---
