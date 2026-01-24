@@ -297,18 +297,20 @@ async def test_server_affinity_with_multiple_gpus(live_adapter):
     print(f"Server 1 ({server_urls[1]}): using {model_from_server1}")
 
     # Run a simple completion for each model with timing
+    from prompt_prix.adapters.schema import InferenceTask
     test_messages = [{"role": "user", "content": "Count from 1 to 5 slowly."}]
 
     async def run_model(model_id):
         start = time.time()
-        response = ""
-        async for chunk in live_adapter.stream_completion(
+        task = InferenceTask(
             model_id=model_id,
             messages=test_messages,
             temperature=0.0,
             max_tokens=100,
             timeout_seconds=120
-        ):
+        )
+        response = ""
+        async for chunk in live_adapter.stream_completion(task):
             response += chunk
         elapsed = time.time() - start
         return model_id, response, elapsed
