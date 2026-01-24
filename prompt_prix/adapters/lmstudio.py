@@ -298,31 +298,32 @@ class LMStudioAdapter:
         if server_idx is not None:
             logger.debug(f"Server affinity: model={actual_model_id} -> server {server_idx}")
 
-        # Refresh manifests once at start
+        # Refresh manifests once at start (adapter lock protects manifest state)
         async with self._lock:
             await self._pool.refresh_all_manifests()
 
         # Wait for a server to become available
+        # No adapter-level lock here - per-server locks in _ServerPool handle contention.
+        # This allows parallel dispatch to different servers.
         while True:
             # Check timeout (use completion timeout as max wait)
             if time.time() - start_time > timeout_seconds:
                 raise RuntimeError(f"Timeout waiting for server for model: {actual_model_id}")
 
-            async with self._lock:
-                if server_idx is not None:
-                    # Server affinity: only use the specified server
-                    server_url = self._pool.find_specific_server(server_idx, actual_model_id)
-                else:
-                    # No affinity: use any available server
-                    server_url = self._pool.find_available_server(actual_model_id)
+            if server_idx is not None:
+                # Server affinity: only use the specified server
+                server_url = self._pool.find_specific_server(server_idx, actual_model_id)
+            else:
+                # No affinity: use any available server
+                server_url = self._pool.find_available_server(actual_model_id)
 
-                if server_url is not None:
-                    # Acquire inside lock to prevent TOCTOU race
-                    await self._pool.acquire_server(server_url)
-                    break
+            if server_url is not None:
+                # Per-server lock blocks if this specific server is busy.
+                # Other tasks targeting different servers proceed in parallel.
+                await self._pool.acquire_server(server_url)
+                break
 
-            # Server not available, wait briefly and retry
-            # Releasing lock allows other tasks to release their servers
+            # No server available, wait briefly and retry
             await asyncio.sleep(0.2)
         try:
             # Delegate to module-level function for actual streaming

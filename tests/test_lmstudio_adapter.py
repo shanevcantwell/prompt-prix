@@ -290,6 +290,100 @@ class TestGetModelsByServer:
 # get_unreachable_servers() TESTS
 # ─────────────────────────────────────────────────────────────────────
 
+class TestConcurrentDispatch:
+    """Tests for parallel execution across servers (Issue #104)."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_different_servers_run_in_parallel(self, two_server_urls):
+        """Two calls to different servers should run concurrently, not sequentially.
+
+        This test verifies the fix for Issue #104 where adapter-level locking
+        was serializing all calls, even to different servers.
+        """
+        import time
+
+        # Both servers have their respective models
+        respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.get("http://server1:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelB"]))
+        )
+
+        # Track call timing
+        call_log = []
+
+        async def slow_response_server0(request):
+            call_log.append(("server0_start", time.time()))
+            await asyncio.sleep(0.3)  # Simulate processing time
+            call_log.append(("server0_end", time.time()))
+            return httpx.Response(200, content=sse_stream("Hello from 0"))
+
+        async def slow_response_server1(request):
+            call_log.append(("server1_start", time.time()))
+            await asyncio.sleep(0.3)  # Simulate processing time
+            call_log.append(("server1_end", time.time()))
+            return httpx.Response(200, content=sse_stream("Hello from 1"))
+
+        respx.post("http://server0:1234/v1/chat/completions").mock(
+            side_effect=slow_response_server0
+        )
+        respx.post("http://server1:1234/v1/chat/completions").mock(
+            side_effect=slow_response_server1
+        )
+
+        adapter = LMStudioAdapter(two_server_urls)
+
+        async def call_server0():
+            result = ""
+            async for chunk in adapter.stream_completion(
+                model_id="0:modelA",
+                messages=[{"role": "user", "content": "Hi"}],
+                temperature=0.7,
+                max_tokens=100,
+                timeout_seconds=5
+            ):
+                result += chunk
+            return result
+
+        async def call_server1():
+            result = ""
+            async for chunk in adapter.stream_completion(
+                model_id="1:modelB",
+                messages=[{"role": "user", "content": "Hi"}],
+                temperature=0.7,
+                max_tokens=100,
+                timeout_seconds=5
+            ):
+                result += chunk
+            return result
+
+        # Run both calls concurrently
+        start = time.time()
+        results = await asyncio.gather(call_server0(), call_server1())
+        elapsed = time.time() - start
+
+        # Verify both completed
+        assert "Hello from 0" in results[0]
+        assert "Hello from 1" in results[1]
+
+        # Verify parallel execution:
+        # - If sequential: elapsed >= 0.6s (0.3 + 0.3)
+        # - If parallel: elapsed ~= 0.3s (plus overhead)
+        # Allow some margin for test environment variance
+        assert elapsed < 0.5, f"Expected parallel execution (<0.5s), got {elapsed:.2f}s"
+
+        # Verify both servers were called (both starts happened)
+        events = [e[0] for e in call_log]
+        assert "server0_start" in events
+        assert "server1_start" in events
+
+
+# ─────────────────────────────────────────────────────────────────────
+# get_unreachable_servers() TESTS
+# ─────────────────────────────────────────────────────────────────────
+
 class TestGetUnreachableServers:
     """Tests for get_unreachable_servers() method."""
 
