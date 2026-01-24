@@ -77,46 +77,21 @@ async def test_dispatch_cancellation_leak():
     adapter._pool.servers[server_urls[0]].available_models = [model_id]
     
     # 1. Acquire server normally
-    task1 = InferenceTask(model_id=model_id, messages=[], timeout_seconds=10.0)
-    # We cheat and use the dispatcher directly to get the URL, but the adapter.stream_completion uses submit too.
-    # But wait, submit() takes raw args. 
-    # LMStudioAdapter.stream_completion calls _dispatcher.submit(task.api_model_id, ...)
-    # So _dispatcher.submit signature IS NOT CHANGED.
-    # The test calls _dispatcher.submit directly.
-    # So we don't need to change this part of the test!
-    
-    # But wait, in run_request (previous function) we call adapter.stream_completion(task).
-    # That is correct.
-    
-    # In THIS test (test_dispatch_cancellation_leak), we call adapter._dispatcher.submit(model_id, None).
-    # Does submit() take InferenceTask?
-    # No, submit() signature is:
-    # async def submit(self, model_id: str, server_idx: Optional[int]) -> str:
-    # So it takes raw args.
-    
-    # So we don't need to update test_dispatch_cancellation_leak unless it calls stream_completion.
-    # It calls _dispatcher.submit.
-    # So it is fine.
-    
-    url1 = await adapter._dispatcher.submit(model_id, None)
+    # Dispatcher submit() takes just model_id - server selection is automatic
+    url1 = await adapter._dispatcher.submit(model_id)
     assert url1 == server_urls[0]
     assert adapter._pool.servers[url1].is_busy
-    
+
     # 2. Release it
     adapter._pool.release_server(url1)
     assert not adapter._pool.servers[url1].is_busy
-    
-    # 3. Simulate race: Future cancelled just before set_result
-    # We can't easily hook into the loop, so we'll test the loop's error handling logic directly
-    # by mocking the future to be done/cancelled when set_result is called?
-    # Or we can just test the submit cancellation logic.
-    
-    # Test SUBMIT cancellation:
+
+    # 3. Test SUBMIT cancellation:
     # Acquire server (Task A) so Task B waits
-    urlA = await adapter._dispatcher.submit(model_id, None)
-    
+    urlA = await adapter._dispatcher.submit(model_id)
+
     # Task B submits and waits
-    taskB_coro = adapter._dispatcher.submit(model_id, None)
+    taskB_coro = adapter._dispatcher.submit(model_id)
     taskB = asyncio.create_task(taskB_coro)
     
     # Wait for B to be in queue

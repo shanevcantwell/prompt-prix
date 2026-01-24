@@ -257,18 +257,16 @@ def _is_llm_model(model_name: str) -> bool:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_server_affinity_with_multiple_gpus(live_adapter):
+async def test_parallel_execution_with_multiple_gpus(live_adapter):
     """
-    Test that models are dispatched to their correct servers.
+    Test that different models on different servers run in parallel.
 
     When user selects modelA from server0 and modelB from server1,
-    each should run on its designated server - not just any server
-    that happens to have the model.
+    requests should fan out and run concurrently on both GPUs.
 
     This test verifies:
     - Multiple servers are detected
     - Different models are selected per server
-    - Requests route to the correct server (not random)
     - Concurrent execution actually happens (timing check)
     """
     import asyncio
@@ -315,14 +313,13 @@ async def test_server_affinity_with_multiple_gpus(live_adapter):
         elapsed = time.time() - start
         return model_id, response, elapsed
 
-    # Run both models concurrently with server affinity prefixes
-    # Prefix format: "server_idx:model_name" routes to specific server
+    # Run both models concurrently - dispatcher routes by model availability
     # With proper parallel routing: total_time ~= max(time0, time1)
     # With serialized routing: total_time ~= time0 + time1
     overall_start = time.time()
     results = await asyncio.gather(
-        run_model(f"0:{model_from_server0}"),
-        run_model(f"1:{model_from_server1}"),
+        run_model(model_from_server0),
+        run_model(model_from_server1),
         return_exceptions=True
     )
     overall_elapsed = time.time() - overall_start

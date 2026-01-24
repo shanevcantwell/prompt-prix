@@ -92,120 +92,6 @@ class TestGetAvailableModels:
 
 
 # ─────────────────────────────────────────────────────────────────────
-# stream_completion() SERVER INDEX TESTS
-# ─────────────────────────────────────────────────────────────────────
-
-class TestStreamCompletionServerIndex:
-    """Tests for server index boundary conditions via prefix."""
-
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_valid_prefix_routes_to_correct_server(self, two_server_urls):
-        """'0:modelA' when server 0 has modelA → success."""
-        # Server 0 has modelA
-        respx.get("http://server0:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelA"]))
-        )
-        respx.get("http://server1:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelB"]))
-        )
-        # Expect completion on server 0
-        respx.post("http://server0:1234/v1/chat/completions").mock(
-            return_value=httpx.Response(200, content=sse_stream("Hello"))
-        )
-
-        adapter = LMStudioAdapter(two_server_urls)
-        response = ""
-        task = InferenceTask(
-            model_id="0:modelA",
-            messages=[{"role": "user", "content": "Hi"}],
-            temperature=0.7,
-            max_tokens=100,
-            timeout_seconds=5.0
-        )
-        async for chunk in adapter.stream_completion(task):
-            response += chunk
-
-        assert "Hello" in response
-
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_prefix_server_lacks_model_times_out(self, two_server_urls):
-        """'0:modelB' when server 0 lacks modelB → RuntimeError timeout."""
-        # Server 0 has modelA (not modelB)
-        respx.get("http://server0:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelA"]))
-        )
-        respx.get("http://server1:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelB"]))
-        )
-
-        adapter = LMStudioAdapter(two_server_urls)
-
-        with pytest.raises(RuntimeError, match="Timeout"):
-            task = InferenceTask(
-                model_id="0:modelB",
-                messages=[{"role": "user", "content": "Hi"}],
-                temperature=0.7,
-                max_tokens=100,
-                timeout_seconds=1.0  # Short timeout
-            )
-            async for _ in adapter.stream_completion(task):
-                pass
-
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_invalid_server_index_times_out(self, two_server_urls):
-        """'999:model' with 2 servers → RuntimeError timeout."""
-        respx.get("http://server0:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelA"]))
-        )
-        respx.get("http://server1:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelB"]))
-        )
-
-        adapter = LMStudioAdapter(two_server_urls)
-
-        with pytest.raises(RuntimeError, match="Timeout"):
-            task = InferenceTask(
-                model_id="999:modelA",
-                messages=[{"role": "user", "content": "Hi"}],
-                temperature=0.7,
-                max_tokens=100,
-                timeout_seconds=1.0  # Short timeout
-            )
-            async for _ in adapter.stream_completion(task):
-                pass
-
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_negative_prefix_treated_as_model_name(self, two_server_urls):
-        """'-1:model' → treated as model name (no numeric prefix)."""
-        # Neither server has "-1:model" as a model name
-        respx.get("http://server0:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelA"]))
-        )
-        respx.get("http://server1:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelB"]))
-        )
-
-        adapter = LMStudioAdapter(two_server_urls)
-
-        # "-1:model" is treated as a model name, not a server prefix
-        # Since no server has this model, it should timeout
-        with pytest.raises(RuntimeError, match="Timeout"):
-            task = InferenceTask(
-                model_id="-1:model",
-                messages=[{"role": "user", "content": "Hi"}],
-                temperature=0.7,
-                max_tokens=100,
-                timeout_seconds=1.0
-            )
-            async for _ in adapter.stream_completion(task):
-                pass
-
-
-# ─────────────────────────────────────────────────────────────────────
 # stream_completion() MODEL AVAILABILITY TESTS
 # ─────────────────────────────────────────────────────────────────────
 
@@ -302,15 +188,15 @@ class TestConcurrentDispatch:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_different_servers_run_in_parallel(self, two_server_urls):
-        """Two calls to different servers should run concurrently, not sequentially.
+    async def test_different_models_run_in_parallel(self, two_server_urls):
+        """Two calls to different models on different servers should run concurrently.
 
         This test verifies the fix for Issue #104 where adapter-level locking
         was serializing all calls, even to different servers.
         """
         import time
 
-        # Both servers have their respective models
+        # Each server has a unique model - dispatcher routes by model availability
         respx.get("http://server0:1234/v1/models").mock(
             return_value=httpx.Response(200, json=models_response(["modelA"]))
         )
@@ -342,10 +228,10 @@ class TestConcurrentDispatch:
 
         adapter = LMStudioAdapter(two_server_urls)
 
-        async def call_server0():
+        async def call_model_a():
             result = ""
             task = InferenceTask(
-                model_id="0:modelA",
+                model_id="modelA",  # Only on server0
                 messages=[{"role": "user", "content": "Hi"}],
                 temperature=0.7,
                 max_tokens=100,
@@ -355,10 +241,10 @@ class TestConcurrentDispatch:
                 result += chunk
             return result
 
-        async def call_server1():
+        async def call_model_b():
             result = ""
             task = InferenceTask(
-                model_id="1:modelB",
+                model_id="modelB",  # Only on server1
                 messages=[{"role": "user", "content": "Hi"}],
                 temperature=0.7,
                 max_tokens=100,
@@ -370,7 +256,7 @@ class TestConcurrentDispatch:
 
         # Run both calls concurrently
         start = time.time()
-        results = await asyncio.gather(call_server0(), call_server1())
+        results = await asyncio.gather(call_model_a(), call_model_b())
         elapsed = time.time() - start
 
         # Verify both completed

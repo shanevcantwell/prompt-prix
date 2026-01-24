@@ -1,6 +1,6 @@
 """Focused tests proving GPU1 (server index 1) can be reached.
 
-These tests verify the dispatcher routes to server 1 correctly.
+These tests verify the dispatcher routes to server 1 correctly via load-balancing.
 """
 
 import asyncio
@@ -26,45 +26,7 @@ def two_servers():
 
 
 class TestGPU1Routing:
-    """Prove that server index 1 (GPU1) can be reached."""
-
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_explicit_server_1_prefix_routes_to_gpu1(self, two_servers):
-        """'1:modelB' explicitly routes to server index 1."""
-        # GPU0 has modelA, GPU1 has modelB
-        respx.get("http://gpu0:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelA"]))
-        )
-        respx.get("http://gpu1:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelB"]))
-        )
-
-        # Only mock GPU1 completion - if GPU0 is called, test fails
-        gpu1_called = False
-
-        async def gpu1_completion(request):
-            nonlocal gpu1_called
-            gpu1_called = True
-            return httpx.Response(200, content=sse_stream("Hello from GPU1"))
-
-        respx.post("http://gpu1:1234/v1/chat/completions").mock(side_effect=gpu1_completion)
-
-        adapter = LMStudioAdapter(two_servers)
-        task = InferenceTask(
-            model_id="1:modelB",
-            messages=[{"role": "user", "content": "Hi"}],
-            temperature=0.7,
-            max_tokens=100,
-            timeout_seconds=5.0
-        )
-
-        response = ""
-        async for chunk in adapter.stream_completion(task):
-            response += chunk
-
-        assert gpu1_called, "GPU1 was never called!"
-        assert "GPU1" in response
+    """Prove that server index 1 (GPU1) can be reached via load-balancing."""
 
     @pytest.mark.asyncio
     @respx.mock
@@ -106,7 +68,8 @@ class TestGPU1Routing:
     @pytest.mark.asyncio
     @respx.mock
     async def test_both_gpus_called_in_parallel(self, two_servers):
-        """Two concurrent tasks route to their respective GPUs."""
+        """Two concurrent tasks with different models route to their respective GPUs."""
+        # Each server has a unique model - dispatcher routes by model availability
         respx.get("http://gpu0:1234/v1/models").mock(
             return_value=httpx.Response(200, json=models_response(["modelA"]))
         )
@@ -133,9 +96,9 @@ class TestGPU1Routing:
 
         adapter = LMStudioAdapter(two_servers)
 
-        async def call_gpu0():
+        async def call_model_a():
             task = InferenceTask(
-                model_id="0:modelA",
+                model_id="modelA",  # Only on GPU0
                 messages=[{"role": "user", "content": "Hi"}],
                 timeout_seconds=5.0
             )
@@ -144,9 +107,9 @@ class TestGPU1Routing:
                 result += chunk
             return result
 
-        async def call_gpu1():
+        async def call_model_b():
             task = InferenceTask(
-                model_id="1:modelB",
+                model_id="modelB",  # Only on GPU1
                 messages=[{"role": "user", "content": "Hi"}],
                 timeout_seconds=5.0
             )
@@ -155,7 +118,7 @@ class TestGPU1Routing:
                 result += chunk
             return result
 
-        results = await asyncio.gather(call_gpu0(), call_gpu1())
+        results = await asyncio.gather(call_model_a(), call_model_b())
 
         assert "GPU0" in results[0], f"GPU0 result missing: {results[0]}"
         assert "GPU1" in results[1], f"GPU1 result missing: {results[1]}"
