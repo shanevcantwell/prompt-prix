@@ -130,7 +130,8 @@ async def run_handler(
         temperature=0.0,
         max_tokens=max_tokens,
         timeout_seconds=timeout,
-        max_concurrent=max_concurrent
+        max_concurrent=max_concurrent,
+        judge_model=judge_model
     )
 
     # Store state for later detail retrieval
@@ -234,7 +235,7 @@ def get_cell_detail(model: str, test: str) -> str:
         return f"*No result for {model} × {test}*"
 
     if result.status == RunStatus.ERROR:
-        return f"**Status:** ❌ Error\n\n**Error:** {result.error}"
+        return f"**Status:** ⚠ Error\n\n**Error:** {result.error}"
 
     if result.status == RunStatus.PENDING:
         return f"**Status:** — Pending"
@@ -245,9 +246,14 @@ def get_cell_detail(model: str, test: str) -> str:
     if result.status == RunStatus.SEMANTIC_FAILURE:
         latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
         failure = result.failure_reason or "Unknown semantic failure"
+        judge_info = ""
+        if result.judge_result:
+            score = result.judge_result.get("score")
+            score_str = f" (score: {score})" if score is not None else ""
+            judge_info = f"\n\n**Judged by:** LLM{score_str}"
         return (
-            f"**Status:** ⚠ Semantic Failure\n\n"
-            f"**Reason:** {failure}\n\n"
+            f"**Status:** ❌ Semantic Failure\n\n"
+            f"**Reason:** {failure}{judge_info}\n\n"
             f"**Latency:** {latency}\n\n"
             f"---\n\n{result.response}"
         )

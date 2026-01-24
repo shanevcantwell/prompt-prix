@@ -263,7 +263,8 @@ class TestRunResult:
         assert RunResult(test_id="t", model_id="m", status=RunStatus.PENDING).status_symbol == "—"
         assert RunResult(test_id="t", model_id="m", status=RunStatus.RUNNING).status_symbol == "⏳"
         assert RunResult(test_id="t", model_id="m", status=RunStatus.COMPLETED).status_symbol == "✓"
-        assert RunResult(test_id="t", model_id="m", status=RunStatus.ERROR).status_symbol == "❌"
+        assert RunResult(test_id="t", model_id="m", status=RunStatus.SEMANTIC_FAILURE).status_symbol == "❌"
+        assert RunResult(test_id="t", model_id="m", status=RunStatus.ERROR).status_symbol == "⚠"
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -298,7 +299,7 @@ class TestBatteryRun:
 
         df = run.to_grid()
         assert list(df.columns) == ["Test", "m1", "m2"]
-        assert list(df.iloc[0]) == ["t1", "✓", "❌"]  # t1 results
+        assert list(df.iloc[0]) == ["t1", "✓", "⚠"]  # t1 results (ERROR=⚠)
         assert list(df.iloc[1]) == ["t2", "—", "—"]  # t2 pending
 
     def test_to_grid_latency_mode(self):

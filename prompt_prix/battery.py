@@ -30,6 +30,7 @@ from tenacity import (
 )
 
 from prompt_prix.mcp.tools.complete import complete_stream
+from prompt_prix.mcp.tools.judge import judge
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
 from prompt_prix import state as app_state
 from prompt_prix.semantic_validator import validate_response_semantic
@@ -120,8 +121,8 @@ class RunStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
-    SEMANTIC_FAILURE = "semantic_failure"  # Response received but semantically failed
-    ERROR = "error"
+    SEMANTIC_FAILURE = "semantic_failure"  # Response received but failed criteria
+    ERROR = "error"  # Infrastructure error or couldn't evaluate
 
 
 class GridDisplayMode(str, Enum):
@@ -143,6 +144,7 @@ class RunResult(BaseModel):
     latency_ms: Optional[float] = None
     error: Optional[str] = None
     failure_reason: Optional[str] = None  # Explains semantic failures
+    judge_result: Optional[dict] = None  # LLM judge evaluation result
 
     @property
     def status_symbol(self) -> str:
@@ -151,8 +153,8 @@ class RunResult(BaseModel):
             RunStatus.PENDING: "—",
             RunStatus.RUNNING: "⏳",
             RunStatus.COMPLETED: "✓",
-            RunStatus.SEMANTIC_FAILURE: "⚠",
-            RunStatus.ERROR: "❌"
+            RunStatus.SEMANTIC_FAILURE: "❌",
+            RunStatus.ERROR: "⚠"
         }
         return symbols.get(self.status, "?")
 
@@ -268,6 +270,7 @@ class BatteryRunner:
         max_tokens: int = 2048,
         timeout_seconds: int = 300,
         max_concurrent: int = 4,  # Semaphore limit
+        judge_model: Optional[str] = None,  # Model for LLM-as-judge evaluation
     ):
         """
         Initialize battery runner.
@@ -279,6 +282,7 @@ class BatteryRunner:
             max_tokens: Maximum tokens per response
             timeout_seconds: Timeout per request
             max_concurrent: Maximum concurrent requests (semaphore limit)
+            judge_model: Model ID for LLM-as-judge evaluation (optional)
         """
         self.tests = tests
         self.models = models
@@ -286,6 +290,7 @@ class BatteryRunner:
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
         self.max_concurrent = max_concurrent
+        self.judge_model = judge_model
 
         # Initialize state
         self.state = BatteryRun(
@@ -402,23 +407,26 @@ class BatteryRunner:
             return response
 
         try:
+            # 1. Fail-fast: criteria require judge
+            has_criteria = item.test.pass_criteria or item.test.fail_criteria
+            if has_criteria and not self.judge_model:
+                self.state.set_result(RunResult(
+                    test_id=item.test.id,
+                    model_id=item.model_id,
+                    status=RunStatus.ERROR,
+                    error="Test has criteria but no judge_model configured"
+                ))
+                return
+
             response = await stream_with_retry()
             latency_ms = (time.time() - start_time) * 1000
 
-            # Semantic validation: check for refusals and expected tool calls
+            # 2. Local semantic checks (fast, free)
             is_valid, failure_reason = validate_response_semantic(
                 item.test, response, model_id=item.model_id
             )
 
-            if is_valid:
-                self.state.set_result(RunResult(
-                    test_id=item.test.id,
-                    model_id=item.model_id,
-                    status=RunStatus.COMPLETED,
-                    response=response,
-                    latency_ms=latency_ms
-                ))
-            else:
+            if not is_valid:
                 self.state.set_result(RunResult(
                     test_id=item.test.id,
                     model_id=item.model_id,
@@ -427,6 +435,38 @@ class BatteryRunner:
                     latency_ms=latency_ms,
                     failure_reason=failure_reason
                 ))
+                return
+
+            # 3. Judge evaluation (if criteria exist)
+            judge_result = None
+            if self.judge_model and has_criteria:
+                criteria = item.test.pass_criteria or f"Response must NOT: {item.test.fail_criteria}"
+                judge_result = await judge(
+                    response=response,
+                    criteria=criteria,
+                    judge_model=self.judge_model,
+                )
+                if not judge_result["pass"]:
+                    self.state.set_result(RunResult(
+                        test_id=item.test.id,
+                        model_id=item.model_id,
+                        status=RunStatus.SEMANTIC_FAILURE,
+                        response=response,
+                        latency_ms=latency_ms,
+                        failure_reason=judge_result["reason"],
+                        judge_result=judge_result
+                    ))
+                    return
+
+            # 4. COMPLETED if all checks pass
+            self.state.set_result(RunResult(
+                test_id=item.test.id,
+                model_id=item.model_id,
+                status=RunStatus.COMPLETED,
+                response=response,
+                latency_ms=latency_ms,
+                judge_result=judge_result
+            ))
 
         except Exception as e:
             latency_ms = (time.time() - start_time) * 1000

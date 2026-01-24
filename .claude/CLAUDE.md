@@ -90,9 +90,9 @@ Battery tests validate responses beyond HTTP success:
 
 | Status | Symbol | Meaning |
 |--------|--------|---------|
-| `COMPLETED` | ✓ | Passed semantic validation |
-| `SEMANTIC_FAILURE` | ⚠ | Failed semantic check |
-| `ERROR` | ❌ | Infrastructure error |
+| `COMPLETED` | ✓ | Completed, and passed semantic validation |
+| `ERROR` | ⚠ | Failure in response from the adapter or from semantic check |
+| `SEMANTIC_FAILURE` | ❌ | Response was successfully received and optionally judged, but did not meet expected criteria |
 
 ---
 
