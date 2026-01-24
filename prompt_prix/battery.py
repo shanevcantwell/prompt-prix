@@ -297,13 +297,35 @@ class BatteryRunner:
 
     async def run(self) -> AsyncGenerator[BatteryRun, None]:
         """
-        Execute all tests across all models.
+        Execute all tests across all models in two phases.
 
-        All tasks are submitted immediately. The adapter handles concurrency
-        via per-server locks, enabling parallel execution across GPUs.
+        Phase 1 (Inference): Run all test inferences concurrently.
+        Phase 2 (Judgment): If judge_model set, evaluate all completed results.
+
+        This two-phase approach eliminates GPU contention between test
+        inferences and judge evaluations (ADR-008).
 
         Yields:
             BatteryRun state snapshot periodically for UI updates
+        """
+        # PHASE 1: Inference (The "Hands")
+        async for state in self._execute_inference_phase():
+            yield state
+
+        # PHASE 2: Judgment (The "Brain")
+        if self.judge_model and not app_state.should_stop():
+            async for state in self._execute_judgment_phase():
+                yield state
+
+        # Final yield
+        yield self.state
+
+    async def _execute_inference_phase(self) -> AsyncGenerator[BatteryRun, None]:
+        """
+        Phase 1: Execute all test inferences.
+
+        All tasks submitted immediately - adapter handles GPU concurrency.
+        No judging in this phase.
         """
         # Build work items: model-first order (depth-first)
         # All tests for model1, then all tests for model2, etc.
@@ -320,7 +342,6 @@ class BatteryRunner:
         yield self.state
 
         # Create tasks for all work items
-        # All tasks submitted immediately - the adapter's per-server locks handle concurrency
         for item in work_items:
             if app_state.should_stop():
                 break
@@ -330,14 +351,13 @@ class BatteryRunner:
 
         # Wait for completion, yielding state periodically
         while active_tasks:
-            # Wait briefly then yield state for UI update
             done, _ = await asyncio.wait(
                 active_tasks,
                 timeout=0.2,
                 return_when=asyncio.FIRST_COMPLETED
             )
 
-            # Process completed tasks (exceptions are already caught in _execute_test)
+            # Process completed tasks (exceptions already caught in _execute_test)
             for task in done:
                 try:
                     task.result()
@@ -352,11 +372,123 @@ class BatteryRunner:
                     task.cancel()
                 break
 
-        # Final yield with complete state
-        yield self.state
+    async def _execute_judgment_phase(self) -> AsyncGenerator[BatteryRun, None]:
+        """
+        Phase 2: Judge all completed results that have criteria.
+
+        Only runs if judge_model is set. Results that failed semantic
+        validation in Phase 1 are skipped.
+        """
+        # Find results that need judging
+        results_to_judge = []
+        for result in self.state.results.values():
+            if result.status == RunStatus.COMPLETED and self._needs_judging(result):
+                results_to_judge.append(result)
+
+        if not results_to_judge:
+            return
+
+        active_tasks: set[asyncio.Task] = set()
+
+        # Create judge tasks for all eligible results
+        for result in results_to_judge:
+            if app_state.should_stop():
+                break
+            task = asyncio.create_task(self._judge_single_result(result))
+            active_tasks.add(task)
+            task.add_done_callback(active_tasks.discard)
+
+        # Wait for completion, yielding state periodically
+        while active_tasks:
+            done, _ = await asyncio.wait(
+                active_tasks,
+                timeout=0.2,
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            for task in done:
+                try:
+                    task.result()
+                except Exception:
+                    pass  # Errors already recorded in state
+
+            yield self.state
+
+            if app_state.should_stop():
+                for task in active_tasks:
+                    task.cancel()
+                break
+
+    def _needs_judging(self, result: RunResult) -> bool:
+        """Check if a result needs judge evaluation."""
+        # Find the test case to check for criteria
+        test = next((t for t in self.tests if t.id == result.test_id), None)
+        if not test:
+            return False
+        return bool(test.pass_criteria or test.fail_criteria)
+
+    def _get_test_by_id(self, test_id: str) -> Optional["BenchmarkCase"]:
+        """Look up a test case by ID."""
+        return next((t for t in self.tests if t.id == test_id), None)
+
+    async def _judge_single_result(self, result: RunResult) -> None:
+        """
+        Judge a single completed result.
+
+        Updates the result in-place with verdict.
+        """
+        test = self._get_test_by_id(result.test_id)
+        if not test:
+            return
+
+        try:
+            criteria = test.pass_criteria or f"Response must NOT: {test.fail_criteria}"
+            judge_result = await judge(
+                response=result.response,
+                criteria=criteria,
+                judge_model=self.judge_model,
+            )
+
+            if not judge_result["pass"]:
+                # Update to SEMANTIC_FAILURE with judge verdict
+                self.state.set_result(RunResult(
+                    test_id=result.test_id,
+                    model_id=result.model_id,
+                    status=RunStatus.SEMANTIC_FAILURE,
+                    response=result.response,
+                    latency_ms=result.latency_ms,
+                    failure_reason=judge_result["reason"],
+                    judge_result=judge_result
+                ))
+            else:
+                # Keep COMPLETED but add judge_result
+                self.state.set_result(RunResult(
+                    test_id=result.test_id,
+                    model_id=result.model_id,
+                    status=RunStatus.COMPLETED,
+                    response=result.response,
+                    latency_ms=result.latency_ms,
+                    judge_result=judge_result
+                ))
+
+        except Exception as e:
+            # Judge failed - mark as error
+            self.state.set_result(RunResult(
+                test_id=result.test_id,
+                model_id=result.model_id,
+                status=RunStatus.ERROR,
+                response=result.response,
+                latency_ms=result.latency_ms,
+                error=f"Judge evaluation failed: {e}"
+            ))
 
     async def _execute_test(self, item: BatteryWorkItem) -> None:
-        """Execute a single test with retry logic."""
+        """
+        Execute a single test inference with retry logic.
+
+        Phase 1 only: inference + semantic validation.
+        Judging happens in Phase 2 via _judge_single_result().
+        """
         # Mark as running
         self.state.set_result(RunResult(
             test_id=item.test.id,
@@ -399,21 +531,10 @@ class BatteryRunner:
             return response
 
         try:
-            # 1. Fail-fast: criteria require judge
-            has_criteria = item.test.pass_criteria or item.test.fail_criteria
-            if has_criteria and not self.judge_model:
-                self.state.set_result(RunResult(
-                    test_id=item.test.id,
-                    model_id=item.model_id,
-                    status=RunStatus.ERROR,
-                    error="Test has criteria but no judge_model configured"
-                ))
-                return
-
             response = await stream_with_retry()
             latency_ms = (time.time() - start_time) * 1000
 
-            # 2. Local semantic checks (fast, free)
+            # Local semantic checks (fast, free)
             is_valid, failure_reason = validate_response_semantic(
                 item.test, response, model_id=item.model_id
             )
@@ -429,35 +550,13 @@ class BatteryRunner:
                 ))
                 return
 
-            # 3. Judge evaluation (if criteria exist)
-            judge_result = None
-            if self.judge_model and has_criteria:
-                criteria = item.test.pass_criteria or f"Response must NOT: {item.test.fail_criteria}"
-                judge_result = await judge(
-                    response=response,
-                    criteria=criteria,
-                    judge_model=self.judge_model,
-                )
-                if not judge_result["pass"]:
-                    self.state.set_result(RunResult(
-                        test_id=item.test.id,
-                        model_id=item.model_id,
-                        status=RunStatus.SEMANTIC_FAILURE,
-                        response=response,
-                        latency_ms=latency_ms,
-                        failure_reason=judge_result["reason"],
-                        judge_result=judge_result
-                    ))
-                    return
-
-            # 4. COMPLETED if all checks pass
+            # COMPLETED - judging (if needed) happens in Phase 2
             self.state.set_result(RunResult(
                 test_id=item.test.id,
                 model_id=item.model_id,
                 status=RunStatus.COMPLETED,
                 response=response,
-                latency_ms=latency_ms,
-                judge_result=judge_result
+                latency_ms=latency_ms
             ))
 
         except Exception as e:

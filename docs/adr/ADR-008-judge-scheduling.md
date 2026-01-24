@@ -1,7 +1,8 @@
 # ADR-008: Judge Scheduling Strategy for Multi-GPU Battery Runs
 
-**Status:** Draft (seeking feedback)
+**Status:** Accepted
 **Related:** #111, #107
+**Implemented:** `battery.py` two-phase execution
 
 ## Context
 
@@ -135,36 +136,45 @@ Keep current architecture but add retry logic for judge timeouts.
 
 5. **Is real-time verdict feedback valuable?** Or is "run tests, then see all verdicts" acceptable?
 
-## Recommendation
+## Decision
 
-**Option A (Batch Judging)** appears cleanest:
+**Option A (Batch Judging)** selected:
 - Eliminates contention without complex scheduling
 - Aligns with battery's batch nature
 - Supports #107 timing separation naturally
-- Simple implementation (store results, defer judgment)
+- Maintains architectural purity (no priority logic in dispatcher)
+- Keeps `BatteryRunner` as pure orchestrator
 
-However, seeking input on UX implications before committing.
+### Why NOT Option B (Dedicated GPU)
 
-## Implementation Sketch (Option A)
+Option B would force `LMStudioAdapter` to become "Role-Aware" (test GPU vs judge GPU), leaking infrastructure configuration into the orchestration layer. This violates the layer separation established in ADR-006 and would undo the work from #110.
+
+## Implementation
+
+Two-phase execution in `battery.py`:
 
 ```python
-# battery.py changes
-class BatteryRunner:
-    async def run(self):
-        # Phase 1: All test inferences
-        results = {}
-        for work_item in work_items:
-            result = await self._execute_test(work_item)
-            results[(work_item.model_id, work_item.test.id)] = result
-            yield self._build_grid()  # Show raw results
+async def run(self) -> AsyncGenerator[BatteryRun, None]:
+    # PHASE 1: Inference (The "Hands")
+    async for state in self._execute_inference_phase():
+        yield state  # User sees ✓/⚠️/❌ appearing
 
-        # Phase 2: All judge evaluations (if judge_model set)
-        if self.judge_model:
-            for (model_id, test_id), result in results.items():
-                verdict = await self._judge_result(result)
-                result.verdict = verdict
-                yield self._build_grid()  # Update with verdicts
+    # PHASE 2: Judgment (The "Brain")
+    if self.judge_model and not app_state.should_stop():
+        async for state in self._execute_judgment_phase():
+            yield state  # User sees verdicts populating
 ```
+
+Key methods:
+- `_execute_inference_phase()`: Runs all test inferences concurrently
+- `_execute_judgment_phase()`: Judges all COMPLETED results with criteria
+- `_execute_test()`: Inference + semantic validation only (no judging)
+- `_judge_single_result()`: Single judge evaluation via MCP primitive
+
+Design decisions:
+- No new `RunStatus` enum needed - `COMPLETED` + `judge_result` field
+- Failed tests (semantic validation) are NOT judged
+- Results visible immediately, verdicts populate in second pass
 
 ## References
 
