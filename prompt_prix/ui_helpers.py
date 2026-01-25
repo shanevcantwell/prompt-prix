@@ -65,18 +65,22 @@ function updateTabColors(tabStates) {
             if (status === 'pending') {
                 btn.style.background = 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)';
                 btn.style.borderLeft = '4px solid #ef4444';
+                btn.style.color = 'black';
                 btn.style.animation = '';
             } else if (status === 'streaming') {
                 btn.style.background = 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)';
                 btn.style.borderLeft = '4px solid #f59e0b';
+                btn.style.color = 'black';
                 btn.style.animation = 'pulse 1.5s ease-in-out infinite';
             } else if (status === 'completed') {
                 btn.style.background = 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)';
                 btn.style.borderLeft = '4px solid #10b981';
+                btn.style.color = 'black';
                 btn.style.animation = '';
             } else {
                 btn.style.background = '';
                 btn.style.borderLeft = '';
+                btn.style.color = '';
                 btn.style.animation = '';
             }
         }
