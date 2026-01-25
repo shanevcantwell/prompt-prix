@@ -1,6 +1,7 @@
 # ADR-009: Interactive Battery Grid (Cell Selection)
 
-**Status:** Proposed
+**Status:** Accepted
+**Date:** 2026-01-24
 **Related:** Demo polish, UX enhancement
 
 ## Context
@@ -122,7 +123,7 @@ Gradio Dataframe allows selecting multiple cells. For this demo use case:
 
 ### 1. Add dialog components to Battery layout
 
-In `tabs/battery/layout.py`:
+In `tabs/battery/ui.py`:
 
 ```python
 # Dismissible detail dialog (hidden by default)
@@ -176,7 +177,7 @@ battery.close_btn.click(
 
 | File | Change |
 |------|--------|
-| `prompt_prix/tabs/battery/layout.py` | Add `detail_dialog`, `detail_markdown`, `close_btn` |
+| `prompt_prix/tabs/battery/ui.py` | Add `detail_dialog`, `detail_markdown`, `detail_close_btn` |
 | `prompt_prix/tabs/battery/handlers.py` | Add `handle_cell_select()` function |
 | `prompt_prix/ui.py` | Wire `.select()` and close button events |
 

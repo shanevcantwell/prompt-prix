@@ -13,7 +13,7 @@ The **LMStudioAdapter** is the concrete implementation of `HostAdapter` for LM S
 Key characteristics:
 - **Multi-server aware** — manages pool of LM Studio instances (one per GPU)
 - **Parallel execution** — different servers run concurrently; same server queues
-- **Server affinity** — optional hint routes to specific server index
+- **Automatic routing** — finds any available server with the requested model
 - **Encapsulated** — internal machinery (`_ServerPool`, `_ConcurrentDispatcher`) not exported
 
 ---
@@ -31,7 +31,7 @@ Key characteristics:
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                      MCP Primitives                          │
-│        complete(), judge(), list_models(), fan_out()        │
+│           complete(), judge(), list_models()                 │
 └─────────────────────────────┬───────────────────────────────┘
                               │ via registry
                               ▼
@@ -74,7 +74,7 @@ class LMStudioAdapter:
     def __init__(self, server_urls: list[str]):
         """Initialize with list of LM Studio server URLs."""
 
-    async def get_available_models(self) -> list[str]:
+    async def get_available_models(self, only_loaded: bool = False) -> list[str]:
         """Return deduplicated list of all models across all servers."""
 
     def get_models_by_server(self) -> dict[str, list[str]]:
@@ -83,38 +83,45 @@ class LMStudioAdapter:
     def get_unreachable_servers(self) -> list[str]:
         """Return servers that failed model discovery."""
 
-    async def stream_completion(
-        self,
-        model_id: str,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-        timeout_seconds: int,
-        tools: list[dict] | None = None,
-        seed: int | None = None,
-        repeat_penalty: float | None = None,
-        server_hint: int | None = None,  # Route to specific server index
-    ) -> AsyncGenerator[str, None]:
+    async def stream_completion(self, task: InferenceTask) -> AsyncGenerator[str, None]:
         """Stream completion tokens from an available server."""
+```
+
+Where `InferenceTask` (from `adapters/schema.py`) is:
+
+```python
+class InferenceTask(BaseModel):
+    model_id: str
+    messages: List[Dict[str, Any]]
+    temperature: float = 0.7
+    max_tokens: int = -1
+    timeout_seconds: float = 60.0
+    tools: Optional[List[Dict[str, Any]]] = None
+    seed: Optional[int] = None
+    repeat_penalty: Optional[float] = None
 ```
 
 ### Server Selection Logic
 
+The adapter automatically routes to any available server that has the requested model loaded.
+
 ```
-server_hint provided?
-    ├─ YES → Route to servers[hint] (wait if busy)
-    └─ NO  → Route to any server with model available
+Request arrives for model "qwen2.5-7b"
+    → Find all servers with model available
+    → Acquire first available server (via lock)
+    → Stream completion
+    → Release server
 ```
 
 ### Concurrency Guarantee
 
 ```
-Task A: stream_completion(model="x", server_hint=0)  → Server 0
-Task B: stream_completion(model="y", server_hint=1)  → Server 1
-                                                        ↑ PARALLEL
+Task A: stream_completion(model="x")  → Server 0 (first available)
+Task B: stream_completion(model="y")  → Server 1 (parallel)
+                                          ↑ PARALLEL
 
-Task C: stream_completion(model="z", server_hint=0)  → Server 0 (waits for A)
-                                                        ↑ QUEUED
+Task C: stream_completion(model="z")  → Waits for A or B to finish
+                                          ↑ QUEUED (if both busy)
 ```
 
 ### Output: Streamed Tokens
@@ -142,36 +149,28 @@ Tool calls are accumulated and yielded after stream completes:
 
 Manages server state and per-server locks.
 
-**Location:** `lmstudio.py:34-110`
+**Location:** `lmstudio.py` (line ~43)
 
 ```python
 class _ServerPool:
-    servers: dict[str, ServerConfig]   # URL → state (insertion order = index)
+    servers: dict[str, ServerConfig]   # URL → state
     _locks: dict[str, asyncio.Lock]    # URL → lock (one per server)
 
     async def acquire_server(url: str) → None    # Blocks until server free
     def release_server(url: str) → None          # Marks server available
-    def find_server(model: str, hint: int | None) → str | None
-```
-
-**Server indexing:** Order is determined by initialization:
-```python
-adapter = LMStudioAdapter(["http://gpu0:1234", "http://gpu1:1234"])
-# server_hint=0 → gpu0
-# server_hint=1 → gpu1
+    def find_server_for_model(model: str) → str | None  # Any server with model
 ```
 
 ### _ConcurrentDispatcher
 
 Routes work to available servers.
 
-**Location:** `lmstudio.py:126-205`
+**Location:** `lmstudio.py` (line ~119)
 
 ```python
 class _ConcurrentDispatcher:
     async def execute(
         model_id: str,
-        server_hint: int | None,
         work_fn: Callable[[str], Coroutine]  # (server_url) → result
     ) → None:
         """Find appropriate server, acquire it, run work_fn, release."""
@@ -185,7 +184,6 @@ class _ConcurrentDispatcher:
 |----------|----------|
 | Server unreachable during discovery | Marked as unreachable, excluded from routing |
 | Server unreachable during completion | Raise `LMStudioError` after timeout |
-| Model not on hinted server | Raise immediately (no fallback) |
 | Model not on any server | Raise immediately |
 | All servers busy | Wait until one frees (respects timeout) |
 | HTTP 4xx/5xx from server | Raise `LMStudioError` with message from response |
@@ -223,13 +221,13 @@ Understanding boundaries is critical:
 
 ### Step 1: UI Handler
 
-[battery/handlers.py:144](../prompt_prix/tabs/battery/handlers.py#L144) creates BatteryRunner:
+[battery/handlers.py](../prompt_prix/tabs/battery/handlers.py) creates BatteryRunner:
 
 ```python
 runner = BatteryRunner(
     tests=tests,
-    models=["0:qwen2.5-7b", "1:llama-3.1-8b"],  # Affinity prefixes
-    max_concurrent=2,  # One per GPU
+    models=["qwen2.5-7b", "llama-3.1-8b"],
+    max_concurrent=2,
     judge_model="qwen2.5-7b"
 )
 ```
@@ -241,26 +239,26 @@ runner = BatteryRunner(
 ```python
 response = await complete(
     model_id="qwen2.5-7b",
-    messages=[...],
-    server_hint=0  # Parsed from "0:qwen2.5-7b" prefix
+    messages=[...]
 )
 ```
 
 ### Step 3: Adapter Dispatch
 
 ```
-[DEBUG] Server affinity: model=qwen2.5-7b -> server 0
-[DEBUG] Acquired server http://gpu0:1234 for model qwen2.5-7b
+[DEBUG] Finding server for model qwen2.5-7b
+[DEBUG] Acquired server http://gpu0:1234
 [DEBUG] Streaming completion...
 [DEBUG] Releasing server http://gpu0:1234
 ```
 
 ### Step 4: Parallel Execution
 
-While GPU 0 processes qwen2.5-7b:
-- GPU 1 independently processes llama-3.1-8b
-- Both complete concurrently
-- BatteryRunner receives both results
+Both models run concurrently on available servers:
+- Server selection is automatic based on model availability
+- Different servers execute in parallel
+- Same server queues requests
+- BatteryRunner receives results as they complete
 
 ---
 
@@ -304,11 +302,10 @@ await adapter.stream_completion(...)
 
 | Scenario | Test Location |
 |----------|---------------|
-| Server affinity routing | `tests/test_lmstudio_adapter.py::test_server_affinity_*` |
-| Invalid hint handling | `tests/test_lmstudio_adapter.py::test_invalid_affinity_*` |
 | Model availability | `tests/test_lmstudio_adapter.py::test_model_*` |
 | Unreachable detection | `tests/test_lmstudio_adapter.py::test_unreachable_*` |
 | Parallel dispatch | `tests/test_lmstudio_adapter.py::TestConcurrentDispatch` |
+| Streaming completion | `tests/test_lmstudio_adapter.py::test_stream_*` |
 
 Run adapter tests:
 ```bash
@@ -341,8 +338,7 @@ The dispatcher pattern is provider-agnostic. When adding `HFInferenceAdapter`:
 # Future interface
 class ConcurrentDispatcher(Protocol):
     async def execute(
-        work_fn: Callable[[str], Coroutine],
-        resource_hint: int | None
+        work_fn: Callable[[str], Coroutine]
     ) -> None
 ```
 
@@ -353,7 +349,7 @@ class ConcurrentDispatcher(Protocol):
 The LMStudioAdapter is a **multi-server resource manager** that:
 
 1. Maintains a pool of LM Studio server connections
-2. Routes requests to appropriate servers via `server_hint`
+2. Automatically routes requests to available servers with the requested model
 3. Ensures parallel execution across GPUs, serial execution per GPU
 4. Encapsulates all complexity behind the `HostAdapter` protocol
 

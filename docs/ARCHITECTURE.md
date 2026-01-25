@@ -99,7 +99,7 @@ prompt_prix/
 │   ├── registry.py      # Adapter registry (get_adapter, register_adapter)
 │   └── tools/
 │       ├── complete.py  # complete, complete_stream primitives
-│       ├── fan_out.py   # fan_out primitive
+│       ├── judge.py     # LLM-as-judge evaluation
 │       └── list_models.py
 ├── tabs/
 │   ├── __init__.py
@@ -268,7 +268,7 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                       MCP PRIMITIVES                            │
-│  complete │ complete_stream │ fan_out                           │
+│  complete │ complete_stream │ judge │ list_models               │
 │                                                                 │
 │  • Receives adapter via registry (get_adapter())                │
 │  • Stateless pass-through                                       │
@@ -549,3 +549,6 @@ See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
 | [002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
 | [003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |
 | [006](adr/006-adapter-resource-ownership.md) | Adapters own their resource management (ServerPool internal to LMStudioAdapter) |
+| [007](adr/ADR-007-inference-task-schema.md) | InferenceTask schema for adapter interface |
+| [008](adr/ADR-008-judge-scheduling-strategy.md) | Two-phase batch judging for multi-GPU efficiency |
+| [009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
