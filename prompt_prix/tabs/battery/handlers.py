@@ -312,17 +312,114 @@ def refresh_grid(display_mode_str: str) -> list:
 
 
 def export_grid_image():
-    """Export battery results grid as PNG image.
+    """Export battery results grid as PNG image using PIL."""
+    from PIL import Image, ImageDraw, ImageFont
+    from prompt_prix.battery import RunStatus
 
-    Note: Image export requires additional dependencies (matplotlib or similar).
-    This is a placeholder for future implementation.
-    """
     if not state.battery_run:
         return "❌ No battery results to export", gr.update(visible=False, value=None)
 
-    # TODO: Implement grid-to-image conversion
-    # For now, return a message indicating the feature is not yet implemented
-    return "⚠️ Image export not yet implemented", gr.update(visible=False, value=None)
+    tests = state.battery_run.tests
+    models = state.battery_run.models
+
+    if not tests or not models:
+        return "❌ No results to render", gr.update(visible=False, value=None)
+
+    # Layout constants
+    cell_width = 120
+    cell_height = 30
+    header_col_width = 200
+    padding = 5
+
+    # Colors
+    colors = {
+        'header_bg': '#e0e0e0',
+        'pass': '#d1fae5',
+        'fail': '#fee2e2',
+        'error': '#fef3c7',
+        'pending': '#f3f4f6',
+        'border': '#9ca3af',
+        'text': '#1f2937',
+    }
+
+    # Calculate image dimensions
+    img_width = header_col_width + (len(models) * cell_width)
+    img_height = cell_height + (len(tests) * cell_height)
+
+    img = Image.new('RGB', (img_width, img_height), color='white')
+    draw = ImageDraw.Draw(img)
+
+    # Load font with fallback
+    try:
+        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 11)
+    except (IOError, OSError):
+        try:
+            font = ImageFont.truetype("arial.ttf", 11)
+        except (IOError, OSError):
+            font = ImageFont.load_default()
+
+    def draw_cell(x, y, width, text, bg_color):
+        """Draw a single cell with centered text."""
+        draw.rectangle([x, y, x + width - 1, y + cell_height - 1],
+                       fill=bg_color, outline=colors['border'])
+        text_bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_x = x + (width - text_width) // 2
+        draw.text((text_x, y + padding), text, fill=colors['text'], font=font)
+
+    # Draw header row (model names)
+    draw_cell(0, 0, header_col_width, "Test", colors['header_bg'])
+    for col, model_id in enumerate(models):
+        x = header_col_width + (col * cell_width)
+        # Truncate model name to fit
+        display_name = model_id[:12] if len(model_id) > 12 else model_id
+        draw_cell(x, 0, cell_width, display_name, colors['header_bg'])
+
+    # Draw data rows
+    for row, test_id in enumerate(tests):
+        y = cell_height + (row * cell_height)
+
+        # Test ID column (truncate to fit)
+        display_test = test_id[:25] if len(test_id) > 25 else test_id
+        draw_cell(0, y, header_col_width, display_test, colors['header_bg'])
+
+        # Result cells
+        for col, model_id in enumerate(models):
+            x = header_col_width + (col * cell_width)
+            result = state.battery_run.get_result(test_id, model_id)
+
+            if result:
+                if result.status == RunStatus.COMPLETED:
+                    bg_color = colors['pass']
+                    latency_s = f"{result.latency_ms / 1000:.1f}" if result.latency_ms else "?"
+                    cell_text = f"OK {latency_s}s"
+                elif result.status == RunStatus.SEMANTIC_FAILURE:
+                    bg_color = colors['fail']
+                    latency_s = f"{result.latency_ms / 1000:.1f}" if result.latency_ms else "?"
+                    cell_text = f"FAIL {latency_s}s"
+                elif result.status == RunStatus.ERROR:
+                    bg_color = colors['error']
+                    cell_text = "ERR"
+                else:
+                    bg_color = colors['pending']
+                    cell_text = "..."
+            else:
+                bg_color = colors['pending']
+                cell_text = "..."
+
+            draw_cell(x, y, cell_width, cell_text, bg_color)
+
+    # Save to temp file
+    basename = _get_export_basename()
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, f"{basename}.png")
+
+    try:
+        img.save(filepath, 'PNG')
+    except Exception as e:
+        return f"❌ Failed to save image: {e}", gr.update(visible=False, value=None)
+
+    return f"✅ Exported grid image", gr.update(visible=False, value=filepath)
 
 
 def handle_cell_select(evt: gr.SelectData) -> tuple:
