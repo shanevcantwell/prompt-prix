@@ -300,6 +300,13 @@ def create_app() -> gr.Blocks:
 
         compare.tab_states.change(fn=None, inputs=[compare.tab_states], outputs=[compare.tab_states], js=TAB_STATUS_JS)
 
+        # Re-apply tab styling when returning to Compare tab (fixes #115)
+        main_tabs.select(
+            fn=lambda tab_states: tab_states,
+            inputs=[compare.tab_states],
+            outputs=[compare.tab_states]
+        )
+
         compare.export_md_btn.click(
             fn=compare_handlers.export_markdown,
             inputs=[],
