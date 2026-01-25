@@ -62,6 +62,8 @@ function updateTabColors(tabStates) {
     tabStates.forEach((status, index) => {
         if (index < buttons.length) {
             const btn = buttons[index];
+            // Hide tabs without content (empty/null status)
+            btn.style.display = status ? '' : 'none';
             if (status === 'pending') {
                 btn.style.background = 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)';
                 btn.style.borderLeft = '4px solid #ef4444';
