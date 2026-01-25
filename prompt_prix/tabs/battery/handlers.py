@@ -323,3 +323,28 @@ def export_grid_image():
     # TODO: Implement grid-to-image conversion
     # For now, return a message indicating the feature is not yet implemented
     return "⚠️ Image export not yet implemented", gr.update(visible=False, value=None)
+
+
+def handle_cell_select(evt: gr.SelectData) -> tuple:
+    """Handle grid cell selection, return (dialog_visible, detail_content).
+
+    ADR-009: Click a cell to see response detail in dismissible dialog.
+    """
+    if not state.battery_run:
+        return gr.update(visible=False), "*No battery run available*"
+
+    row, col = evt.index
+
+    # Row 0 is header, col 0 is test ID column
+    if row == 0 or col == 0:
+        return gr.update(visible=False), ""
+
+    # Map indices to identifiers (adjust for header row and test ID column)
+    try:
+        test_id = state.battery_run.tests[row - 1]
+        model_id = state.battery_run.models[col - 1]
+    except IndexError:
+        return gr.update(visible=False), "*Invalid cell selection*"
+
+    detail = get_cell_detail(model_id, test_id)
+    return gr.update(visible=True), detail

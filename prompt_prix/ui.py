@@ -231,6 +231,20 @@ def create_app() -> gr.Blocks:
             js=AUTO_DOWNLOAD_JS
         )
 
+        # ADR-009: Show dialog on cell select
+        battery.grid.select(
+            fn=battery_handlers.handle_cell_select,
+            inputs=[],
+            outputs=[battery.detail_dialog, battery.detail_markdown]
+        )
+
+        # ADR-009: Hide dialog on close button
+        battery.detail_close_btn.click(
+            fn=lambda: gr.update(visible=False),
+            inputs=[],
+            outputs=[battery.detail_dialog]
+        )
+
         # ─────────────────────────────────────────────────────────────
         # EVENT BINDINGS: Compare Tab
         # ─────────────────────────────────────────────────────────────

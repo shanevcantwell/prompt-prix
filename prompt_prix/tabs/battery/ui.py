@@ -76,6 +76,12 @@ def render_tab():
             elem_id="battery-grid"
         )
 
+        # Dismissible detail dialog (hidden by default, ADR-009)
+        with gr.Column(visible=False) as detail_dialog:
+            gr.Markdown("### Response Detail")
+            detail_markdown = gr.Markdown()
+            detail_close_btn = gr.Button("Close", size="sm")
+
         with gr.Accordion("📋 Response Detail", open=False, visible=False):
             with gr.Row():
                 detail_model = gr.Dropdown(
@@ -114,6 +120,11 @@ def render_tab():
         status=battery_status,
         display_mode=battery_display_mode,
         grid=battery_grid,
+        # ADR-009: Dismissible detail dialog
+        detail_dialog=detail_dialog,
+        detail_markdown=detail_markdown,
+        detail_close_btn=detail_close_btn,
+        # Legacy accordion detail (hidden)
         detail_model=detail_model,
         detail_test=detail_test,
         detail_refresh_btn=detail_refresh_btn,
