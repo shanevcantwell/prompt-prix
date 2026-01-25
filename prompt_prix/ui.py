@@ -298,6 +298,14 @@ def create_app() -> gr.Blocks:
             outputs=[compare.status, compare.export_file]
         )
 
+        # Auto-download when export file is ready
+        compare.export_file.change(
+            fn=None,
+            inputs=[compare.export_file],
+            outputs=[compare.export_file],
+            js=AUTO_DOWNLOAD_JS
+        )
+
         # ─────────────────────────────────────────────────────────────
         # PERSISTENCE
         # ─────────────────────────────────────────────────────────────
