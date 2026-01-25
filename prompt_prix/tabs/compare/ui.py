@@ -66,22 +66,24 @@ def render_tab():
                     type="filepath",
                     height=100
                 )
-                with gr.Row():
-                    compare_send_btn = gr.Button(
-                        "⚡ Send to All",
-                        variant="primary",
-                        scale=2
-                    )
-                    compare_stop_btn = gr.Button(
-                        "🛑 Stop",
-                        variant="stop",
-                        scale=1
-                    )
-                    compare_clear_btn = gr.Button(
-                        "🗑️ Clear",
-                        variant="secondary",
-                        scale=1
-                    )
+
+        # Full-width button row (like Battery tab)
+        with gr.Row():
+            compare_send_btn = gr.Button(
+                "⚡ Send to All",
+                variant="primary",
+                scale=2
+            )
+            compare_stop_btn = gr.Button(
+                "🛑 Stop",
+                variant="stop",
+                scale=1
+            )
+            compare_clear_btn = gr.Button(
+                "🗑️ Clear",
+                variant="secondary",
+                scale=1
+            )
 
         compare_status = gr.Textbox(
             label="Status",
