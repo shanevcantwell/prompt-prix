@@ -357,7 +357,12 @@ async def stream_completion(
     This is a raw function for cases where the caller manages
     server selection directly. For most use cases, use the
     adapter stream_completion method via the MCP registry.
+
+    Yields content chunks during streaming, then a final sentinel
+    with inference latency: "__LATENCY_MS__:{milliseconds}"
     """
+    import time
+
     payload = {
         "model": model_id,
         "messages": messages,
@@ -372,6 +377,7 @@ async def stream_completion(
     if repeat_penalty is not None and repeat_penalty != 1.0:
         payload["repeat_penalty"] = float(repeat_penalty)
 
+    start_time = time.time()
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         async with client.stream(
             "POST",
@@ -425,3 +431,7 @@ async def stream_completion(
                     yield f"\n**Tool Call:** `{tc_data["name"]}`\n"
                 if tc_data["arguments"]:
                     yield f"```json\n{tc_data["arguments"]}\n```\n"
+
+    # Yield latency sentinel (measured from httpx request to stream complete)
+    latency_ms = (time.time() - start_time) * 1000
+    yield f"__LATENCY_MS__:{latency_ms}"

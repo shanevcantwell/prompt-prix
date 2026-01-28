@@ -516,8 +516,6 @@ class BatteryRunner:
             status=RunStatus.RUNNING
         ))
 
-        start_time = time.time()
-
         @retry(
             stop=stop_after_attempt(get_retry_attempts()),
             wait=wait_exponential(multiplier=2, min=get_retry_min_wait(), max=get_retry_max_wait()),
@@ -525,13 +523,18 @@ class BatteryRunner:
             before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
-        async def stream_with_retry() -> str:
-            """Stream completion with retry for transient errors."""
+        async def stream_with_retry() -> tuple[str, float]:
+            """Stream completion with retry for transient errors.
+
+            Returns (response, latency_ms) tuple.
+            Latency is measured by the adapter around the actual HTTP call.
+            """
             # Check for cancellation before each attempt
             if app_state.should_stop():
                 raise CancelledError("Battery run cancelled by user")
 
             response = ""
+            latency_ms = 0.0
             # Call MCP primitive - adapter handles server selection
             async for chunk in complete_stream(
                 model_id=item.model_id,
@@ -541,18 +544,21 @@ class BatteryRunner:
                 timeout_seconds=self.timeout_seconds,
                 tools=item.test.tools
             ):
-                response += chunk
+                # Capture latency sentinel from adapter
+                if chunk.startswith("__LATENCY_MS__:"):
+                    latency_ms = float(chunk.split(":")[1])
+                else:
+                    response += chunk
                 # Check for cancellation during streaming
                 if app_state.should_stop():
                     raise CancelledError("Battery run cancelled by user")
 
             # Validate response to catch false positives (empty/error responses)
             validate_response(response)
-            return response
+            return response, latency_ms
 
         try:
-            response = await stream_with_retry()
-            latency_ms = (time.time() - start_time) * 1000
+            response, latency_ms = await stream_with_retry()
 
             # Local semantic checks (fast, free)
             is_valid, failure_reason = validate_response_semantic(
@@ -580,13 +586,12 @@ class BatteryRunner:
             ))
 
         except Exception as e:
-            latency_ms = (time.time() - start_time) * 1000
-
             # Mark as error (fail loudly - record error, don't hide it)
+            # No latency for errors - adapter didn't complete successfully
             self.state.set_result(RunResult(
                 test_id=item.test.id,
                 model_id=item.model_id,
                 status=RunStatus.ERROR,
                 error=str(e),
-                latency_ms=latency_ms
+                latency_ms=None
             ))

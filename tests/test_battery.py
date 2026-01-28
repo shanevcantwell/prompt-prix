@@ -482,6 +482,7 @@ class TestBatteryRunner:
             mcp_calls.append(kwargs)
             await asyncio.sleep(0.01)  # Small delay for latency measurement
             yield "Response"
+            yield "__LATENCY_MS__:10.5"  # Latency sentinel from adapter
 
         with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
@@ -501,7 +502,7 @@ class TestBatteryRunner:
 
         result = final_state.get_result("test_1", "m1")
         assert result.latency_ms is not None
-        assert result.latency_ms > 0
+        assert result.latency_ms == 10.5  # From latency sentinel
 
 
 # ─────────────────────────────────────────────────────────────────────

@@ -54,9 +54,11 @@ async def complete(
     )
 
     # Collect streaming response into final string
+    # Filter out latency sentinel (adapter yields "__LATENCY_MS__:{ms}" at end)
     response_parts = []
     async for chunk in adapter.stream_completion(task):
-        response_parts.append(chunk)
+        if not chunk.startswith("__LATENCY_MS__:"):
+            response_parts.append(chunk)
 
     return "".join(response_parts)
 
