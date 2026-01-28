@@ -122,15 +122,26 @@ def create_app() -> gr.Blocks:
         # ─────────────────────────────────────────────────────────────
 
         async def on_fetch_models(servers_text, only_loaded):
-            """Fetch models and update model selector."""
-            result = await fetch_available_models(servers_text, only_loaded)
+            """Fetch models and update model selectors.
+
+            Applies 'only loaded' filter locally for models_checkbox.
+            Judge dropdown always shows all available models (unfiltered).
+            """
+            result = await fetch_available_models(servers_text)
             all_models = result["all_models"]
+            loaded_models = result.get("loaded_models") or set()
+
+            # Filter for checkbox if requested
+            if only_loaded and loaded_models:
+                checkbox_models = [m for m in all_models if m in loaded_models]
+            else:
+                checkbox_models = all_models
 
             return (
                 all_models,
-                gr.update(choices=sorted(all_models), value=[]),  # models_checkbox
-                gr.update(choices=sorted(all_models)),  # battery.detail_model
-                gr.update(choices=sorted(all_models)),  # battery.judge_model
+                gr.update(choices=sorted(checkbox_models), value=[]),  # models_checkbox - filtered
+                gr.update(choices=sorted(all_models)),  # battery.detail_model - unfiltered
+                gr.update(choices=sorted(all_models)),  # battery.judge_model - unfiltered
             )
 
         fetch_btn.click(

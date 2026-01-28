@@ -701,6 +701,7 @@ class TestFetchAvailableModels:
         assert "No servers" in result["status"] or "❌" in result["status"]
         assert result["all_models"] == []
         assert result["servers"] == {}
+        assert result["loaded_models"] is None
 
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
@@ -830,8 +831,8 @@ class TestOnlyLoadedFilter:
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
     @patch('prompt_prix.handlers._get_loaded_models_via_http')
-    async def test_fetch_only_loaded_filters_models(self, mock_http_loaded, mock_ensure, mock_adapter):
-        """Test fetch with only_loaded=True filters to loaded models only."""
+    async def test_fetch_returns_loaded_models(self, mock_http_loaded, mock_ensure, mock_adapter):
+        """Test fetch returns loaded_models for UI filtering."""
         from prompt_prix.handlers import fetch_available_models
 
         # Adapter has models A, B, C available
@@ -840,68 +841,35 @@ class TestOnlyLoadedFilter:
         # Mock HTTP-based loaded detection to return model-a and model-c as loaded
         mock_http_loaded.return_value = {"model-a", "model-c"}
 
-        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        result = await fetch_available_models(MOCK_SERVER_1)
 
         assert "✅" in result["status"]
-        assert "(loaded only)" in result["status"]
+        # all_models should be unfiltered
         assert "model-a" in result["all_models"]
+        assert "model-b" in result["all_models"]
         assert "model-c" in result["all_models"]
-        assert "model-b" not in result["all_models"]  # Not loaded, should be filtered out
-
-    @pytest.mark.asyncio
-    @patch('prompt_prix.handlers._ensure_adapter_registered')
-    @patch('prompt_prix.handlers._get_loaded_models_via_http')
-    async def test_fetch_only_loaded_no_match(self, mock_http_loaded, mock_ensure, mock_adapter):
-        """Test fetch with only_loaded=True when no loaded models match available."""
-        from prompt_prix.handlers import fetch_available_models
-
-        # Adapter has models A, B available
-        mock_adapter.get_available_models = AsyncMock(return_value=["model-a", "model-b"])
-
-        # HTTP reports model-x is loaded (not matching available models)
-        mock_http_loaded.return_value = {"model-x"}
-
-        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
-
-        assert "⚠️" in result["status"]
-        assert "No models currently loaded in VRAM" in result["status"]
-        assert result["all_models"] == []
+        # loaded_models should be returned for UI to filter
+        assert result["loaded_models"] == {"model-a", "model-c"}
 
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
     @patch('prompt_prix.handlers._get_loaded_models_via_http')
     @patch('prompt_prix.handlers._get_loaded_models')
-    async def test_fetch_only_loaded_sdk_unavailable(self, mock_sdk_loaded, mock_http_loaded, mock_ensure, mock_adapter):
-        """Test fetch with only_loaded=True when neither detection method works."""
+    async def test_fetch_loaded_models_none_when_detection_fails(self, mock_sdk_loaded, mock_http_loaded, mock_ensure, mock_adapter):
+        """Test fetch returns loaded_models=None when detection fails."""
         from prompt_prix.handlers import fetch_available_models
 
         # HTTP returns None (failed to query), SDK returns empty (unavailable)
         mock_http_loaded.return_value = None
         mock_sdk_loaded.return_value = set()
 
-        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
-
-        assert "⚠️" in result["status"]
-        assert "Could not detect loaded models" in result["status"]
-        # Should still return all models as fallback
-        assert len(result["all_models"]) > 0
-
-    @pytest.mark.asyncio
-    @patch('prompt_prix.handlers._ensure_adapter_registered')
-    async def test_fetch_without_only_loaded_returns_all(self, mock_ensure, mock_adapter):
-        """Test fetch with only_loaded=False returns all available models."""
-        from prompt_prix.handlers import fetch_available_models
-
-        mock_adapter.get_available_models = AsyncMock(return_value=["model-a", "model-b", "model-c"])
-
-        # Even with lmstudio available, should not call it when only_loaded=False
-        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=False)
+        result = await fetch_available_models(MOCK_SERVER_1)
 
         assert "✅" in result["status"]
-        assert "(loaded only)" not in result["status"]
-        assert "model-a" in result["all_models"]
-        assert "model-b" in result["all_models"]
-        assert "model-c" in result["all_models"]
+        # all_models should still be returned
+        assert len(result["all_models"]) > 0
+        # loaded_models should be None when detection fails
+        assert result["loaded_models"] is None
 
 
 class TestLoadedModelsViaHttp:
@@ -1002,8 +970,8 @@ class TestLoadedModelsViaHttp:
     @respx.mock
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
-    async def test_fetch_only_loaded_uses_http_first(self, mock_ensure, mock_adapter):
-        """Test fetch_available_models uses HTTP approach for only_loaded."""
+    async def test_fetch_uses_http_for_loaded_models(self, mock_ensure, mock_adapter):
+        """Test fetch_available_models uses HTTP approach to get loaded_models."""
         from prompt_prix.handlers import fetch_available_models
 
         # Adapter returns all models
@@ -1020,10 +988,12 @@ class TestLoadedModelsViaHttp:
             })
         )
 
-        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        result = await fetch_available_models(MOCK_SERVER_1)
 
         assert "✅" in result["status"]
-        assert "(loaded only)" in result["status"]
+        # all_models should be unfiltered
         assert "model-a" in result["all_models"]
+        assert "model-b" in result["all_models"]
         assert "model-c" in result["all_models"]
-        assert "model-b" not in result["all_models"]
+        # loaded_models should contain only loaded ones
+        assert result["loaded_models"] == {"model-a", "model-c"}

@@ -114,31 +114,36 @@ def _ensure_adapter_registered(servers: list[str]) -> None:
     register_adapter(adapter)
 
 
-async def fetch_available_models(
-    servers_text: str,
-    only_loaded: bool = False
-) -> dict:
+async def fetch_available_models(servers_text: str) -> dict:
     """
     Query all configured servers and return available models per-server.
 
     Uses the list_models MCP tool for model discovery.
     Registers/re-registers the adapter with the provided servers.
 
+    This function returns raw data only. Filtering (e.g., "only loaded")
+    is a UI concern and should be done by the caller.
+
     Args:
         servers_text: Newline-separated server URLs
-        only_loaded: If True, filter to only models currently loaded in LM Studio
 
     Returns dict with:
         - status: Status message string
         - servers: {url: [models]} mapping
-        - all_models: Combined list of all models
+        - all_models: Combined list of all models (unfiltered)
+        - loaded_models: Set of models currently in VRAM (or None if can't detect)
     """
     from prompt_prix.mcp.tools.list_models import list_models
 
     servers = parse_servers_input(servers_text)
 
     if not servers:
-        return {"status": "❌ No servers configured", "servers": {}, "all_models": []}
+        return {
+            "status": "❌ No servers configured",
+            "servers": {},
+            "all_models": [],
+            "loaded_models": None
+        }
 
     # Register adapter with current servers before using MCP tool
     _ensure_adapter_registered(servers)
@@ -155,51 +160,26 @@ async def fetch_available_models(
         return {
             "status": "⚠️ No models found on any server. Are models loaded in LM Studio?",
             "servers": {},
-            "all_models": []
+            "all_models": [],
+            "loaded_models": None
         }
 
-    all_models = set(result["models"])
+    all_models = sorted(result["models"])
 
-    # Filter by loaded models if requested
-    if only_loaded:
-        # Try HTTP-based approach first (works in Docker)
-        loaded_models = await _get_loaded_models_via_http(servers)
-        if loaded_models is None:
-            # HTTP approach failed, fall back to SDK approach
-            loaded_models = _get_loaded_models()
-            if not loaded_models:
-                # SDK also failed - can't determine load state
-                return {
-                    "status": "⚠️ Could not detect loaded models (server may not report load state)",
-                    "servers": models_by_server,
-                    "all_models": sorted(all_models)
-                }
+    # Get loaded models (for UI filtering)
+    # Try HTTP-based approach first (works in Docker), fall back to SDK
+    loaded_models = await _get_loaded_models_via_http(servers)
+    if loaded_models is None:
+        loaded_models = _get_loaded_models() or None
 
-        # Filter to only loaded models (may be empty set if nothing loaded)
-        all_models = all_models & loaded_models
-        models_by_server = {
-            url: [m for m in models if m in all_models]
-            for url, models in models_by_server.items()
-        }
-        if not all_models:
-            return {
-                "status": "⚠️ No models currently loaded in VRAM",
-                "servers": {},
-                "all_models": []
-            }
-
-    sorted_models = sorted(all_models)
-
-    status_parts = [f"✅ Found {len(sorted_models)} model(s)"]
-    if only_loaded:
-        status_parts[0] += " (loaded only)"
-
+    # Build status message
+    status_parts = [f"✅ Found {len(all_models)} model(s)"]
     for url, models in models_by_server.items():
-        count = len([m for m in models if m in all_models]) if only_loaded else len(models)
-        status_parts.append(f"  {url}: {count} model(s)")
+        status_parts.append(f"  {url}: {len(models)} model(s)")
 
     return {
         "status": " | ".join(status_parts),
         "servers": models_by_server,
-        "all_models": sorted_models
+        "all_models": all_models,
+        "loaded_models": loaded_models
     }
