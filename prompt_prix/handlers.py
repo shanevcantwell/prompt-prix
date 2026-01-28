@@ -54,7 +54,7 @@ def _get_loaded_models() -> set[str]:
         return set()
 
 
-async def _get_loaded_models_via_http(servers: list[str]) -> set[str]:
+async def _get_loaded_models_via_http(servers: list[str]) -> set[str] | None:
     """
     Query servers directly for loaded models via HTTP.
 
@@ -66,10 +66,13 @@ async def _get_loaded_models_via_http(servers: list[str]) -> set[str]:
 
     Returns:
         Set of model IDs that are currently loaded in memory.
+        Returns None if all servers failed to respond (can't determine load state).
+        Returns empty set if servers responded but no models are loaded.
     """
     import httpx
 
     loaded_ids = set()
+    any_server_responded = False
     async with httpx.AsyncClient(timeout=5.0) as client:
         for server_url in servers:
             try:
@@ -77,6 +80,7 @@ async def _get_loaded_models_via_http(servers: list[str]) -> set[str]:
                 url = f"{server_url.rstrip('/')}/api/v0/models"
                 resp = await client.get(url)
                 if resp.status_code == 200:
+                    any_server_responded = True
                     data = resp.json()
                     for model in data.get("data", []):
                         model_id = model.get("id")
@@ -89,7 +93,10 @@ async def _get_loaded_models_via_http(servers: list[str]) -> set[str]:
                                 loaded_ids.add(model_id)
             except Exception as e:
                 logger.debug(f"Could not query {server_url} for loaded models: {e}")
-    return loaded_ids
+
+    # Return None if no servers responded (can't determine state)
+    # Return empty set if servers responded but nothing is loaded
+    return loaded_ids if any_server_responded else None
 
 
 def _ensure_adapter_registered(servers: list[str]) -> None:
@@ -157,29 +164,28 @@ async def fetch_available_models(
     if only_loaded:
         # Try HTTP-based approach first (works in Docker)
         loaded_models = await _get_loaded_models_via_http(servers)
-        if not loaded_models:
-            # Fall back to SDK approach (works locally when SDK can auto-discover)
+        if loaded_models is None:
+            # HTTP approach failed, fall back to SDK approach
             loaded_models = _get_loaded_models()
-
-        if loaded_models:
-            all_models = all_models & loaded_models
-            # Also filter per-server lists
-            models_by_server = {
-                url: [m for m in models if m in all_models]
-                for url, models in models_by_server.items()
-            }
-            if not all_models:
+            if not loaded_models:
+                # SDK also failed - can't determine load state
                 return {
-                    "status": "⚠️ No loaded models match available models",
-                    "servers": {},
-                    "all_models": []
+                    "status": "⚠️ Could not detect loaded models (server may not report load state)",
+                    "servers": models_by_server,
+                    "all_models": sorted(all_models)
                 }
-        else:
-            # Couldn't get loaded models via either method
+
+        # Filter to only loaded models (may be empty set if nothing loaded)
+        all_models = all_models & loaded_models
+        models_by_server = {
+            url: [m for m in models if m in all_models]
+            for url, models in models_by_server.items()
+        }
+        if not all_models:
             return {
-                "status": "⚠️ Could not detect loaded models (server may not report load state)",
-                "servers": models_by_server,
-                "all_models": sorted(all_models)
+                "status": "⚠️ No models currently loaded in VRAM",
+                "servers": {},
+                "all_models": []
             }
 
     sorted_models = sorted(all_models)

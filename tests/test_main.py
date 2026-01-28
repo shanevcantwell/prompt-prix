@@ -850,24 +850,21 @@ class TestOnlyLoadedFilter:
 
     @pytest.mark.asyncio
     @patch('prompt_prix.handlers._ensure_adapter_registered')
-    async def test_fetch_only_loaded_no_match(self, mock_ensure, mock_adapter):
-        """Test fetch with only_loaded=True when no loaded models match."""
+    @patch('prompt_prix.handlers._get_loaded_models_via_http')
+    async def test_fetch_only_loaded_no_match(self, mock_http_loaded, mock_ensure, mock_adapter):
+        """Test fetch with only_loaded=True when no loaded models match available."""
         from prompt_prix.handlers import fetch_available_models
 
         # Adapter has models A, B available
         mock_adapter.get_available_models = AsyncMock(return_value=["model-a", "model-b"])
 
-        # Only model-x is loaded (not on server)
-        mock_model_x = MagicMock()
-        mock_model_x.model_key = "model-x"
+        # HTTP reports model-x is loaded (not matching available models)
+        mock_http_loaded.return_value = {"model-x"}
 
-        mock_lms = self._create_mock_lmstudio([mock_model_x])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
+        result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
 
         assert "⚠️" in result["status"]
-        assert "No loaded models match" in result["status"]
+        assert "No models currently loaded in VRAM" in result["status"]
         assert result["all_models"] == []
 
     @pytest.mark.asyncio
@@ -878,8 +875,8 @@ class TestOnlyLoadedFilter:
         """Test fetch with only_loaded=True when neither detection method works."""
         from prompt_prix.handlers import fetch_available_models
 
-        # Both HTTP and SDK detection return empty (can't detect loaded models)
-        mock_http_loaded.return_value = set()
+        # HTTP returns None (failed to query), SDK returns empty (unavailable)
+        mock_http_loaded.return_value = None
         mock_sdk_loaded.return_value = set()
 
         result = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
@@ -979,7 +976,7 @@ class TestLoadedModelsViaHttp:
     @respx.mock
     @pytest.mark.asyncio
     async def test_get_loaded_models_via_http_handles_server_error(self):
-        """Test HTTP-based approach handles server errors gracefully."""
+        """Test HTTP-based approach returns None when server errors (can't determine state)."""
         from prompt_prix.handlers import _get_loaded_models_via_http
 
         respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
@@ -988,19 +985,19 @@ class TestLoadedModelsViaHttp:
 
         result = await _get_loaded_models_via_http([MOCK_SERVER_1])
 
-        assert result == set()
+        assert result is None  # Can't determine load state
 
     @respx.mock
     @pytest.mark.asyncio
     async def test_get_loaded_models_via_http_handles_connection_error(self):
-        """Test HTTP-based approach handles connection errors gracefully."""
+        """Test HTTP-based approach returns None when connection fails (can't determine state)."""
         from prompt_prix.handlers import _get_loaded_models_via_http
 
         respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(side_effect=httpx.ConnectError("Connection refused"))
 
         result = await _get_loaded_models_via_http([MOCK_SERVER_1])
 
-        assert result == set()
+        assert result is None  # Can't determine load state
 
     @respx.mock
     @pytest.mark.asyncio
