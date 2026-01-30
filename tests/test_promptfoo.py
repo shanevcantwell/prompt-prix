@@ -286,3 +286,133 @@ class TestPromptfooLoaderValidate:
         assert is_valid is False
         assert "❌" in message
         assert "not found" in message.lower()
+
+
+class TestPromptfooLoaderPromptObjects:
+    """Tests for prompt objects (id, label, raw) - not just strings."""
+
+    def test_parses_prompt_objects(self, tmp_path):
+        """Parse prompts array with object format."""
+        config = {
+            "prompts": [
+                {"id": "prompt1", "label": "First Prompt", "raw": "What is 2+2?"},
+                {"id": "prompt2", "label": "Second Prompt", "raw": "What is 3+3?"},
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert len(result) == 2
+        assert result[0].user == "What is 2+2?"
+        assert result[0].name == "First Prompt"
+        assert result[1].user == "What is 3+3?"
+        assert result[1].name == "Second Prompt"
+
+    def test_parses_mixed_strings_and_objects(self, tmp_path):
+        """Parse prompts array with mixed string and object formats."""
+        config = {
+            "prompts": [
+                "Simple string prompt",
+                {"id": "obj-prompt", "label": "Object Prompt", "raw": "Object prompt text"},
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert len(result) == 2
+        assert result[0].user == "Simple string prompt"
+        assert result[1].user == "Object prompt text"
+        assert result[1].name == "Object Prompt"
+
+    def test_prompt_object_with_variable_substitution(self, tmp_path):
+        """Variable substitution works with prompt objects."""
+        config = {
+            "prompts": [
+                {"id": "template", "label": "Template Prompt", "raw": "{{system}}\n\n{{user}}"}
+            ],
+            "tests": [
+                {
+                    "description": "Test with vars",
+                    "vars": {
+                        "system": "You are a helpful assistant.",
+                        "user": "Hello!"
+                    }
+                }
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert len(result) == 1
+        assert result[0].user == "Hello!"
+        assert result[0].system == "You are a helpful assistant."
+
+    def test_prompt_object_without_label_uses_id(self, tmp_path):
+        """Prompt object uses id as fallback when label is missing."""
+        config = {
+            "prompts": [
+                {"id": "my-prompt-id", "raw": "Test prompt"}
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert result[0].name == "my-prompt-id"
+
+    def test_prompt_object_minimal(self, tmp_path):
+        """Prompt object with only raw field (minimum required)."""
+        config = {
+            "prompts": [
+                {"raw": "Just the raw text"}
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert len(result) == 1
+        assert result[0].user == "Just the raw text"
+
+    def test_prompt_object_with_tests_and_assertions(self, tmp_path):
+        """Full integration: prompt objects with tests and assertions."""
+        config = {
+            "prompts": [
+                {
+                    "id": "batch_processor",
+                    "label": "BatchProcessor Prompt",
+                    "raw": "Process these files: {{files}}"
+                }
+            ],
+            "tests": [
+                {
+                    "description": "Sort files test",
+                    "vars": {
+                        "files": "a.txt, b.txt, c.txt"
+                    },
+                    "assert": [
+                        {"type": "is-json"},
+                        {"type": "contains", "value": "operations"}
+                    ]
+                }
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert len(result) == 1
+        # When no 'user' var exists, the full substituted prompt becomes the user content
+        assert result[0].user == "Process these files: a.txt, b.txt, c.txt"
+        assert result[0].name == "Sort files test"
+        assert "is-json" in result[0].pass_criteria
+        assert "contains: operations" in result[0].pass_criteria

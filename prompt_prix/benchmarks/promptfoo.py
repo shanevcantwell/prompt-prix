@@ -25,6 +25,20 @@ class PromptfooAssertion(BaseModel):
     value: Optional[str] = None
 
 
+class PromptfooPrompt(BaseModel):
+    """
+    Prompt object in promptfoo config.
+
+    Prompts can be either strings (inline text or file:// paths) or objects.
+    This model handles the object form with id, label, and raw fields.
+
+    Reference: https://www.promptfoo.dev/docs/configuration/reference/
+    """
+    id: Optional[str] = None
+    label: Optional[str] = None
+    raw: str  # The actual prompt template
+
+
 class PromptfooTest(BaseModel):
     """Single test case in promptfoo config."""
     description: Optional[str] = None
@@ -38,7 +52,7 @@ class PromptfooTest(BaseModel):
 
 class PromptfooConfig(BaseModel):
     """Top-level promptfoo configuration file."""
-    prompts: list[str]
+    prompts: list[Union[str, PromptfooPrompt]]  # Can be strings or prompt objects
     tests: Optional[list[PromptfooTest]] = None
     providers: Optional[list] = None  # ignored, just validated
     description: Optional[str] = None
@@ -95,6 +109,37 @@ def _assertions_to_criteria(assertions: list[PromptfooAssertion]) -> Optional[st
             criteria_parts.append(assertion.type)
 
     return "; ".join(criteria_parts) if criteria_parts else None
+
+
+def _get_prompt_template(prompt: Union[str, PromptfooPrompt]) -> str:
+    """
+    Extract the template string from a prompt (string or object).
+
+    Args:
+        prompt: Either a raw string or a PromptfooPrompt object
+
+    Returns:
+        The prompt template string
+    """
+    if isinstance(prompt, str):
+        return prompt
+    return prompt.raw
+
+
+def _get_prompt_label(prompt: Union[str, PromptfooPrompt], index: int) -> str:
+    """
+    Get a display label for a prompt.
+
+    Args:
+        prompt: Either a raw string or a PromptfooPrompt object
+        index: Fallback index for unlabeled prompts
+
+    Returns:
+        A human-readable label
+    """
+    if isinstance(prompt, str):
+        return f"Prompt {index + 1}"
+    return prompt.label or prompt.id or f"Prompt {index + 1}"
 
 
 # --- Main loader class ---
@@ -191,12 +236,14 @@ class PromptfooLoader:
         # If no tests defined, create one test per prompt
         if not config.tests:
             for idx, prompt in enumerate(config.prompts):
-                base_id = _slugify(prompt[:80]) if prompt else ""
+                prompt_template = _get_prompt_template(prompt)
+                prompt_label = _get_prompt_label(prompt, idx)
+                base_id = _slugify(prompt_template[:80]) if prompt_template else ""
                 test_id = unique_id(base_id, idx + 1)
                 test_cases.append(BenchmarkCase(
                     id=test_id,
-                    user=prompt,
-                    name=f"Test {idx + 1}"
+                    user=prompt_template,
+                    name=prompt_label
                 ))
             return test_cases
 
@@ -207,12 +254,14 @@ class PromptfooLoader:
             vars_dict = test.vars or {}
 
             # Process each prompt with this test's vars
-            for prompt in config.prompts:
-                prompt_text = prompt
+            for prompt_idx, prompt in enumerate(config.prompts):
+                prompt_template = _get_prompt_template(prompt)
+                prompt_label = _get_prompt_label(prompt, prompt_idx)
 
                 # Substitute variables
+                prompt_text = prompt_template
                 if vars_dict:
-                    prompt_text = _substitute_vars(prompt_text, vars_dict)
+                    prompt_text = _substitute_vars(prompt_template, vars_dict)
 
                 # Extract pass_criteria from assertions
                 pass_criteria = None
