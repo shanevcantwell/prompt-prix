@@ -142,6 +142,28 @@ def _get_prompt_label(prompt: Union[str, PromptfooPrompt], index: int) -> str:
     return prompt.label or prompt.id or f"Prompt {index + 1}"
 
 
+def _vars_to_criteria(vars_dict: dict[str, str]) -> Optional[str]:
+    """
+    Extract pass_criteria from special vars.
+
+    Handles:
+    - expected_verdict: PASS/FAIL/PARTIAL → criteria for judge competence tests
+
+    Args:
+        vars_dict: Variable name -> value mapping
+
+    Returns:
+        Pass criteria string, or None if no special vars found
+    """
+    if not vars_dict:
+        return None
+
+    if verdict := vars_dict.get("expected_verdict"):
+        return f"The verdict in the JSON response must be '{verdict}'"
+
+    return None
+
+
 # --- Main loader class ---
 
 class PromptfooLoader:
@@ -263,10 +285,15 @@ class PromptfooLoader:
                 if vars_dict:
                     prompt_text = _substitute_vars(prompt_template, vars_dict)
 
-                # Extract pass_criteria from assertions
+                # Extract pass_criteria from assertions, fall back to vars
                 pass_criteria = None
                 if test.assert_:
                     pass_criteria = _assertions_to_criteria(test.assert_)
+                if not pass_criteria:
+                    pass_criteria = _vars_to_criteria(vars_dict)
+
+                # Extract category from vars
+                category = vars_dict.get("category")
 
                 # Get description and metadata for ID
                 description = test.description or ""
@@ -287,6 +314,7 @@ class PromptfooLoader:
                     user=user_content,
                     system=system_content,
                     name=description or f"Test {test_idx}",
+                    category=category or "",
                     pass_criteria=pass_criteria
                 ))
 

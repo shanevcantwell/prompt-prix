@@ -416,3 +416,78 @@ class TestPromptfooLoaderPromptObjects:
         assert result[0].name == "Sort files test"
         assert "is-json" in result[0].pass_criteria
         assert "contains: operations" in result[0].pass_criteria
+
+
+class TestPromptfooLoaderVarMappings:
+    """Tests for special var mappings (expected_verdict, category)."""
+
+    def test_expected_verdict_generates_pass_criteria(self, tmp_path):
+        """expected_verdict var generates pass_criteria for judge competence tests."""
+        config = {
+            "prompts": ["Evaluate: {{actual_output}}"],
+            "tests": [
+                {
+                    "description": "Should fail wrong function",
+                    "vars": {
+                        "expected_verdict": "FAIL",
+                        "actual_output": '{"function": "wrong"}'
+                    }
+                }
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert len(result) == 1
+        assert result[0].pass_criteria is not None
+        assert "FAIL" in result[0].pass_criteria
+        assert "verdict" in result[0].pass_criteria.lower()
+
+    def test_category_var_maps_to_benchmark_category(self, tmp_path):
+        """category var maps to BenchmarkCase.category field."""
+        config = {
+            "prompts": ["Test prompt"],
+            "tests": [
+                {
+                    "description": "Test in category",
+                    "vars": {
+                        "category": "clear_discrimination"
+                    }
+                }
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert len(result) == 1
+        assert result[0].category == "clear_discrimination"
+
+    def test_assertions_take_precedence_over_expected_verdict(self, tmp_path):
+        """When both assert and expected_verdict exist, assertions win."""
+        config = {
+            "prompts": ["Test prompt"],
+            "tests": [
+                {
+                    "description": "Has both",
+                    "vars": {
+                        "expected_verdict": "FAIL"
+                    },
+                    "assert": [
+                        {"type": "contains", "value": "specific text"}
+                    ]
+                }
+            ]
+        }
+        config_file = tmp_path / "promptfooconfig.yaml"
+        config_file.write_text(yaml.dump(config))
+
+        result = PromptfooLoader.load(config_file)
+
+        assert len(result) == 1
+        # Assertions take precedence
+        assert "contains: specific text" in result[0].pass_criteria
+        assert "FAIL" not in result[0].pass_criteria
