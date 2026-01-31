@@ -396,21 +396,26 @@ async def stream_completion(
 
             # Accumulate tool calls until stream completes
             tool_call_accumulator: dict[int, dict] = {}
+            stream_done = False
+            has_content = False
 
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
                     data = line[6:]
                     if data == "[DONE]":
+                        stream_done = True
                         break
                     try:
                         chunk = json.loads(data)
                         delta = chunk.get("choices", [{}])[0].get("delta", {})
                         content = delta.get("content", "")
                         if content:
+                            has_content = True
                             yield content
                         # Accumulate tool calls
                         tool_calls = delta.get("tool_calls", [])
                         for tc in tool_calls:
+                            has_content = True
                             idx = tc.get("index", 0)
                             func = tc.get("function", {})
                             if idx not in tool_call_accumulator:
@@ -421,6 +426,10 @@ async def stream_completion(
                                 tool_call_accumulator[idx]["arguments"] += func["arguments"]
                     except json.JSONDecodeError:
                         continue
+
+            # Detect aborted stream: no [DONE] and no content = likely model load abort
+            if not stream_done and not has_content:
+                raise LMStudioError(f"Stream aborted for {model_id} (no [DONE], no content)")
 
             # Yield accumulated tool calls after stream completes
             for tc_data in tool_call_accumulator.values():

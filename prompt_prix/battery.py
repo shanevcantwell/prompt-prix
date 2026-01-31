@@ -78,18 +78,17 @@ def is_retryable_error(exception: BaseException) -> bool:
 
 def validate_response(response: str) -> None:
     """
-    Validate that a response is actually valid, not a false positive.
+    Validate that a response doesn't contain error indicators.
 
     Raises:
-        EmptyResponseError: If response is empty or contains error indicators
+        EmptyResponseError: If response contains error message instead of content
 
-    False positives can occur when:
-    - Model load is aborted mid-stream
-    - Server returns empty response
-    - Response contains error message instead of actual content
+    Note: Empty responses are valid - they mean the model chose to return nothing.
+    Aborted streams (model load interrupted) are detected at the adapter layer.
     """
+    # Empty response is valid - model chose to return nothing
     if not response or not response.strip():
-        raise EmptyResponseError("Empty response received (possible aborted model load)")
+        return
 
     # Check for common error indicators in response content
     response_lower = response.lower()
