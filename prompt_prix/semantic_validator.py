@@ -78,7 +78,11 @@ def validate_response_semantic(
         - (True, None) if response passes validation
         - (False, "reason") if response fails validation
     """
-    # Check for refusals first - applies to all test types
+    # Empty response = model didn't answer
+    if not response or not response.strip():
+        return False, "Empty response"
+
+    # Check for refusals - applies to all test types
     refusal = detect_refusal(response)
     if refusal:
         return False, f"Model refused: '{refusal}'"
