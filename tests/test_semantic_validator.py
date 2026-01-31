@@ -5,6 +5,7 @@ from prompt_prix.semantic_validator import (
     detect_refusal,
     has_tool_calls,
     validate_response_semantic,
+    validate_verdict,
     REFUSAL_PATTERNS,
 )
 from prompt_prix.benchmarks.base import BenchmarkCase
@@ -211,3 +212,140 @@ class TestSemanticValidation:
         is_valid, reason = validate_response_semantic(test, response)
         assert is_valid is False
         assert "refused" in reason.lower()
+
+
+class TestVerdictValidation:
+    """Tests for judge competence verdict validation."""
+
+    def test_pass_verdict_matches_expected_pass(self):
+        """Response with PASS verdict should pass when expected_verdict is PASS."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this output",
+            pass_criteria="The verdict in the JSON response must be 'PASS'"
+        )
+        response = '{"verdict": "PASS", "score": 1.0, "reasoning": "Correct"}'
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is True
+        assert reason is None
+
+    def test_fail_verdict_matches_expected_fail(self):
+        """Response with FAIL verdict should pass when expected_verdict is FAIL."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this output",
+            pass_criteria="The verdict in the JSON response must be 'FAIL'"
+        )
+        response = '{"verdict": "FAIL", "score": 0.0, "reasoning": "Wrong function"}'
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is True
+        assert reason is None
+
+    def test_pass_verdict_fails_when_expected_fail(self):
+        """Response with PASS verdict should fail when expected_verdict is FAIL."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this output",
+            pass_criteria="The verdict in the JSON response must be 'FAIL'"
+        )
+        response = '{"verdict": "PASS", "score": 0.95, "reasoning": "Looks good"}'
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is False
+        assert "expected FAIL" in reason
+        assert "got PASS" in reason
+
+    def test_fail_verdict_fails_when_expected_pass(self):
+        """Response with FAIL verdict should fail when expected_verdict is PASS."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this output",
+            pass_criteria="The verdict in the JSON response must be 'PASS'"
+        )
+        response = '{"verdict": "FAIL", "score": 0.0, "reasoning": "Wrong"}'
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is False
+        assert "expected PASS" in reason
+        assert "got FAIL" in reason
+
+    def test_partial_verdict_supported(self):
+        """PARTIAL verdict should be validated correctly."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this output",
+            pass_criteria="The verdict in the JSON response must be 'PARTIAL'"
+        )
+        response = '{"verdict": "PARTIAL", "score": 0.5, "reasoning": "Half right"}'
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is True
+
+    def test_no_verdict_in_response_fails(self):
+        """Response without verdict should fail validation."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this output",
+            pass_criteria="The verdict in the JSON response must be 'PASS'"
+        )
+        response = "I think this looks correct. Score: 1.0"
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is False
+        assert "No verdict found" in reason
+
+    def test_verdict_case_insensitive(self):
+        """Verdict matching should be case insensitive."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this output",
+            pass_criteria="The verdict in the JSON response must be 'PASS'"
+        )
+        response = '{"verdict": "pass", "score": 1.0}'
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is True
+
+    def test_no_pass_criteria_skips_validation(self):
+        """Test without pass_criteria should skip verdict validation."""
+        test = BenchmarkCase(id="test", user="What is 2+2?")
+        response = '{"verdict": "FAIL"}'  # Would fail if checked
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is True
+        assert reason is None
+
+    def test_non_verdict_pass_criteria_skips_validation(self):
+        """Pass criteria without verdict pattern should skip validation."""
+        test = BenchmarkCase(
+            id="test",
+            user="Test something",
+            pass_criteria="contains: hello"
+        )
+        response = "Some response without hello"
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is True  # Skipped, not validated
+
+    def test_verdict_in_markdown_json_block(self):
+        """Verdict should be found in markdown JSON blocks."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this",
+            pass_criteria="The verdict in the JSON response must be 'FAIL'"
+        )
+        response = '''```json
+{
+  "verdict": "FAIL",
+  "score": 0.0,
+  "reasoning": "Wrong function called"
+}
+```'''
+        is_valid, reason = validate_verdict(test, response)
+        assert is_valid is True
+
+    def test_full_semantic_validation_includes_verdict(self):
+        """Full validation should include verdict check."""
+        test = BenchmarkCase(
+            id="test",
+            user="Judge this output",
+            pass_criteria="The verdict in the JSON response must be 'FAIL'"
+        )
+        # Model incorrectly says PASS when it should say FAIL
+        response = '{"verdict": "PASS", "score": 0.95, "reasoning": "Looks fine"}'
+        is_valid, reason = validate_response_semantic(test, response)
+        assert is_valid is False
+        assert "Verdict mismatch" in reason

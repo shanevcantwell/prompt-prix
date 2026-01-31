@@ -44,6 +44,56 @@ def detect_refusal(response: str) -> Optional[str]:
     return None
 
 
+def validate_verdict(
+    test: "BenchmarkCase",
+    response: str
+) -> Tuple[bool, Optional[str]]:
+    """
+    Validate that response verdict matches expected_verdict from pass_criteria.
+
+    Used for judge competence tests where expected_verdict is specified in
+    promptfoo vars. The promptfoo loader converts this to pass_criteria like:
+    "The verdict in the JSON response must be 'FAIL'"
+
+    Args:
+        test: The test case with pass_criteria
+        response: The model's response text
+
+    Returns:
+        (is_valid, failure_reason) tuple.
+    """
+    if not test.pass_criteria:
+        return True, None
+
+    # Extract expected verdict from pass_criteria
+    # Pattern matches: "verdict ... must be 'PASS'" or similar
+    criteria_match = re.search(
+        r"verdict.*must be ['\"](\w+)['\"]",
+        test.pass_criteria,
+        re.IGNORECASE
+    )
+    if not criteria_match:
+        return True, None  # Not a verdict check
+
+    expected = criteria_match.group(1).upper()
+
+    # Parse response for actual verdict in JSON
+    # Handles: "verdict": "PASS" or "verdict": "FAIL" etc.
+    verdict_match = re.search(
+        r'"verdict"\s*:\s*"(\w+)"',
+        response,
+        re.IGNORECASE
+    )
+    if not verdict_match:
+        return False, f"No verdict found in response (expected {expected})"
+
+    actual = verdict_match.group(1).upper()
+    if actual != expected:
+        return False, f"Verdict mismatch: expected {expected}, got {actual}"
+
+    return True, None
+
+
 def has_tool_calls(response: str, model_id: str | None = None) -> bool:
     """
     Check if response contains tool calls.
@@ -96,5 +146,10 @@ def validate_response_semantic(
     if test.tools and test.tool_choice == "none":
         if has_tool_calls(response, model_id):
             return False, "Tool call made when tool_choice='none'"
+
+    # Verdict validation: for judge competence tests with expected_verdict
+    verdict_valid, verdict_reason = validate_verdict(test, response)
+    if not verdict_valid:
+        return False, verdict_reason
 
     return True, None
