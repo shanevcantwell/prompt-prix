@@ -308,13 +308,12 @@ class LMStudioAdapter:
 
         server_url = None
         try:
-            # 1. Acquire via Dispatcher (Queue-based)
-            server_url = await asyncio.wait_for(
-                self._dispatcher.submit(task.model_id),
-                timeout=task.timeout_seconds
-            )
+            # 1. Acquire via Dispatcher (Queue-based, no timeout)
+            # Queue wait time is excluded from timeout, matching how latency is measured.
+            # Only the actual HTTP call (in stream_completion) has a timeout.
+            server_url = await self._dispatcher.submit(task.model_id)
 
-            # 2. Stream
+            # 2. Stream (timeout applies here via httpx)
             async for chunk in stream_completion(
                 server_url=server_url,
                 model_id=task.model_id,
@@ -328,8 +327,6 @@ class LMStudioAdapter:
             ):
                 yield chunk
 
-        except asyncio.TimeoutError:
-            raise RuntimeError(f"Timeout waiting for server/completion for model: {task.model_id}")
         finally:
             if server_url:
                 # 3. Release (Notifies Dispatcher)

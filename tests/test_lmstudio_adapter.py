@@ -98,29 +98,10 @@ class TestGetAvailableModels:
 class TestStreamCompletionModelAvailability:
     """Tests for model availability routing."""
 
-    @pytest.mark.asyncio
-    @respx.mock
-    async def test_model_not_on_any_server_times_out(self, two_server_urls):
-        """Model not on any server → RuntimeError timeout."""
-        respx.get("http://server0:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelA"]))
-        )
-        respx.get("http://server1:1234/v1/models").mock(
-            return_value=httpx.Response(200, json=models_response(["modelB"]))
-        )
-
-        adapter = LMStudioAdapter(two_server_urls)
-
-        with pytest.raises(RuntimeError, match="Timeout"):
-            task = InferenceTask(
-                model_id="nonexistent",
-                messages=[{"role": "user", "content": "Hi"}],
-                temperature=0.7,
-                max_tokens=100,
-                timeout_seconds=1.0
-            )
-            async for _ in adapter.stream_completion(task):
-                pass
+    # NOTE: test_model_not_on_any_server_times_out removed (see #121).
+    # Queue wait no longer has timeout - requests wait patiently for servers.
+    # Requesting a nonexistent model would wait indefinitely, but this can't
+    # happen via UI since users select from get_available_models() dropdown.
 
     @pytest.mark.asyncio
     @respx.mock
