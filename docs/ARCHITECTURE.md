@@ -645,3 +645,4 @@ See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
 | [008](adr/ADR-008-judge-scheduling-strategy.md) | Two-phase batch judging for multi-GPU efficiency |
 | [009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
 | [010](adr/ADR-010-consistency-runner.md) | Multi-run consistency analysis (proposed) |
+| [011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation (proposed) |
