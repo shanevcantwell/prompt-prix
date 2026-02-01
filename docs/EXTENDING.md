@@ -321,17 +321,37 @@ init_button.click(
 
 ## Customizing Semantic Validation
 
-Battery tests validate model responses beyond HTTP success. The semantic validator detects:
-- **Model refusals** - "I'm sorry, but I can't help with that"
-- **Missing tool calls** - When `tool_choice: "required"` but no tool was called
+Battery tests validate model responses beyond HTTP success. The semantic validator (`prompt_prix/semantic_validator.py`) applies these checks in order:
+
+1. **Empty response** - No content returned
+2. **Model refusals** - "I'm sorry, but I can't help with that"
+3. **Missing tool calls** - When `tool_choice: "required"` but no tool was called
+4. **Verdict matching** - When `pass_criteria` specifies an expected verdict
 
 ### Understanding Test Status
 
 | Status | Symbol | Meaning |
 |--------|--------|---------|
-| `COMPLETED` | ✓ | Response passed semantic validation |
-| `SEMANTIC_FAILURE` | ⚠ | Response received but failed semantic check |
-| `ERROR` | ❌ | Infrastructure error (timeout, connection, etc.) |
+| `COMPLETED` | ✓ | Completed and passed semantic validation |
+| `ERROR` | ⚠ | Failure in response from adapter or semantic check |
+| `SEMANTIC_FAILURE` | ❌ | Response received but did not meet expected criteria |
+
+### Verdict Matching (LLM-as-Judge)
+
+When a test has `pass_criteria` containing a verdict expectation, the validator:
+
+1. Extracts the `"verdict"` field from JSON in the response
+2. Compares it (case-insensitive) against the expected verdict
+3. Handles JSON inside markdown code fences (`` ```json ... ``` ``)
+
+**Example pass_criteria:**
+```
+The verdict in the JSON response must be 'PASS'
+```
+
+The validator extracts `PASS`, `FAIL`, or `PARTIAL` from the model's JSON response and compares against the expected value.
+
+**Note:** The validator does NOT enforce strict JSON parsing. A response with valid JSON followed by extra prose ("reasoning bleed") will still pass if the verdict matches. Use the planned **Strict JSON** toggle (ADR-010) to enforce valid-only JSON.
 
 ### Adding New Refusal Patterns
 
@@ -412,11 +432,41 @@ The validation rules for `tool_choice`:
 ### Validation Order
 
 Checks run in this order (first failure wins):
-1. Refusal detection
-2. Tool call validation (if applicable)
-3. Custom validations (if added)
+1. Empty response detection
+2. Refusal detection
+3. Tool call validation (if applicable)
+4. Verdict matching (if `pass_criteria` specifies expected verdict)
+5. Custom validations (if added)
 
 A response containing both a refusal phrase AND a tool call will fail with "Model refused" because refusals are checked first.
+
+### Promptfoo YAML Files
+
+When loading promptfoo YAML files (`prompt_prix/benchmarks/promptfoo.py`):
+
+**Supported:**
+- `expected_verdict` in `vars` → converted to `pass_criteria` for verdict matching
+- `category` in `vars` → stored for filtering/grouping
+- `{{variable}}` substitution in prompts
+
+**Not evaluated by prompt-prix:**
+- `assert:` blocks (e.g., `type: contains`, `type: llm-rubric`)
+- These are logged with a warning but not executed
+
+**Example promptfoo test:**
+```yaml
+tests:
+  - description: "Should pass tool call"
+    vars:
+      system: "You are a helpful assistant."
+      user: "What's the weather in Tokyo?"
+      expected_verdict: "PASS"
+      category: "tool_calls"
+```
+
+This becomes a `BenchmarkCase` with:
+- `pass_criteria`: `"The verdict in the JSON response must be 'PASS'"`
+- `category`: `"tool_calls"`
 
 ### Testing Your Changes
 

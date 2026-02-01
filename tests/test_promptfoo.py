@@ -66,8 +66,8 @@ class TestPromptfooLoaderLoad:
         assert result[0].system == "You are a math tutor."
         assert result[0].user == "What is 2+2?"
 
-    def test_parses_tests_with_assertions(self, tmp_path):
-        """Parse tests with assert conditions into pass_criteria."""
+    def test_assertions_warn_but_not_used(self, tmp_path, caplog):
+        """Assertions are warned about but NOT converted to pass_criteria."""
         config = {
             "prompts": ["What is 2+2?"],
             "tests": [
@@ -81,15 +81,17 @@ class TestPromptfooLoaderLoad:
         config_file = tmp_path / "promptfooconfig.yaml"
         config_file.write_text(yaml.dump(config))
 
-        result = PromptfooLoader.load(config_file)
+        with caplog.at_level("WARNING"):
+            result = PromptfooLoader.load(config_file)
 
         assert len(result) == 1
-        assert result[0].pass_criteria is not None
-        assert "contains" in result[0].pass_criteria
-        assert "4" in result[0].pass_criteria
+        # Assertions are NOT used (pass_criteria is None when no expected_verdict)
+        assert result[0].pass_criteria is None
+        # Warning should be logged
+        assert any("assertions" in record.message.lower() for record in caplog.records)
 
-    def test_parses_multiple_assertions(self, tmp_path):
-        """Multiple assertions joined with semicolon."""
+    def test_multiple_assertions_warn_but_not_used(self, tmp_path, caplog):
+        """Multiple assertions are warned about but NOT used."""
         config = {
             "prompts": ["Test prompt"],
             "tests": [
@@ -105,12 +107,13 @@ class TestPromptfooLoaderLoad:
         config_file = tmp_path / "promptfooconfig.yaml"
         config_file.write_text(yaml.dump(config))
 
-        result = PromptfooLoader.load(config_file)
+        with caplog.at_level("WARNING"):
+            result = PromptfooLoader.load(config_file)
 
-        assert result[0].pass_criteria is not None
-        assert "contains: hello" in result[0].pass_criteria
-        assert "not-contains: goodbye" in result[0].pass_criteria
-        assert "is-json" in result[0].pass_criteria
+        # Assertions are NOT used
+        assert result[0].pass_criteria is None
+        # Warning should list all assertion types
+        assert any("contains" in record.message for record in caplog.records)
 
     def test_generates_unique_ids(self, tmp_path):
         """Each test case should have a unique id."""
@@ -382,8 +385,8 @@ class TestPromptfooLoaderPromptObjects:
         assert len(result) == 1
         assert result[0].user == "Just the raw text"
 
-    def test_prompt_object_with_tests_and_assertions(self, tmp_path):
-        """Full integration: prompt objects with tests and assertions."""
+    def test_prompt_object_with_tests_and_assertions(self, tmp_path, caplog):
+        """Full integration: prompt objects with tests; assertions warned but not used."""
         config = {
             "prompts": [
                 {
@@ -408,14 +411,17 @@ class TestPromptfooLoaderPromptObjects:
         config_file = tmp_path / "promptfooconfig.yaml"
         config_file.write_text(yaml.dump(config))
 
-        result = PromptfooLoader.load(config_file)
+        with caplog.at_level("WARNING"):
+            result = PromptfooLoader.load(config_file)
 
         assert len(result) == 1
         # When no 'user' var exists, the full substituted prompt becomes the user content
         assert result[0].user == "Process these files: a.txt, b.txt, c.txt"
         assert result[0].name == "Sort files test"
-        assert "is-json" in result[0].pass_criteria
-        assert "contains: operations" in result[0].pass_criteria
+        # Assertions are NOT used (no expected_verdict means no pass_criteria)
+        assert result[0].pass_criteria is None
+        # Warning logged about assertions
+        assert any("assertions" in record.message.lower() for record in caplog.records)
 
 
 class TestPromptfooLoaderVarMappings:
@@ -466,8 +472,8 @@ class TestPromptfooLoaderVarMappings:
         assert len(result) == 1
         assert result[0].category == "clear_discrimination"
 
-    def test_assertions_take_precedence_over_expected_verdict(self, tmp_path):
-        """When both assert and expected_verdict exist, assertions win."""
+    def test_expected_verdict_used_even_with_assertions(self, tmp_path, caplog):
+        """expected_verdict is always used; assertions are warned about but ignored."""
         config = {
             "prompts": ["Test prompt"],
             "tests": [
@@ -485,9 +491,14 @@ class TestPromptfooLoaderVarMappings:
         config_file = tmp_path / "promptfooconfig.yaml"
         config_file.write_text(yaml.dump(config))
 
-        result = PromptfooLoader.load(config_file)
+        with caplog.at_level("WARNING"):
+            result = PromptfooLoader.load(config_file)
 
         assert len(result) == 1
-        # Assertions take precedence
-        assert "contains: specific text" in result[0].pass_criteria
-        assert "FAIL" not in result[0].pass_criteria
+        # expected_verdict is ALWAYS used (not assertions)
+        assert "FAIL" in result[0].pass_criteria
+        assert "contains" not in result[0].pass_criteria
+
+        # Warning should be logged about assertions not being evaluated
+        assert any("assertions" in record.message.lower() for record in caplog.records)
+        assert any("not be evaluated" in record.message.lower() for record in caplog.records)

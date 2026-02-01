@@ -101,15 +101,17 @@ Battery tests validate responses beyond HTTP success:
 > **Full details:** See `docs/ARCHITECTURE.md` "Testing" section
 
 ```bash
-.venv/                    # virtual environment (necessary for pytest)
-pytest                    # Unit tests (default)
-pytest -m integration     # Integration tests (requires LM Studio)
+.venv/                              # virtual environment (REQUIRED for pytest)
+.venv/bin/pytest                    # Unit tests (default)
+.venv/bin/pytest -m integration     # Integration tests (requires LM Studio)
 ```
+
+**A failure is a failure.** Do not dismiss test failures due to missing dependencies or import errors. The `.venv` contains all required test dependencies including `respx`. Always use the venv.
 
 **Unit test mocking strategy (ADR-006):**
 - MCP tool tests → mock adapter via registry
 - Orchestration tests → mock MCP tools
-- Adapter tests → mock httpx
+- Adapter tests → mock httpx (via `respx`)
 
 ---
 

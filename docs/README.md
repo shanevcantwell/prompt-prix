@@ -38,12 +38,14 @@ prompt-prix complements these tools by providing a visual layer for side-by-side
 1. **Fan-Out Dispatch** - Same prompt to N models simultaneously
 2. **Visual Comparison** - Real-time streaming with status indicators per model
 3. **Parallel Dispatch** - Concurrent execution across multiple GPUs
-4. **Semantic Validation** - Detect model refusals and missing tool calls (not just HTTP success)
-5. **Session Persistence** - Save and restore UI state
-6. **Export** - Generate Markdown/JSON reports for analysis
-7. **Image Attachment** - Send images to vision models in Compare tab
-8. **Reproducible Outputs** - Optional seed parameter for deterministic results
-9. **Repeat Penalty** - Configurable penalty to reduce repetitive outputs
+4. **Semantic Validation** - Detect model refusals, missing tool calls, and verdict mismatches (not just HTTP success)
+5. **Promptfoo Support** - Load test suites from promptfoo YAML files with `expected_verdict` validation
+6. **LLM-as-Judge** - Select a judge model for semantic pass/fail evaluation
+7. **Session Persistence** - Save and restore UI state
+8. **Export** - Generate Markdown/JSON/CSV reports for analysis
+9. **Image Attachment** - Send images to vision models in Compare tab
+10. **Reproducible Outputs** - Optional seed parameter for deterministic results
+11. **Repeat Penalty** - Configurable penalty to reduce repetitive outputs
 
 ## Documentation Index
 
@@ -118,6 +120,28 @@ For efficient GPU utilization, tests are dispatched in parallel:
 - Queue all work items (model + test pairs)
 - Find idle servers that have the required model loaded
 - Dispatch work and stream responses concurrently
+
+### Battery File Formats
+
+The Battery tab accepts test files in multiple formats:
+- **JSON** - Array of test cases with `prompts` key
+- **JSONL** - One test case per line
+- **Promptfoo YAML** - Promptfoo config files with `prompts` and `tests` sections
+
+For promptfoo files, `expected_verdict` in `vars` enables verdict matching validation. See [ARCHITECTURE.md](ARCHITECTURE.md) for format details.
+
+### Semantic Validation
+
+Battery tests validate responses beyond HTTP success:
+
+| Check | Description |
+|-------|-------------|
+| Empty response | No content returned |
+| Refusal detection | Common refusal phrases |
+| Tool call validation | When `tool_choice: "required"` |
+| Verdict matching | When `pass_criteria` specifies expected verdict |
+
+See [EXTENDING.md](EXTENDING.md) for customizing validation.
 
 ## Technology Stack
 

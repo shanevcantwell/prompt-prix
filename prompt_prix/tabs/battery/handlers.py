@@ -427,20 +427,27 @@ def handle_cell_select(evt: gr.SelectData) -> tuple:
 
     ADR-009: Click a cell to see response detail in dismissible dialog.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     if not state.battery_run:
         return gr.update(visible=False), "*No battery run available*"
 
     row, col = evt.index
+    logger.info(f"Cell select: row={row}, col={col}, value={evt.value}")
 
-    # Row 0 is header, col 0 is test ID column
-    if row == 0 or col == 0:
+    # Col 0 is test ID column - don't show detail for that
+    if col == 0:
         return gr.update(visible=False), ""
 
-    # Map indices to identifiers (adjust for header row and test ID column)
+    # Map indices to identifiers
+    # Note: Gradio DataFrame indices are 0-based for data rows (header not included)
     try:
-        test_id = state.battery_run.tests[row - 1]
-        model_id = state.battery_run.models[col - 1]
+        test_id = state.battery_run.tests[row]
+        model_id = state.battery_run.models[col - 1]  # col 0 is Test column
+        logger.info(f"Mapped to: test_id={test_id}, model_id={model_id}")
     except IndexError:
+        logger.warning(f"Invalid cell: row={row}, col={col}")
         return gr.update(visible=False), "*Invalid cell selection*"
 
     detail = get_cell_detail(model_id, test_id)

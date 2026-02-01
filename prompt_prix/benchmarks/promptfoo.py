@@ -7,6 +7,7 @@ Includes Pydantic schema validation for safe public deployment.
 Reference: https://www.promptfoo.dev/docs/configuration/guide/
 """
 
+import logging
 import re
 from pathlib import Path
 from typing import Optional, Union
@@ -15,6 +16,8 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from .base import BenchmarkCase
+
+logger = logging.getLogger(__name__)
 
 
 # --- Pydantic models for input validation ---
@@ -285,12 +288,17 @@ class PromptfooLoader:
                 if vars_dict:
                     prompt_text = _substitute_vars(prompt_template, vars_dict)
 
-                # Extract pass_criteria from assertions, fall back to vars
-                pass_criteria = None
+                # Extract pass_criteria from vars (always - expected_verdict is primary)
+                # Note: assertions are logged but NOT evaluated by prompt-prix
+                pass_criteria = _vars_to_criteria(vars_dict)
+
                 if test.assert_:
-                    pass_criteria = _assertions_to_criteria(test.assert_)
-                if not pass_criteria:
-                    pass_criteria = _vars_to_criteria(vars_dict)
+                    assertion_text = _assertions_to_criteria(test.assert_)
+                    logger.warning(
+                        f"Test '{test.description or test_idx}' has assertions that "
+                        f"will NOT be evaluated by prompt-prix: {assertion_text}. "
+                        "Only expected_verdict from vars is used for semantic validation."
+                    )
 
                 # Extract category from vars
                 category = vars_dict.get("category")

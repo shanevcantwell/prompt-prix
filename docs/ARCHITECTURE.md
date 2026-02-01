@@ -112,9 +112,11 @@ prompt_prix/
 ├── adapters/
 │   ├── base.py          # HostAdapter protocol
 │   └── lmstudio.py      # LMStudioAdapter (OWNS ServerPool, ConcurrentDispatcher)
+├── semantic_validator.py # Response validation (refusals, tool calls, verdicts)
 └── benchmarks/
-    ├── base.py          # TestCase protocol
-    └── custom_json.py   # CustomJSONLoader
+    ├── base.py          # BenchmarkCase dataclass
+    ├── custom_json.py   # CustomJSONLoader (JSON/JSONL)
+    └── promptfoo.py     # PromptfooLoader (YAML format)
 ```
 
 ### config.py - Configuration & Data Models
@@ -504,6 +506,96 @@ Supported servers:
 
 See [ADR-003](adr/003-openai-compatible-api.md) for rationale.
 
+## Battery File Formats
+
+The Battery tab accepts test files in multiple formats:
+
+### JSON / JSONL
+
+```json
+{
+  "prompts": [
+    {"id": "test-1", "user": "What is 2+2?", "expected": "4"},
+    {"id": "test-2", "user": "Call get_weather", "tools": [...], "tool_choice": "required"}
+  ]
+}
+```
+
+**Required fields**: `id`, `user`
+
+**Optional fields**: `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `expected`, `pass_criteria`, `fail_criteria`
+
+### Promptfoo YAML
+
+[Promptfoo](https://promptfoo.dev) config files are supported with variable substitution:
+
+```yaml
+prompts:
+  - |
+    {{system}}
+    User: {{user}}
+
+tests:
+  - description: "Clear Pass - Exact Match"
+    vars:
+      system: "You are evaluating tool call outputs..."
+      user: "Evaluate this output..."
+      expected_verdict: PASS      # Used for semantic validation
+      category: clear_discrimination
+    assert:
+      - type: javascript          # Logged but NOT evaluated
+        value: "result.verdict === 'PASS'"
+```
+
+**Promptfoo-specific handling**:
+- `vars.expected_verdict` → Extracted to `pass_criteria` for semantic validation
+- `vars.category` → Extracted to test category for filtering
+- `assert` blocks → **Logged but NOT evaluated** (warning emitted)
+
+See `prompt_prix/benchmarks/promptfoo.py` for implementation.
+
+## Semantic Validation
+
+Battery tests validate responses beyond HTTP success. The semantic validator (`prompt_prix/semantic_validator.py`) checks:
+
+### Validation Types
+
+| Check | Trigger | Failure Reason |
+|-------|---------|----------------|
+| **Empty response** | Response is empty/whitespace | "Empty response" |
+| **Refusal detection** | Matches refusal phrases | "Model refused: '{phrase}'" |
+| **Tool call required** | `tool_choice: "required"` | "Expected tool call but got text response" |
+| **Tool call forbidden** | `tool_choice: "none"` | "Tool call made when tool_choice='none'" |
+| **Verdict matching** | `pass_criteria` contains verdict | "Verdict mismatch: expected X, got Y" |
+
+### Verdict Matching (Judge Competence Tests)
+
+When `pass_criteria` contains "verdict must be", the validator extracts the verdict from JSON in the response and compares it:
+
+```python
+# pass_criteria: "The verdict in the JSON response must be 'FAIL'"
+# Response: {"verdict": "PASS", "score": 1.0, "reasoning": "..."}
+# Result: SEMANTIC_FAILURE - "Verdict mismatch: expected FAIL, got PASS"
+```
+
+This enables testing whether a model can correctly judge other outputs (judge competence tests).
+
+### Test Status Values
+
+| Status | Symbol | Meaning |
+|--------|--------|---------|
+| `COMPLETED` | ✓ | Response passed semantic validation |
+| `SEMANTIC_FAILURE` | ❌ | Response received but failed semantic check |
+| `ERROR` | ⚠ | Infrastructure error (timeout, connection, etc.) |
+
+### Validation Order
+
+Checks run in order (first failure wins):
+1. Empty response check
+2. Refusal detection
+3. Tool call validation (if `tool_choice` set)
+4. Verdict matching (if `pass_criteria` specifies verdict)
+
 ## Fan-Out Dispatcher Pattern
 
 The core abstraction is **fan-out**: one prompt dispatched to N models in parallel.
@@ -552,3 +644,4 @@ See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
 | [007](adr/ADR-007-inference-task-schema.md) | InferenceTask schema for adapter interface |
 | [008](adr/ADR-008-judge-scheduling-strategy.md) | Two-phase batch judging for multi-GPU efficiency |
 | [009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
+| [010](adr/ADR-010-consistency-runner.md) | Multi-run consistency analysis (proposed) |

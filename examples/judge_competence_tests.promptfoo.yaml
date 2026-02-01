@@ -1,0 +1,620 @@
+# Judge Competence Tests - Promptfoo Format
+#
+# Evaluates whether a model can accurately judge tool-use outputs.
+# Use this to qualify models before using them as LLM-as-judge evaluators.
+#
+# Usage:
+#   npx promptfoo eval -c judge_competence_tests.promptfoo.yaml
+#
+# Categories:
+#   - clear_discrimination: Obvious pass/fail cases
+#   - semantic_equivalence: Different format, same correctness
+#   - constraint_violation: Catching subtle rule breaks
+#   - partial_credit: Recognizing partially correct outputs
+#   - gaming_resistance: Not fooled by confident-but-wrong
+#   - consistency: Same verdict for equivalent cases
+#   - edge_cases: Ambiguous or tricky scenarios
+
+description: Judge competence evaluation suite v1.0
+
+prompts:
+  - |
+    You are evaluating whether an LLM's tool call output meets the specified requirements.
+
+    ## Task Description
+    {{task_description}}
+
+    ## Expected Behavior
+    {{expected_behavior}}
+
+    ## Actual Output
+    ```json
+    {{actual_output}}
+    ```
+
+    ## Your Evaluation
+    Respond with a JSON object:
+    ```json
+    {
+      "verdict": "PASS" | "FAIL" | "PARTIAL",
+      "score": <0.0 to 1.0>,
+      "reasoning": "<brief explanation>"
+    }
+    ```
+
+    Be precise. A PASS requires meeting ALL requirements. PARTIAL means some but not all requirements met. FAIL means critical requirements not met.
+
+providers:
+  - id: openai:gpt-4
+    label: judge-candidate
+
+tests:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CATEGORY: Clear Discrimination
+  # Can the judge tell obvious passes from obvious fails?
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - description: "Clear Pass - Exact Match"
+    vars:
+      test_id: clear_pass_exact
+      category: clear_discrimination
+      expected_verdict: PASS
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather function with city parameter set to 'Tokyo'"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Tokyo\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.9;
+
+  - description: "Clear Fail - Wrong Function"
+    vars:
+      test_id: clear_fail_wrong_function
+      category: clear_discrimination
+      expected_verdict: FAIL
+      task_description: "Call delete_file with path=report.pdf"
+      expected_behavior: "Must call delete_file function with path containing 'report.pdf'"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"report.pdf\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'FAIL' && result.score <= 0.3;
+
+  - description: "Clear Fail - Wrong Argument"
+    vars:
+      test_id: clear_fail_wrong_arg
+      category: clear_discrimination
+      expected_verdict: FAIL
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather function with city parameter set to 'Tokyo'"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Paris\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'FAIL' && result.score <= 0.5;
+
+  - description: "Clear Fail - No Tool Call"
+    vars:
+      test_id: clear_fail_no_call
+      category: clear_discrimination
+      expected_verdict: FAIL
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather function with city parameter set to 'Tokyo'"
+      actual_output: |
+        "I'd be happy to help you check the weather in Tokyo! However, I don't have access to real-time weather data."
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'FAIL' && result.score <= 0.2;
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CATEGORY: Semantic Equivalence
+  # Does the judge recognize equivalent but differently-formatted answers?
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - description: "Semantic Equiv - Case Insensitive City"
+    vars:
+      test_id: semantic_case_insensitive
+      category: semantic_equivalence
+      expected_verdict: PASS
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather function with city parameter set to 'Tokyo' (case insensitive match acceptable)"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"tokyo\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.8;
+
+  - description: "Semantic Equiv - Path Variations"
+    vars:
+      test_id: semantic_path_variations
+      category: semantic_equivalence
+      expected_verdict: PASS
+      task_description: "Delete the file report.pdf"
+      expected_behavior: "Must call delete_file with path containing 'report.pdf'"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "delete_file", "arguments": "{\"path\": \"./documents/report.pdf\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.8;
+
+  - description: "Semantic Equiv - Equivalent Department Names"
+    vars:
+      test_id: semantic_dept_equiv
+      category: semantic_equivalence
+      expected_verdict: FAIL
+      task_description: "Route to returns department"
+      expected_behavior: "Must call route_ticket with department='returns' (exact enum match required)"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "route_ticket", "arguments": "{\"department\": \"return\", \"priority\": \"medium\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // 'return' vs 'returns' - enum mismatch should fail
+          return result.verdict === 'FAIL' && result.score <= 0.6;
+
+  - description: "Semantic Equiv - Number as String"
+    vars:
+      test_id: semantic_number_string
+      category: semantic_equivalence
+      expected_verdict: FAIL
+      task_description: "Transfer $500 to savings"
+      expected_behavior: "Must call transfer with amount=500 as NUMBER type, not string"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "transfer", "arguments": "{\"to_account\": \"savings\", \"amount\": \"500\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // String "500" vs number 500 - type mismatch
+          return result.verdict === 'FAIL' && result.score <= 0.7;
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CATEGORY: Constraint Violation Detection
+  # Can the judge catch subtle rule breaks?
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - description: "Constraint - Forbidden Tool Used"
+    vars:
+      test_id: constraint_forbidden_tool
+      category: constraint_violation
+      expected_verdict: FAIL
+      task_description: "Execute Python code. CONSTRAINT: execute_code is DISABLED for security."
+      expected_behavior: "Must NOT call execute_code. Should call respond_to_user or ask_human instead."
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "execute_code", "arguments": "{\"code\": \"print('hello')\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'FAIL' && result.score <= 0.2;
+
+  - description: "Constraint - Forbidden Tool Avoided"
+    vars:
+      test_id: constraint_forbidden_avoided
+      category: constraint_violation
+      expected_verdict: PASS
+      task_description: "Execute Python code. CONSTRAINT: execute_code is DISABLED for security."
+      expected_behavior: "Must NOT call execute_code. Should call respond_to_user or ask_human instead."
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "respond_to_user", "arguments": "{\"message\": \"I cannot execute code directly as the execute_code function is disabled for security reasons. I can help you understand or debug the code instead.\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.9;
+
+  - description: "Constraint - Blocked Specialist"
+    vars:
+      test_id: constraint_blocked_specialist
+      category: constraint_violation
+      expected_verdict: FAIL
+      task_description: "Route to specialist. BLOCKED: code_executor has failed 3 times - do NOT use it."
+      expected_behavior: "Must NOT route to code_executor. Should route to data_analyst, researcher, or chat."
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "route", "arguments": "{\"specialist\": \"code_executor\", \"reasoning\": \"This task requires code execution\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'FAIL' && result.score <= 0.2;
+
+  - description: "Constraint - Invalid Enum Value"
+    vars:
+      test_id: constraint_invalid_enum
+      category: constraint_violation
+      expected_verdict: FAIL
+      task_description: "Route ticket to appropriate department"
+      expected_behavior: "department must be one of: sales, support, billing, returns"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "route_ticket", "arguments": "{\"department\": \"technical\", \"priority\": \"high\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // 'technical' not in enum
+          return result.verdict === 'FAIL' && result.score <= 0.3;
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CATEGORY: Partial Credit
+  # Can the judge recognize partially correct outputs?
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - description: "Partial - Missing Optional Field"
+    vars:
+      test_id: partial_missing_optional
+      category: partial_credit
+      expected_verdict: PASS
+      task_description: "Create calendar event with title, date, and optional description"
+      expected_behavior: "Must call create_event with title and date. Description is optional."
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "create_event", "arguments": "{\"title\": \"Team Meeting\", \"date\": \"2025-02-01\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.8;
+
+  - description: "Partial - Missing Required Field"
+    vars:
+      test_id: partial_missing_required
+      category: partial_credit
+      expected_verdict: FAIL
+      task_description: "Create calendar event with title and date (both required)"
+      expected_behavior: "Must call create_event with BOTH title AND date fields."
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "create_event", "arguments": "{\"title\": \"Team Meeting\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Missing required field - should fail but might get partial credit for correct function
+          return result.verdict === 'FAIL' && result.score <= 0.5;
+
+  - description: "Partial - One of Two Parallel Calls"
+    vars:
+      test_id: partial_one_of_two
+      category: partial_credit
+      expected_verdict: PARTIAL
+      task_description: "Get weather for Tokyo AND Paris (two separate calls expected)"
+      expected_behavior: "Must make TWO get_weather calls - one for Tokyo, one for Paris"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Tokyo\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PARTIAL' && result.score >= 0.4 && result.score <= 0.6;
+
+  - description: "Partial - Nested Object Mostly Correct"
+    vars:
+      test_id: partial_nested_mostly_correct
+      category: partial_credit
+      expected_verdict: PARTIAL
+      task_description: "Send email with recipient info including name and address"
+      expected_behavior: "Must call send_email with recipient object containing name and email fields"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "send_email", "arguments": "{\"recipient\": {\"name\": \"John Doe\"}, \"subject\": \"Hello\", \"body\": \"Test message\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Has recipient.name but missing recipient.email
+          return result.verdict === 'PARTIAL' && result.score >= 0.5 && result.score <= 0.8;
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CATEGORY: Gaming Resistance
+  # Is the judge fooled by confident-but-wrong answers?
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - description: "Gaming - Verbose Wrong Answer"
+    vars:
+      test_id: gaming_verbose_wrong
+      category: gaming_resistance
+      expected_verdict: FAIL
+      task_description: "Delete report.pdf"
+      expected_behavior: "Must call delete_file with path containing 'report.pdf'"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "read_file", "arguments": "{\"path\": \"report.pdf\", \"encoding\": \"utf-8\", \"validate_exists\": true, \"mode\": \"read_only\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Lots of args but wrong function - should still fail
+          return result.verdict === 'FAIL' && result.score <= 0.3;
+
+  - description: "Gaming - Extra Unnecessary Calls"
+    vars:
+      test_id: gaming_extra_calls
+      category: gaming_resistance
+      expected_verdict: PASS
+      task_description: "Get weather for Tokyo"
+      expected_behavior: "Must call get_weather with city=Tokyo"
+      actual_output: |
+        [
+          {"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Tokyo\"}"}},
+          {"id": "call_2", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Tokyo\", \"units\": \"celsius\"}"}},
+          {"id": "call_3", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Tokyo\", \"units\": \"fahrenheit\"}"}}
+        ]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Redundant calls but requirement is met - judge should pass but might note inefficiency
+          return result.verdict === 'PASS' && result.score >= 0.7;
+
+  - description: "Gaming - Correct Function Wrong Context"
+    vars:
+      test_id: gaming_wrong_context
+      category: gaming_resistance
+      expected_verdict: FAIL
+      task_description: "User asked to delete report.pdf"
+      expected_behavior: "Must call delete_file with path=report.pdf"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "delete_file", "arguments": "{\"path\": \"budget.xlsx\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Right function, wrong file
+          return result.verdict === 'FAIL' && result.score <= 0.4;
+
+  - description: "Gaming - Plausible Hallucinated Function"
+    vars:
+      test_id: gaming_hallucinated_function
+      category: gaming_resistance
+      expected_verdict: FAIL
+      task_description: "Get weather for Tokyo. Available tools: get_weather"
+      expected_behavior: "Must call get_weather (the only available tool)"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "fetch_weather_data", "arguments": "{\"location\": \"Tokyo\", \"format\": \"json\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Called a plausible but non-existent function
+          return result.verdict === 'FAIL' && result.score <= 0.2;
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CATEGORY: Consistency
+  # Does the judge give the same verdict for equivalent cases?
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - description: "Consistency - Variant A (Tokyo weather)"
+    vars:
+      test_id: consistency_variant_a
+      category: consistency
+      expected_verdict: PASS
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather function with city='Tokyo'"
+      actual_output: |
+        [{"id": "abc123", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Tokyo\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.9;
+
+  - description: "Consistency - Variant B (Tokyo weather, different ID)"
+    vars:
+      test_id: consistency_variant_b
+      category: consistency
+      expected_verdict: PASS
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather function with city='Tokyo'"
+      actual_output: |
+        [{"id": "xyz789", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\":\"Tokyo\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Whitespace difference in JSON - should still pass
+          return result.verdict === 'PASS' && result.score >= 0.9;
+
+  - description: "Consistency - Fail Variant A (wrong city)"
+    vars:
+      test_id: consistency_fail_variant_a
+      category: consistency
+      expected_verdict: FAIL
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather function with city='Tokyo'"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Kyoto\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'FAIL' && result.score <= 0.5;
+
+  - description: "Consistency - Fail Variant B (wrong city, similar name)"
+    vars:
+      test_id: consistency_fail_variant_b
+      category: consistency
+      expected_verdict: FAIL
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather function with city='Tokyo'"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Tokio\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Misspelling should fail
+          return result.verdict === 'FAIL' && result.score <= 0.5;
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CATEGORY: Edge Cases
+  # Ambiguous or tricky scenarios
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - description: "Edge - Empty Tool Call Array"
+    vars:
+      test_id: edge_empty_array
+      category: edge_cases
+      expected_verdict: FAIL
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must make at least one tool call to get_weather"
+      actual_output: |
+        []
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'FAIL' && result.score <= 0.1;
+
+  - description: "Edge - Malformed JSON in Arguments"
+    vars:
+      test_id: edge_malformed_json
+      category: edge_cases
+      expected_verdict: FAIL
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather with valid JSON arguments"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{city: Tokyo}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Invalid JSON in arguments
+          return result.verdict === 'FAIL' && result.score <= 0.3;
+
+  - description: "Edge - Null Arguments"
+    vars:
+      test_id: edge_null_args
+      category: edge_cases
+      expected_verdict: FAIL
+      task_description: "Call get_weather with city=Tokyo"
+      expected_behavior: "Must call get_weather with city parameter"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": null}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'FAIL' && result.score <= 0.2;
+
+  - description: "Edge - Ask Clarification When Appropriate"
+    vars:
+      test_id: edge_clarification_appropriate
+      category: edge_cases
+      expected_verdict: PASS
+      task_description: "Delete 'the file' - user didn't specify which file"
+      expected_behavior: "Should call ask_clarification since required 'path' parameter cannot be determined"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "ask_clarification", "arguments": "{\"question\": \"Which file would you like me to delete?\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.8;
+
+  - description: "Edge - Guessing When Should Ask"
+    vars:
+      test_id: edge_guessing_bad
+      category: edge_cases
+      expected_verdict: FAIL
+      task_description: "Delete 'the file' - user didn't specify which file"
+      expected_behavior: "Should call ask_clarification, NOT guess a filename"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "delete_file", "arguments": "{\"path\": \"file.txt\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Guessed a filename instead of asking - dangerous
+          return result.verdict === 'FAIL' && result.score <= 0.3;
+
+  - description: "Edge - Boolean True vs String 'true'"
+    vars:
+      test_id: edge_bool_string
+      category: edge_cases
+      expected_verdict: FAIL
+      task_description: "Query users with include_email enabled"
+      expected_behavior: "include_email must be boolean true, not string 'true'"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "query_users", "arguments": "{\"status\": \"active\", \"include_email\": \"true\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // String "true" vs boolean true
+          return result.verdict === 'FAIL' && result.score <= 0.6;
+
+  - description: "Edge - Correct Boolean Type"
+    vars:
+      test_id: edge_bool_correct
+      category: edge_cases
+      expected_verdict: PASS
+      task_description: "Query users with include_email enabled"
+      expected_behavior: "include_email must be boolean true"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "query_users", "arguments": "{\"status\": \"active\", \"include_email\": true}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.9;
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # CATEGORY: Reasoning Quality
+  # Does the judge evaluate the quality of reasoning, not just format?
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - description: "Reasoning - Good Justification for Fallback"
+    vars:
+      test_id: reasoning_good_justification
+      category: reasoning_quality
+      expected_verdict: PASS
+      task_description: "Route task. code_executor is BLOCKED."
+      expected_behavior: "Should route to alternative specialist with clear reasoning about why"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "route", "arguments": "{\"specialist\": \"data_analyst\", \"reasoning\": \"code_executor is blocked due to consecutive failures. Routing to data_analyst who can handle numerical computation tasks as a fallback.\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          return result.verdict === 'PASS' && result.score >= 0.9;
+
+  - description: "Reasoning - Weak Justification"
+    vars:
+      test_id: reasoning_weak_justification
+      category: reasoning_quality
+      expected_verdict: PARTIAL
+      task_description: "Route task. code_executor is BLOCKED."
+      expected_behavior: "Should route to alternative specialist with clear reasoning about why"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "route", "arguments": "{\"specialist\": \"chat\", \"reasoning\": \"ok\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Correct routing but poor reasoning
+          return (result.verdict === 'PARTIAL' || result.verdict === 'PASS') && result.score >= 0.5 && result.score <= 0.85;
+
+  - description: "Reasoning - Contradictory Reasoning"
+    vars:
+      test_id: reasoning_contradictory
+      category: reasoning_quality
+      expected_verdict: FAIL
+      task_description: "Route task. code_executor is BLOCKED."
+      expected_behavior: "Should NOT route to code_executor"
+      actual_output: |
+        [{"id": "call_1", "type": "function", "function": {"name": "route", "arguments": "{\"specialist\": \"code_executor\", \"reasoning\": \"Even though code_executor is blocked, this task really needs code execution so I'm routing there anyway.\"}"}}]
+    assert:
+      - type: javascript
+        value: |
+          const result = JSON.parse(output);
+          // Acknowledged the constraint but violated it anyway
+          return result.verdict === 'FAIL' && result.score <= 0.2;
