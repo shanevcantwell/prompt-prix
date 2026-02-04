@@ -9,6 +9,7 @@ from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from prompt_prix.battery import BatteryRun
+    from prompt_prix.consistency import ConsistencyRun
     from prompt_prix.core import ComparisonSession
 
 
@@ -17,6 +18,9 @@ session: Optional["ComparisonSession"] = None
 
 # Battery state - persists after run for detail retrieval
 battery_run: Optional["BatteryRun"] = None
+
+# Consistency run state - for multi-run variance testing
+consistency_run: Optional["ConsistencyRun"] = None
 
 # Source filename for export naming
 battery_source_file: Optional[str] = None

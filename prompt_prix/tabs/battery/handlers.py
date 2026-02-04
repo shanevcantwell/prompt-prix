@@ -73,17 +73,32 @@ async def run_handler(
     timeout: int,
     max_tokens: int,
     system_prompt: str,
-    judge_model: str = None
+    judge_model: str = None,
+    runs: int = 1,
+    display_mode_str: str = "Symbols (✓/❌)"
 ):
     """
     Run battery tests across selected models.
 
     Yields (status, grid_data) tuples for streaming UI updates.
 
+    Args:
+        runs: Number of runs per test (1 = standard, >1 = consistency testing)
+
     Note:
         Temperature is fixed at 0.0 for evaluation reproducibility.
         Judge model is reserved for future LLM-as-judge evaluation.
     """
+    # Parse display mode for grid rendering
+    from prompt_prix.battery import GridDisplayMode
+    if "Latency" in display_mode_str:
+        display_mode = GridDisplayMode.LATENCY
+    else:
+        display_mode = GridDisplayMode.SYMBOLS
+
+    # Ensure runs is an int (Gradio slider returns float)
+    runs = int(runs) if runs else 1
+
     # Clear any previous stop request so we can run again
     state.clear_stop()
 
@@ -118,7 +133,7 @@ async def run_handler(
     if not servers:
         yield "❌ No servers configured", []
         return
-        
+
     import logging
     logger = logging.getLogger(__name__)
 
@@ -142,35 +157,75 @@ async def run_handler(
             []
         )
 
-    # Create and run battery (temperature=0.0 for reproducibility)
-    # BatteryRunner calls MCP tools internally - doesn't need servers
-    # Adapter handles concurrency via per-server locks
-    logger.info(f"Battery Run Config: Models={models_selected}")
+    # Choose runner based on runs count
+    if runs > 1:
+        # Multi-run consistency testing
+        from prompt_prix.consistency import ConsistencyRunner
+        logger.info(f"Consistency Run Config: Models={models_selected}, Runs={runs}")
 
-    runner = BatteryRunner(
-        tests=tests,
-        models=models_selected,
-        temperature=0.0,
-        max_tokens=max_tokens,
-        timeout_seconds=timeout,
-        judge_model=judge_model
-    )
+        runner = ConsistencyRunner(
+            tests=tests,
+            models=models_selected,
+            runs=runs,
+            temperature=0.0,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout,
+            judge_model=judge_model
+        )
 
-    # Store state for later detail retrieval
-    state.battery_run = runner.state
+        # Store state for later detail retrieval
+        state.consistency_run = runner.state
+        state.battery_run = None  # Clear single-run state
 
-    # Stream state updates to UI
-    async for battery_state in runner.run():
-        grid = battery_state.to_grid()
-        # Show different status based on phase (ADR-008 two-phase execution)
-        if battery_state.phase == "judging":
-            progress = f"⏳ Judging... ({battery_state.judge_completed}/{battery_state.judge_total})"
+        # Stream state updates to UI
+        async for consistency_state in runner.run():
+            grid = consistency_state.to_grid(display_mode)
+            if consistency_state.phase == "judging":
+                progress = f"⏳ Judging... ({consistency_state.judge_completed}/{consistency_state.judge_total})"
+            else:
+                progress = f"⏳ Running {runs}x... ({consistency_state.completed_runs}/{consistency_state.total_runs})"
+            yield progress, grid
+
+        # Final status with consistency summary
+        total_cells = consistency_state.total_count
+        inconsistent = sum(
+            1 for agg in consistency_state.aggregates.values()
+            if agg.status.value == "inconsistent"
+        )
+        if inconsistent > 0:
+            yield f"✅ Complete - {inconsistent}/{total_cells} cells inconsistent", grid
         else:
-            progress = f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
-        yield progress, grid
+            yield f"✅ Complete - all {total_cells} cells consistent", grid
 
-    # Final status
-    yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
+    else:
+        # Standard single-run battery
+        logger.info(f"Battery Run Config: Models={models_selected}")
+
+        runner = BatteryRunner(
+            tests=tests,
+            models=models_selected,
+            temperature=0.0,
+            max_tokens=max_tokens,
+            timeout_seconds=timeout,
+            judge_model=judge_model
+        )
+
+        # Store state for later detail retrieval
+        state.battery_run = runner.state
+        state.consistency_run = None  # Clear multi-run state
+
+        # Stream state updates to UI
+        async for battery_state in runner.run():
+            grid = battery_state.to_grid(display_mode)
+            # Show different status based on phase (ADR-008 two-phase execution)
+            if battery_state.phase == "judging":
+                progress = f"⏳ Judging... ({battery_state.judge_completed}/{battery_state.judge_total})"
+            else:
+                progress = f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
+            yield progress, grid
+
+        # Final status
+        yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
 
 
 def export_json():
@@ -253,15 +308,73 @@ def get_cell_detail(model: str, test: str) -> str:
     """Get response detail for a (model, test) cell."""
     from prompt_prix.battery import RunStatus
 
-    if not state.battery_run:
-        return "*No battery run available*"
-
     if not model or not test:
         return "*Select a model and test to view the response*"
+
+    # Check for consistency run first (multi-run mode)
+    if state.consistency_run:
+        return _get_consistency_cell_detail(model, test)
+
+    if not state.battery_run:
+        return "*No battery run available*"
 
     result = state.battery_run.get_result(test, model)
     if not result:
         return f"*No result for {model} × {test}*"
+
+    return _format_single_result(result)
+
+
+def _get_consistency_cell_detail(model: str, test: str) -> str:
+    """Get detail for a consistency run cell (multiple runs)."""
+    from prompt_prix.battery import RunStatus
+    from prompt_prix.consistency import ConsistencyStatus
+
+    agg = state.consistency_run.get_aggregate(test, model)
+    if not agg:
+        return f"*No result for {model} × {test}*"
+
+    # Header with aggregate stats
+    status_emoji = agg.status_symbol
+    status_name = agg.status.value.replace("_", " ").title()
+    avg_latency = f"{agg.avg_latency_ms:.0f}ms" if agg.avg_latency_ms else "N/A"
+
+    header = (
+        f"## {status_emoji} {status_name}\n\n"
+        f"**Pass Rate:** {agg.passes}/{agg.total} "
+        f"({agg.passes * 100 // agg.total}%)\n\n"
+        f"**Avg Latency:** {avg_latency}\n\n"
+        f"---\n\n"
+    )
+
+    # Individual run details
+    run_details = []
+    for i, result in enumerate(agg.results, 1):
+        status_sym = result.status_symbol
+        latency = f"{result.latency_ms:.0f}ms" if result.latency_ms else "N/A"
+
+        if result.status == RunStatus.ERROR:
+            detail = f"### Run {i}: {status_sym} Error\n**Error:** {result.error}"
+        elif result.status == RunStatus.SEMANTIC_FAILURE:
+            reason = result.failure_reason or "Unknown"
+            detail = (
+                f"### Run {i}: {status_sym} Failed ({latency})\n"
+                f"**Reason:** {reason}\n\n"
+                f"```\n{result.response[:500]}{'...' if len(result.response) > 500 else ''}\n```"
+            )
+        else:
+            detail = (
+                f"### Run {i}: {status_sym} Passed ({latency})\n\n"
+                f"```\n{result.response[:500]}{'...' if len(result.response) > 500 else ''}\n```"
+            )
+        run_details.append(detail)
+
+    return header + "\n\n".join(run_details)
+
+
+def _format_single_result(result) -> str:
+    """Format a single RunResult for display."""
+    from prompt_prix.battery import RunStatus
 
     if result.status == RunStatus.ERROR:
         return f"**Status:** ⚠ Error\n\n**Error:** {result.error}"
@@ -300,15 +413,18 @@ def refresh_grid(display_mode_str: str) -> list:
     """Refresh the battery grid with the selected display mode."""
     from prompt_prix.battery import GridDisplayMode
 
-    if not state.battery_run:
-        return []
-
     if "Latency" in display_mode_str:
         mode = GridDisplayMode.LATENCY
     else:
         mode = GridDisplayMode.SYMBOLS
 
-    return state.battery_run.to_grid(mode)
+    # Check which run state is active
+    if state.consistency_run:
+        return state.consistency_run.to_grid(mode)
+    elif state.battery_run:
+        return state.battery_run.to_grid(mode)
+    else:
+        return []
 
 
 def export_grid_image():
@@ -430,7 +546,9 @@ def handle_cell_select(evt: gr.SelectData) -> tuple:
     import logging
     logger = logging.getLogger(__name__)
 
-    if not state.battery_run:
+    # Determine which run state is active
+    run_state = state.consistency_run or state.battery_run
+    if not run_state:
         return gr.update(visible=False), "*No battery run available*"
 
     row, col = evt.index
@@ -443,8 +561,8 @@ def handle_cell_select(evt: gr.SelectData) -> tuple:
     # Map indices to identifiers
     # Note: Gradio DataFrame indices are 0-based for data rows (header not included)
     try:
-        test_id = state.battery_run.tests[row]
-        model_id = state.battery_run.models[col - 1]  # col 0 is Test column
+        test_id = run_state.tests[row]
+        model_id = run_state.models[col - 1]  # col 0 is Test column
         logger.info(f"Mapped to: test_id={test_id}, model_id={model_id}")
     except IndexError:
         logger.warning(f"Invalid cell: row={row}, col={col}")

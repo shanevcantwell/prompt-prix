@@ -10,36 +10,65 @@ def render_tab():
     """
     with gr.Tab("🔋 Battery", id="battery-tab"):
 
-        gr.Markdown("""
-        Run benchmark test suites across multiple models.
-        Upload a test file, select models above, and see results in the grid below.
-        """)
+        with gr.Accordion("ℹ️ Battery Help", open=False):
+            gr.Markdown("""
+**Run benchmarks across multiple models simultaneously.**
+
+### Quick Start
+1. Upload a test file (JSON/JSONL/YAML) or click **Load Sample**
+2. Click **Run Battery** to test all selected models
+3. Click any cell to see the full response
+
+### Understanding Results
+| Symbol | Meaning |
+|--------|---------|
+| ✓ | Passed - correct tool call or expected response |
+| ❌ | Failed - wrong tool, missing call, or semantic failure |
+| ⚠ | Error - API timeout, parse error, or model refusal |
+| 🟣 | Inconsistent - passed some runs but not all (multi-run mode)
+
+### Judge Model
+Select a judge model to evaluate responses against `pass_criteria`/`fail_criteria` fields in your test file. Without a judge, results show ✓ for any successful response.
+
+### Test File Format
+Each test needs: `id`, `user` (the prompt). Optional: `tools`, `system`, `pass_criteria`, `fail_criteria`
+
+[View example test files →](https://github.com/shanevcantwell/prompt-prix/tree/main/examples)
+            """)
 
         with gr.Row():
             with gr.Column(scale=1):
                 battery_file = gr.File(
-                    label="Test Suite (JSON/JSONL/YAML)",
+                    label="Test Suite",
                     file_types=[".json", ".jsonl", ".yaml", ".yml"],
                     type="filepath"
                 )
-                battery_validation = gr.Textbox(
-                    label="Validation",
-                    value="Upload a benchmark file (JSON/JSONL/YAML)",
-                    interactive=False,
-                    lines=1
-                )
+                with gr.Row():
+                    battery_validation = gr.Textbox(
+                        label="Validation",
+                        value="Upload a benchmark file or load sample",
+                        interactive=False,
+                        lines=1,
+                        scale=3
+                    )
+                    load_sample_btn = gr.Button(
+                        "📋 Load Sample",
+                        size="sm",
+                        scale=1
+                    )
 
             with gr.Column(scale=1):
                 battery_system_prompt = gr.Textbox(
-                    label="System Prompt Override (optional)",
+                    label="System Prompt Override",
                     placeholder="Leave empty to use test-defined prompts",
-                    lines=2
+                    lines=2,
+                    info="Applies to all tests (overrides per-test prompts)"
                 )
                 judge_model = gr.Dropdown(
-                    label="Judge Model",
+                    label="Judge Model (Optional)",
                     choices=[],
                     value=None,
-                    info="Model for LLM-as-judge evaluation"
+                    info="If set, uses this LLM to evaluate responses against test's pass_criteria/fail_criteria fields"
                 )
 
         with gr.Row():
@@ -62,16 +91,28 @@ def render_tab():
         )
 
         gr.Markdown("### Results")
-        battery_display_mode = gr.Radio(
-            label="Display",
-            choices=["Symbols (✓/❌)", "Latency (seconds)"],
-            value="Symbols (✓/❌)",
-            interactive=True
-        )
+        with gr.Row():
+            battery_runs_slider = gr.Slider(
+                label="Runs",
+                minimum=1,
+                maximum=10,
+                step=1,
+                value=1,
+                scale=1,
+                info="Run each test N times with different seeds to detect inconsistent models"
+            )
+            battery_display_mode = gr.Radio(
+                label="Display Mode",
+                choices=["Symbols (✓/❌)", "Latency (seconds)"],
+                value="Symbols (✓/❌)",
+                interactive=True,
+                scale=2,
+                info="Toggle between pass/fail symbols and response times"
+            )
 
         battery_grid = gr.Dataframe(
             label="Model × Test Results",
-            interactive=False,
+            interactive=True,  # Required for cell selection in Gradio 6.x
             wrap=True,
             elem_id="battery-grid"
         )
@@ -113,8 +154,10 @@ def render_tab():
     return SimpleNamespace(
         file=battery_file,
         validation=battery_validation,
+        load_sample_btn=load_sample_btn,
         system_prompt=battery_system_prompt,
         judge_model=judge_model,
+        runs_slider=battery_runs_slider,
         run_btn=battery_run_btn,
         stop_btn=battery_stop_btn,
         status=battery_status,
