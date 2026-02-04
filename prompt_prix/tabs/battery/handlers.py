@@ -230,6 +230,9 @@ async def run_handler(
 
 def export_json():
     """Export battery results as JSON file."""
+    # Support both single-run and multi-run modes
+    if state.consistency_run:
+        return _export_consistency_json()
     if not state.battery_run:
         return "❌ No battery results to export", gr.update(visible=False, value=None)
 
@@ -265,10 +268,56 @@ def export_json():
     return f"✅ Exported {len(export_data['results'])} results", gr.update(visible=False, value=filepath)
 
 
+def _export_consistency_json():
+    """Export consistency run results as JSON."""
+    run = state.consistency_run
+    export_data = {
+        "tests": run.tests,
+        "models": run.models,
+        "runs_total": run.runs_total,
+        "aggregates": []
+    }
+
+    for test_id in run.tests:
+        for model_id in run.models:
+            agg = run.get_aggregate(test_id, model_id)
+            if agg:
+                export_data["aggregates"].append({
+                    "test_id": agg.test_id,
+                    "model_id": agg.model_id,
+                    "status": agg.status.value,
+                    "passes": agg.passes,
+                    "total": agg.total,
+                    "avg_latency_ms": agg.avg_latency_ms,
+                    "results": [
+                        {
+                            "status": r.status.value,
+                            "response": r.response,
+                            "latency_ms": r.latency_ms,
+                            "error": r.error,
+                            "failure_reason": r.failure_reason
+                        }
+                        for r in agg.results
+                    ]
+                })
+
+    basename = _get_export_basename()
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, f"{basename}.json")
+
+    with open(filepath, "w") as f:
+        json.dump(export_data, f, indent=2)
+
+    return f"✅ Exported {len(export_data['aggregates'])} cells ({run.runs_total} runs each)", gr.update(visible=False, value=filepath)
+
+
 def export_csv():
     """Export battery results as CSV file."""
     import csv
 
+    # Support both single-run and multi-run modes
+    if state.consistency_run:
+        return _export_consistency_csv()
     if not state.battery_run:
         return "❌ No battery results to export", gr.update(visible=False, value=None)
 
@@ -302,6 +351,41 @@ def export_csv():
                     row_count += 1
 
     return f"✅ Exported {row_count} results", gr.update(visible=False, value=filepath)
+
+
+def _export_consistency_csv():
+    """Export consistency run results as CSV."""
+    import csv
+
+    run = state.consistency_run
+    basename = _get_export_basename()
+    temp_dir = tempfile.gettempdir()
+    filepath = os.path.join(temp_dir, f"{basename}.csv")
+
+    row_count = 0
+    with open(filepath, "w", newline='', encoding='utf-8') as f:
+        writer = csv.writer(f, quoting=csv.QUOTE_ALL)
+        writer.writerow(["test_id", "model_id", "status", "passes", "total",
+                         "avg_latency_ms", "run_statuses"])
+
+        for test_id in run.tests:
+            for model_id in run.models:
+                agg = run.get_aggregate(test_id, model_id)
+                if agg:
+                    avg_lat = f"{agg.avg_latency_ms:.0f}" if agg.avg_latency_ms else ""
+                    run_statuses = ",".join(r.status.value for r in agg.results)
+                    writer.writerow([
+                        agg.test_id,
+                        agg.model_id,
+                        agg.status.value,
+                        agg.passes,
+                        agg.total,
+                        avg_lat,
+                        run_statuses
+                    ])
+                    row_count += 1
+
+    return f"✅ Exported {row_count} cells ({run.runs_total} runs each)", gr.update(visible=False, value=filepath)
 
 
 def get_cell_detail(model: str, test: str) -> str:
@@ -432,11 +516,13 @@ def export_grid_image():
     from PIL import Image, ImageDraw, ImageFont
     from prompt_prix.battery import RunStatus
 
-    if not state.battery_run:
+    # Support both single-run and multi-run modes
+    run_state = state.consistency_run or state.battery_run
+    if not run_state:
         return "❌ No battery results to export", gr.update(visible=False, value=None)
 
-    tests = state.battery_run.tests
-    models = state.battery_run.models
+    tests = run_state.tests
+    models = run_state.models
 
     if not tests or not models:
         return "❌ No results to render", gr.update(visible=False, value=None)
@@ -491,6 +577,9 @@ def export_grid_image():
         display_name = model_id[:12] if len(model_id) > 12 else model_id
         draw_cell(x, 0, cell_width, display_name, colors['header_bg'])
 
+    # Add color for inconsistent results
+    colors['inconsistent'] = '#e9d5ff'  # Light purple
+
     # Draw data rows
     for row, test_id in enumerate(tests):
         y = cell_height + (row * cell_height)
@@ -502,26 +591,48 @@ def export_grid_image():
         # Result cells
         for col, model_id in enumerate(models):
             x = header_col_width + (col * cell_width)
-            result = state.battery_run.get_result(test_id, model_id)
 
-            if result:
-                if result.status == RunStatus.COMPLETED:
-                    bg_color = colors['pass']
-                    latency_s = f"{result.latency_ms / 1000:.1f}" if result.latency_ms else "?"
-                    cell_text = f"OK {latency_s}s"
-                elif result.status == RunStatus.SEMANTIC_FAILURE:
-                    bg_color = colors['fail']
-                    latency_s = f"{result.latency_ms / 1000:.1f}" if result.latency_ms else "?"
-                    cell_text = f"FAIL {latency_s}s"
-                elif result.status == RunStatus.ERROR:
-                    bg_color = colors['error']
-                    cell_text = "ERR"
+            # Handle both consistency runs and battery runs
+            if state.consistency_run:
+                from prompt_prix.consistency import ConsistencyStatus
+                agg = state.consistency_run.get_aggregate(test_id, model_id)
+                if agg:
+                    status = agg.status
+                    if status == ConsistencyStatus.CONSISTENT_PASS:
+                        bg_color = colors['pass']
+                        cell_text = f"OK {agg.pass_rate_display}"
+                    elif status == ConsistencyStatus.CONSISTENT_FAIL:
+                        bg_color = colors['fail']
+                        cell_text = f"FAIL {agg.pass_rate_display}"
+                    elif status == ConsistencyStatus.INCONSISTENT:
+                        bg_color = colors['inconsistent']
+                        cell_text = f"~{agg.pass_rate_display}"
+                    else:
+                        bg_color = colors['pending']
+                        cell_text = "..."
                 else:
                     bg_color = colors['pending']
                     cell_text = "..."
             else:
-                bg_color = colors['pending']
-                cell_text = "..."
+                result = state.battery_run.get_result(test_id, model_id)
+                if result:
+                    if result.status == RunStatus.COMPLETED:
+                        bg_color = colors['pass']
+                        latency_s = f"{result.latency_ms / 1000:.1f}" if result.latency_ms else "?"
+                        cell_text = f"OK {latency_s}s"
+                    elif result.status == RunStatus.SEMANTIC_FAILURE:
+                        bg_color = colors['fail']
+                        latency_s = f"{result.latency_ms / 1000:.1f}" if result.latency_ms else "?"
+                        cell_text = f"FAIL {latency_s}s"
+                    elif result.status == RunStatus.ERROR:
+                        bg_color = colors['error']
+                        cell_text = "ERR"
+                    else:
+                        bg_color = colors['pending']
+                        cell_text = "..."
+                else:
+                    bg_color = colors['pending']
+                    cell_text = "..."
 
             draw_cell(x, y, cell_width, cell_text, bg_color)
 
