@@ -129,6 +129,47 @@ def get_gradio_port() -> int:
         return 7860
 
 
+# ─────────────────────────────────────────────────────────────────────
+# HUGGINGFACE MODE
+# ─────────────────────────────────────────────────────────────────────
+
+# Vetted models for HF Spaces deployment
+# These are known to work with the HF Inference API
+HF_DEFAULT_MODELS: list[str] = [
+    "meta-llama/Llama-3.2-3B-Instruct",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "microsoft/Phi-3-mini-4k-instruct",
+]
+
+
+def is_huggingface_mode() -> bool:
+    """
+    Check if running in HuggingFace mode.
+
+    HF mode is active when HF_TOKEN is set and no LM_STUDIO_SERVER_* vars are set.
+    This allows explicit opt-in to HF mode on Spaces while allowing local
+    development with LM Studio.
+    """
+    has_hf_token = bool(os.environ.get("HF_TOKEN"))
+    has_lm_studio = bool(load_servers_from_env())
+    return has_hf_token and not has_lm_studio
+
+
+def get_hf_token() -> str | None:
+    """Get HuggingFace token from environment."""
+    return os.environ.get("HF_TOKEN")
+
+
+def get_hf_models() -> list[str]:
+    """
+    Get HuggingFace models to use.
+
+    Returns HF_DEFAULT_MODELS for now. Could be extended to read from
+    environment or config file.
+    """
+    return list(HF_DEFAULT_MODELS)
+
+
 def get_beyond_compare_path() -> str:
     """
     Get Beyond Compare executable path from environment or default.

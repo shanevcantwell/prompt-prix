@@ -103,13 +103,18 @@ def _ensure_adapter_registered(servers: list[str]) -> None:
     """
     Ensure an adapter is registered with the given servers.
 
-    This re-registers the adapter if the server list changes, allowing
-    the UI to dynamically update server configuration.
+    In HF mode: No-op (adapter is static, configured at startup)
+    In LM Studio mode: Re-registers adapter if server list changes
     """
-    from prompt_prix.adapters.lmstudio import LMStudioAdapter
+    from prompt_prix.config import is_huggingface_mode
     from prompt_prix.mcp.registry import register_adapter
 
-    # Always re-register with current servers from UI
+    if is_huggingface_mode():
+        # HF mode: adapter is static, no re-registration needed
+        return
+
+    # LM Studio mode: re-register with current servers from UI
+    from prompt_prix.adapters.lmstudio import LMStudioAdapter
     adapter = LMStudioAdapter(server_urls=servers)
     register_adapter(adapter)
 
@@ -118,14 +123,11 @@ async def fetch_available_models(servers_text: str) -> dict:
     """
     Query all configured servers and return available models per-server.
 
-    Uses the list_models MCP tool for model discovery.
-    Registers/re-registers the adapter with the provided servers.
-
-    This function returns raw data only. Filtering (e.g., "only loaded")
-    is a UI concern and should be done by the caller.
+    In HF mode: Returns pre-configured models (no discovery)
+    In LM Studio mode: Uses list_models MCP tool for discovery
 
     Args:
-        servers_text: Newline-separated server URLs
+        servers_text: Newline-separated server URLs (ignored in HF mode)
 
     Returns dict with:
         - status: Status message string
@@ -133,8 +135,20 @@ async def fetch_available_models(servers_text: str) -> dict:
         - all_models: Combined list of all models (unfiltered)
         - loaded_models: Set of models currently in VRAM (or None if can't detect)
     """
+    from prompt_prix.config import is_huggingface_mode, get_hf_models
     from prompt_prix.mcp.tools.list_models import list_models
 
+    # HF mode: return pre-configured models
+    if is_huggingface_mode():
+        models = get_hf_models()
+        return {
+            "status": f"✅ HuggingFace mode: {len(models)} model(s) configured",
+            "servers": {"huggingface-inference": models},
+            "all_models": models,
+            "loaded_models": None  # N/A for cloud API
+        }
+
+    # LM Studio mode: discover from servers
     servers = parse_servers_input(servers_text)
 
     if not servers:
