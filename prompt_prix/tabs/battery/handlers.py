@@ -493,9 +493,18 @@ def _format_single_result(result) -> str:
     return f"**Status:** ✓ Completed\n\n**Latency:** {latency}{judge_info}\n\n---\n\n{result.response}"
 
 
-def refresh_grid(display_mode_str: str) -> list:
-    """Refresh the battery grid with the selected display mode."""
+def refresh_grid(display_mode_str: str = None) -> list:
+    """Refresh the battery grid with the selected display mode.
+
+    Stores display mode in global state to prevent reset on grid cell clicks.
+    """
     from prompt_prix.battery import GridDisplayMode
+
+    # Store in global state if provided, otherwise use stored value
+    if display_mode_str:
+        state.battery_display_mode = display_mode_str
+    else:
+        display_mode_str = state.battery_display_mode
 
     if "Latency" in display_mode_str:
         mode = GridDisplayMode.LATENCY
@@ -657,9 +666,12 @@ def handle_cell_select(evt: gr.SelectData) -> tuple:
     import logging
     logger = logging.getLogger(__name__)
 
+    logger.info(f"handle_cell_select called with evt.index={evt.index}, evt.value={evt.value}")
+
     # Determine which run state is active
     run_state = state.consistency_run or state.battery_run
     if not run_state:
+        logger.warning("No run state available")
         return gr.update(visible=False), "*No battery run available*"
 
     row, col = evt.index
@@ -667,6 +679,7 @@ def handle_cell_select(evt: gr.SelectData) -> tuple:
 
     # Col 0 is test ID column - don't show detail for that
     if col == 0:
+        logger.info("Clicked on test ID column, hiding dialog")
         return gr.update(visible=False), ""
 
     # Map indices to identifiers
@@ -676,8 +689,9 @@ def handle_cell_select(evt: gr.SelectData) -> tuple:
         model_id = run_state.models[col - 1]  # col 0 is Test column
         logger.info(f"Mapped to: test_id={test_id}, model_id={model_id}")
     except IndexError:
-        logger.warning(f"Invalid cell: row={row}, col={col}")
+        logger.warning(f"Invalid cell: row={row}, col={col}, tests={len(run_state.tests)}, models={len(run_state.models)}")
         return gr.update(visible=False), "*Invalid cell selection*"
 
     detail = get_cell_detail(model_id, test_id)
+    logger.info(f"Got detail content, length={len(detail)}, showing dialog")
     return gr.update(visible=True), detail

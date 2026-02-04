@@ -25,6 +25,9 @@ consistency_run: Optional["ConsistencyRun"] = None
 # Source filename for export naming
 battery_source_file: Optional[str] = None
 
+# Current display mode for battery grid (prevents mode reset on cell click)
+battery_display_mode: str = "Symbols (✓/❌)"
+
 # Cancellation flag - checked by long-running handlers
 stop_requested: bool = False
 
