@@ -6,7 +6,12 @@ CLI commands:
 """
 
 import gradio as gr
-from dotenv import load_dotenv
+
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    # dotenv not needed on HF Spaces (env vars set via secrets UI)
+    load_dotenv = lambda: None
 
 from prompt_prix.config import get_gradio_port
 from prompt_prix.ui import create_app
