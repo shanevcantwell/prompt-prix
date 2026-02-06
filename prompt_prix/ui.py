@@ -16,7 +16,6 @@ from prompt_prix.config import (
     get_default_servers,
     DEFAULT_TIMEOUT_SECONDS,
     DEFAULT_MAX_TOKENS,
-    TOGETHER_DEFAULT_MODELS,
 )
 from prompt_prix.ui_helpers import (
     CUSTOM_CSS,
@@ -50,26 +49,43 @@ def create_app() -> gr.Blocks:
     with gr.Blocks(**blocks_kwargs) as app:
 
         gr.Markdown("# prompt-prix")
-        gr.Markdown("Audit LLM function calling reliability across multiple models.")
+        gr.Markdown("Find your optimal open-weights model.")
 
         available_models = gr.State([])
 
         # ─────────────────────────────────────────────────────────────
-        # SHARED HEADER: Model selection (HF Spaces mode - simplified)
+        # SHARED HEADER: Server config + Model selection (collapsible)
         # ─────────────────────────────────────────────────────────────
 
-        # Hidden servers input for handler compatibility
-        servers_input = gr.Textbox(value="huggingface-inference", visible=False)
-
-        with gr.Accordion("⚙️ Model Configuration", open=True):
+        with gr.Accordion("⚙️ Server & Model Configuration", open=True):
             with gr.Row():
-                models_checkbox = gr.CheckboxGroup(
-                    label="Select Models to Compare",
-                    choices=TOGETHER_DEFAULT_MODELS,
-                    value=TOGETHER_DEFAULT_MODELS,  # All selected by default
-                    elem_id="models",
-                    info="Models run via Together AI"
-                )
+                with gr.Column(scale=1):
+                    servers_input = gr.Textbox(
+                        label="LM Studio Servers (one per line)",
+                        value="\n".join(get_default_servers()),
+                        lines=2,
+                        placeholder="http://localhost:1234",
+                        elem_id="servers"
+                    )
+                    with gr.Row():
+                        fetch_btn = gr.Button(
+                            "🔄 Fetch Models",
+                            variant="secondary",
+                            size="sm"
+                        )
+                        only_loaded_checkbox = gr.Checkbox(
+                            label="Only Loaded",
+                            value=False,
+                            info="Filter to models in memory"
+                        )
+
+                with gr.Column(scale=2):
+                    models_checkbox = gr.CheckboxGroup(
+                        label="Models",
+                        choices=[],
+                        value=[],
+                        elem_id="models"
+                    )
 
             with gr.Row():
                 timeout_slider = gr.Slider(
@@ -77,20 +93,16 @@ def create_app() -> gr.Blocks:
                     minimum=30,
                     maximum=600,
                     step=30,
-                    value=120,
-                    scale=1,
-                    interactive=False,
-                    info="Fixed at 120s for demo"
+                    value=DEFAULT_TIMEOUT_SECONDS,
+                    scale=1
                 )
                 max_tokens_slider = gr.Slider(
                     label="Max Tokens",
                     minimum=256,
                     maximum=8192,
                     step=256,
-                    value=256,
-                    scale=1,
-                    interactive=False,
-                    info="Fixed at 256 for demo"
+                    value=DEFAULT_MAX_TOKENS,
+                    scale=1
                 )
 
         gr.Markdown("---")
@@ -106,16 +118,41 @@ def create_app() -> gr.Blocks:
             compare = compare_ui.render_tab()
 
         # ─────────────────────────────────────────────────────────────
-        # HF SPACES MODE: Pre-populate dropdowns with HF models
+        # EVENT BINDINGS: Shared Header
         # ─────────────────────────────────────────────────────────────
 
-        # Initialize battery dropdowns with HF models on load
-        app.load(
-            fn=lambda: (
-                gr.update(choices=TOGETHER_DEFAULT_MODELS),
-                gr.update(choices=TOGETHER_DEFAULT_MODELS),
-            ),
-            outputs=[battery.detail_model, battery.judge_model]
+        async def on_fetch_models(servers_text, only_loaded):
+            """Fetch models and update model selectors.
+
+            Applies 'only loaded' filter locally for models_checkbox.
+            Judge dropdown always shows all available models (unfiltered).
+            """
+            result = await fetch_available_models(servers_text)
+            all_models = result["all_models"]
+            loaded_models = result.get("loaded_models") or set()
+
+            # Filter for checkbox if requested
+            if only_loaded and loaded_models:
+                checkbox_models = [m for m in all_models if m in loaded_models]
+            else:
+                checkbox_models = all_models
+
+            return (
+                all_models,
+                gr.update(choices=sorted(checkbox_models), value=[]),  # models_checkbox - filtered
+                gr.update(choices=sorted(all_models)),  # battery.detail_model - unfiltered
+                gr.update(choices=sorted(all_models)),  # battery.judge_model - unfiltered
+            )
+
+        fetch_btn.click(
+            fn=on_fetch_models,
+            inputs=[servers_input, only_loaded_checkbox],
+            outputs=[
+                available_models,
+                models_checkbox,
+                battery.detail_model,
+                battery.judge_model,
+            ]
         )
 
         # ─────────────────────────────────────────────────────────────
@@ -153,25 +190,6 @@ def create_app() -> gr.Blocks:
             fn=on_battery_file_change,
             inputs=[battery.file],
             outputs=[battery.validation, battery.run_btn, battery.detail_test, battery.grid]
-        )
-
-        # Load sample tests button
-        import os
-        SAMPLE_FILE = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "examples", "tool_competence_tests.json"
-        )
-
-        def load_sample_tests():
-            """Load the bundled sample test file."""
-            if os.path.exists(SAMPLE_FILE):
-                return SAMPLE_FILE
-            return None
-
-        battery.load_sample_btn.click(
-            fn=load_sample_tests,
-            inputs=[],
-            outputs=[battery.file]
         )
 
         battery.run_btn.click(
