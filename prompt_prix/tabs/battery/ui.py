@@ -68,7 +68,16 @@ Each test needs: `id`, `user` (the prompt). Optional: `tools`, `system`, `pass_c
                     label="Judge Model (Optional)",
                     choices=[],
                     value=None,
+                    visible=False,
                     info="If set, uses this LLM to evaluate responses against test's pass_criteria/fail_criteria fields"
+                )
+                drift_threshold = gr.Slider(
+                    label="Drift Threshold",
+                    minimum=0.0,
+                    maximum=1.0,
+                    step=0.05,
+                    value=0.0,
+                    info="Cosine distance to expected_response (0 = disabled). Lower = stricter."
                 )
 
         with gr.Row():
@@ -157,6 +166,7 @@ Each test needs: `id`, `user` (the prompt). Optional: `tools`, `system`, `pass_c
         load_sample_btn=load_sample_btn,
         system_prompt=battery_system_prompt,
         judge_model=judge_model,
+        drift_threshold=drift_threshold,
         runs_slider=battery_runs_slider,
         run_btn=battery_run_btn,
         stop_btn=battery_stop_btn,

@@ -207,7 +207,7 @@ def create_app() -> gr.Blocks:
                 battery.file, models_checkbox, servers_input,
                 timeout_slider, max_tokens_slider, battery.system_prompt,
                 battery.judge_model, battery.runs_slider, battery.display_mode,
-                parallel_slots_slider
+                parallel_slots_slider, battery.drift_threshold
             ],
             outputs=[battery.status, battery.grid]
         )
@@ -217,6 +217,12 @@ def create_app() -> gr.Blocks:
         battery.display_mode.change(
             fn=battery_handlers.refresh_grid,
             inputs=[battery.display_mode],
+            outputs=[battery.grid]
+        )
+
+        battery.drift_threshold.change(
+            fn=battery_handlers.recalculate_drift,
+            inputs=[battery.drift_threshold, battery.display_mode],
             outputs=[battery.grid]
         )
 

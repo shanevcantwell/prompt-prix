@@ -50,8 +50,10 @@ If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both 
 |---------|--------------|
 | **Fan-Out Dispatch** | Same test → N models in parallel |
 | **Semantic Validation** | Detects refusals and missing tool calls (not just HTTP success) |
+| **LLM-as-Judge** | Semantic pass/fail evaluation with pipelined GPU scheduling |
+| **Consistency Testing** | Run tests N times with different seeds to find unreliable models |
 | **Model-Family Parsing** | Recognizes tool calls from LiquidAI, Hermes, OpenAI formats |
-| **Parallel Dispatch** | Concurrent multi-GPU execution |
+| **Multi-GPU Dispatch** | Model-drain guard prevents VRAM swap mid-stream across GPUs |
 | **Latency Capture** | Per-test timing on YOUR hardware |
 | **Visual Grid** | Model × Test results at a glance |
 
@@ -141,7 +143,28 @@ prompt-prix detects:
 - **Missing tool calls**: When `tool_choice: "required"` but response is plain text
 - **Forbidden tool calls**: When `tool_choice: "none"` but model calls anyway
 
-Results show ✓ (pass), ⚠ (semantic failure), or ❌ (error).
+Results show ✓ (pass), ❌ (semantic failure), or ⚠ (error).
+
+## LLM-as-Judge Evaluation
+
+Select a judge model to evaluate whether responses meet semantic criteria defined in your test cases (`pass_criteria` / `fail_criteria`). Judge tasks are **pipelined** with inference — as each inference result completes, its judge task is submitted to the dispatcher. Idle GPUs pick up judge work while busy GPUs continue inference.
+
+```
+GPU0: inference → inference → judge → judge → judge    (GPU0 finishes inference early, starts judging)
+GPU1: inference → inference → inference → inference     (GPU1 still doing heavy models)
+```
+
+No priority queues, no server affinity — the existing `current_model` drain guard routes judge tasks to whichever GPU is idle.
+
+## Consistency Testing
+
+Run each (test, model) cell N times with different random seeds to identify models that produce inconsistent results:
+
+| Symbol | Meaning |
+|--------|---------|
+| ✓ | N/N passed (consistent pass) |
+| ❌ | 0/N passed (consistent fail) |
+| 🟣 3/5 | Inconsistent — passed some runs but not all |
 
 ## Ecosystem Position
 
@@ -171,4 +194,4 @@ MIT
 
 ---
 
-(C) 2025 Reflective Attention
+(C) 2025-2026 Reflective Attention

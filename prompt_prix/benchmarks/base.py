@@ -30,6 +30,7 @@ class BenchmarkCase(BaseModel):
     expected: Optional[dict] = None  # For future grading
     pass_criteria: Optional[str] = None
     fail_criteria: Optional[str] = None
+    expected_response: Optional[str] = None  # Exemplar text for drift comparison
 
     @field_validator('id')
     @classmethod

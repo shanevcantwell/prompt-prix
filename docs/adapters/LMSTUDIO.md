@@ -103,25 +103,34 @@ class InferenceTask(BaseModel):
 
 ### Server Selection Logic
 
-The adapter automatically routes to any available server that has the requested model loaded.
+The adapter automatically routes to any available server that has the requested model loaded, with a **model-drain guard** to prevent VRAM swap mid-stream.
 
 ```
 Request arrives for model "qwen2.5-7b"
-    → Find all servers with model available
-    → Acquire first available server (via lock)
+    → find_and_acquire("qwen2.5-7b")
+        → Skip servers where current_model ≠ requested AND active_requests > 0
+        → Acquire least-loaded server with the model available
+        → Set current_model = "qwen2.5-7b", increment active_requests
     → Stream completion
-    → Release server
+    → release_server(url)
+        → Decrement active_requests
+        → If active_requests == 0: current_model = None (fully drained)
 ```
+
+The `current_model` field on `ServerConfig` tracks what model a server is currently serving. This prevents the dispatcher from routing a different model to a server with in-flight requests — which would cause LM Studio's JIT model loading to unload the current model mid-stream, producing "Stream aborted" / "Model unloaded" errors.
 
 ### Concurrency Guarantee
 
 ```
 Task A: stream_completion(model="x")  → Server 0 (first available)
-Task B: stream_completion(model="y")  → Server 1 (parallel)
+Task B: stream_completion(model="y")  → Server 1 (parallel, different model OK on different server)
                                           ↑ PARALLEL
 
-Task C: stream_completion(model="z")  → Waits for A or B to finish
-                                          ↑ QUEUED (if both busy)
+Task C: stream_completion(model="x")  → Server 0 (same model, shares KV cache slots)
+                                          ↑ PARALLEL (LM Studio parallel KV cache)
+
+Task D: stream_completion(model="z")  → Waits until Server 0 or 1 fully drains
+                                          ↑ QUEUED (current_model guard blocks)
 ```
 
 ### Output: Streamed Tokens
@@ -147,25 +156,28 @@ Tool calls are accumulated and yielded after stream completes:
 
 ### _ServerPool
 
-Manages server state and per-server locks.
-
-**Location:** `lmstudio.py` (line ~43)
+Manages server state, slot tracking, and the model-drain guard.
 
 ```python
 class _ServerPool:
-    servers: dict[str, ServerConfig]   # URL → state
-    _locks: dict[str, asyncio.Lock]    # URL → lock (one per server)
+    servers: dict[str, ServerConfig]    # URL → state
+    resource_available: asyncio.Event   # Signals when a slot frees up
 
-    async def acquire_server(url: str) → None    # Blocks until server free
-    def release_server(url: str) → None          # Marks server available
-    def find_server_for_model(model: str) → str | None  # Any server with model
+    def find_and_acquire(model_id: str) → str | None
+        # Atomically find server with available slots for this model.
+        # Skips servers where current_model ≠ model_id AND active_requests > 0.
+        # Returns server_url if successful, None otherwise.
+        # Sets current_model = model_id, increments active_requests.
+
+    def release_server(url: str) → None
+        # Decrement active_requests.
+        # If active_requests == 0: current_model = None (fully drained).
+        # Signals resource_available event.
 ```
 
 ### _ConcurrentDispatcher
 
-Routes work to available servers.
-
-**Location:** `lmstudio.py` (line ~119)
+Routes work to available servers. Spin-waits on `resource_available` event when no server is available.
 
 ```python
 class _ConcurrentDispatcher:
@@ -173,7 +185,7 @@ class _ConcurrentDispatcher:
         model_id: str,
         work_fn: Callable[[str], Coroutine]  # (server_url) → result
     ) → None:
-        """Find appropriate server, acquire it, run work_fn, release."""
+        """Find server via find_and_acquire, run work_fn, release_server."""
 ```
 
 ---
@@ -306,6 +318,8 @@ await adapter.stream_completion(...)
 | Unreachable detection | `tests/test_lmstudio_adapter.py::test_unreachable_*` |
 | Parallel dispatch | `tests/test_lmstudio_adapter.py::TestConcurrentDispatch` |
 | Streaming completion | `tests/test_lmstudio_adapter.py::test_stream_*` |
+| Model-drain guard | `tests/test_lmstudio_adapter.py::TestServerPool` (current_model transitions) |
+| Pipelined judging | `tests/test_battery.py::TestPipelinedJudging` |
 
 Run adapter tests:
 ```bash
@@ -350,7 +364,8 @@ The LMStudioAdapter is a **multi-server resource manager** that:
 
 1. Maintains a pool of LM Studio server connections
 2. Automatically routes requests to available servers with the requested model
-3. Ensures parallel execution across GPUs, serial execution per GPU
-4. Encapsulates all complexity behind the `HostAdapter` protocol
+3. Prevents VRAM swap mid-stream via `current_model` drain guard
+4. Enables pipelined judging — judge tasks route to idle GPUs during inference
+5. Encapsulates all complexity behind the `HostAdapter` protocol
 
-Callers (MCP primitives) never know about servers, pools, or locks. They submit work; the adapter handles dispatch.
+Callers (MCP primitives) never know about servers, pools, or drain guards. They submit work; the adapter handles dispatch.

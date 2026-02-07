@@ -76,7 +76,8 @@ async def run_handler(
     judge_model: str = None,
     runs: int = 1,
     display_mode_str: str = "Symbols (✓/❌)",
-    parallel_slots: int = 1
+    parallel_slots: int = 1,
+    drift_threshold: float = 0.0
 ):
     """
     Run battery tests across selected models.
@@ -152,12 +153,19 @@ async def run_handler(
         yield f"❌ Models not available: {', '.join(missing)}", []
         return
 
-    # Pre-flight check: warn if tests have criteria but no judge model (#103)
+    # Pre-flight check: warn if tests have criteria but no validation method
     tests_with_criteria = [t for t in tests if t.pass_criteria or t.fail_criteria]
+    tests_with_expected = [t for t in tests if t.expected_response]
     if tests_with_criteria and not judge_model:
         yield (
-            f"⚠️ {len(tests_with_criteria)} tests have pass/fail criteria but no judge model selected. "
+            f"⚠️ {len(tests_with_criteria)} tests have pass/fail criteria but no judge model is set. "
             "Results will show ✓ but won't be evaluated against criteria.",
+            []
+        )
+    if tests_with_expected and drift_threshold <= 0:
+        yield (
+            f"⚠️ {len(tests_with_expected)} tests have expected_response but drift threshold is 0. "
+            "Set drift threshold > 0 to validate responses against expected text.",
             []
         )
 
@@ -174,7 +182,8 @@ async def run_handler(
             temperature=0.0,
             max_tokens=max_tokens,
             timeout_seconds=timeout,
-            judge_model=judge_model
+            judge_model=judge_model,
+            drift_threshold=drift_threshold
         )
 
         # Store state for later detail retrieval
@@ -186,6 +195,11 @@ async def run_handler(
             grid = consistency_state.to_grid(display_mode)
             if consistency_state.phase == "judging":
                 progress = f"⏳ Judging... ({consistency_state.judge_completed}/{consistency_state.judge_total})"
+            elif consistency_state.judge_total > 0:
+                progress = (
+                    f"⏳ Running {runs}x... ({consistency_state.completed_runs}/{consistency_state.total_runs})"
+                    f" | Judging ({consistency_state.judge_completed}/{consistency_state.judge_total})"
+                )
             else:
                 progress = f"⏳ Running {runs}x... ({consistency_state.completed_runs}/{consistency_state.total_runs})"
             yield progress, grid
@@ -211,7 +225,8 @@ async def run_handler(
             temperature=0.0,
             max_tokens=max_tokens,
             timeout_seconds=timeout,
-            judge_model=judge_model
+            judge_model=judge_model,
+            drift_threshold=drift_threshold
         )
 
         # Store state for later detail retrieval
@@ -221,9 +236,14 @@ async def run_handler(
         # Stream state updates to UI
         async for battery_state in runner.run():
             grid = battery_state.to_grid(display_mode)
-            # Show different status based on phase (ADR-008 two-phase execution)
+            # Show progress — pipelined judging overlaps with inference
             if battery_state.phase == "judging":
                 progress = f"⏳ Judging... ({battery_state.judge_completed}/{battery_state.judge_total})"
+            elif battery_state.judge_total > 0:
+                progress = (
+                    f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
+                    f" | Judging ({battery_state.judge_completed}/{battery_state.judge_total})"
+                )
             else:
                 progress = f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
             yield progress, grid
@@ -482,9 +502,10 @@ def _format_single_result(result) -> str:
             score_str = f" (score: {score})" if score is not None else ""
             judge_latency = f" in {result.judge_latency_ms:.0f}ms" if result.judge_latency_ms else ""
             judge_info = f"\n\n**Judged by:** LLM{score_str}{judge_latency}"
+        drift_info = f"\n\n**Drift:** {result.drift_score:.3f}" if result.drift_score is not None else ""
         return (
             f"**Status:** ❌ Semantic Failure\n\n"
-            f"**Reason:** {failure}{judge_info}\n\n"
+            f"**Reason:** {failure}{judge_info}{drift_info}\n\n"
             f"**Latency:** {latency}\n\n"
             f"---\n\n{result.response}"
         )
@@ -494,7 +515,8 @@ def _format_single_result(result) -> str:
     if result.judge_result:
         judge_latency = f" (judged in {result.judge_latency_ms:.0f}ms)" if result.judge_latency_ms else ""
         judge_info = f"\n\n**Judge:** ✓ Passed{judge_latency}"
-    return f"**Status:** ✓ Completed\n\n**Latency:** {latency}{judge_info}\n\n---\n\n{result.response}"
+    drift_info = f"\n\n**Drift:** {result.drift_score:.3f}" if result.drift_score is not None else ""
+    return f"**Status:** ✓ Completed\n\n**Latency:** {latency}{judge_info}{drift_info}\n\n---\n\n{result.response}"
 
 
 def refresh_grid(display_mode_str: str = None) -> list:
@@ -699,3 +721,27 @@ def handle_cell_select(evt: gr.SelectData) -> tuple:
     detail = get_cell_detail(model_id, test_id)
     logger.info(f"Got detail content, length={len(detail)}, showing dialog")
     return gr.update(visible=True), detail
+
+
+def recalculate_drift(drift_threshold: float, display_mode_str: str = None) -> list:
+    """
+    Recalculate pass/fail for stored results based on new drift threshold.
+
+    Called when the drift_threshold slider changes. No re-inference needed —
+    drift_score is already stored on each RunResult.
+    """
+    from prompt_prix.battery import GridDisplayMode
+
+    if display_mode_str and "Latency" in display_mode_str:
+        mode = GridDisplayMode.LATENCY
+    else:
+        mode = GridDisplayMode.SYMBOLS
+
+    if state.consistency_run:
+        state.consistency_run.recalculate_drift_threshold(drift_threshold)
+        return state.consistency_run.to_grid(mode)
+    elif state.battery_run:
+        state.battery_run.recalculate_drift_threshold(drift_threshold)
+        return state.battery_run.to_grid(mode)
+    else:
+        return []

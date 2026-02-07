@@ -145,6 +145,7 @@ class RunResult(BaseModel):
     error: Optional[str] = None
     failure_reason: Optional[str] = None  # Explains semantic failures
     judge_result: Optional[dict] = None  # LLM judge evaluation result
+    drift_score: Optional[float] = None  # Cosine distance to expected_response
 
     @property
     def status_symbol(self) -> str:
@@ -253,6 +254,33 @@ class BatteryRun(BaseModel):
             return 100.0
         return (self.completed_count / self.total_count) * 100
 
+    def recalculate_drift_threshold(self, new_threshold: float) -> None:
+        """
+        Re-evaluate pass/fail for all results based on a new drift threshold.
+
+        Only affects results that have a drift_score (i.e., tests with
+        expected_response that completed drift calculation). Results that failed
+        semantic validation (refusals) or errored are unaffected.
+        """
+        for result in self.results.values():
+            if result.drift_score is None:
+                continue  # No drift data — skip
+
+            if new_threshold <= 0:
+                # Threshold disabled — all drift results pass
+                if result.status == RunStatus.SEMANTIC_FAILURE and "Drift" in (result.failure_reason or ""):
+                    result.status = RunStatus.COMPLETED
+                    result.failure_reason = None
+            elif result.drift_score > new_threshold:
+                if result.status == RunStatus.COMPLETED:
+                    result.status = RunStatus.SEMANTIC_FAILURE
+                    result.failure_reason = f"Drift {result.drift_score:.3f} exceeds threshold {new_threshold}"
+            else:
+                # Within threshold — restore to COMPLETED if previously failed on drift
+                if result.status == RunStatus.SEMANTIC_FAILURE and "Drift" in (result.failure_reason or ""):
+                    result.status = RunStatus.COMPLETED
+                    result.failure_reason = None
+
 
 class BatteryRunner:
     """
@@ -275,6 +303,7 @@ class BatteryRunner:
         max_tokens: int = 2048,
         timeout_seconds: int = 300,
         judge_model: Optional[str] = None,  # Model for LLM-as-judge evaluation
+        drift_threshold: float = 0.0,  # Cosine distance threshold (0 = disabled)
     ):
         """
         Initialize battery runner.
@@ -286,6 +315,7 @@ class BatteryRunner:
             max_tokens: Maximum tokens per response
             timeout_seconds: Timeout per request
             judge_model: Model ID for LLM-as-judge evaluation (optional)
+            drift_threshold: Cosine distance threshold for expected_response (0 = disabled)
         """
         self.tests = tests
         self.models = models
@@ -293,6 +323,7 @@ class BatteryRunner:
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
         self.judge_model = judge_model
+        self.drift_threshold = drift_threshold
 
         # Initialize state
         self.state = BatteryRun(
@@ -302,24 +333,22 @@ class BatteryRunner:
 
     async def run(self) -> AsyncGenerator[BatteryRun, None]:
         """
-        Execute all tests across all models in two phases.
+        Execute all tests across all models.
 
-        Phase 1 (Inference): Run all test inferences concurrently.
-        Phase 2 (Judgment): If judge_model set, evaluate all completed results.
+        When judge_model is set, uses pipelined execution: judge tasks are
+        submitted eagerly as inference results complete. The dispatcher +
+        current_model guard routes judge tasks to idle GPUs naturally.
 
-        This two-phase approach eliminates GPU contention between test
-        inferences and judge evaluations (ADR-008).
+        When no judge_model, runs inference only.
 
         Yields:
             BatteryRun state snapshot periodically for UI updates
         """
-        # PHASE 1: Inference (The "Hands")
-        async for state in self._execute_inference_phase():
-            yield state
-
-        # PHASE 2: Judgment (The "Brain")
-        if self.judge_model and not app_state.should_stop():
-            async for state in self._execute_judgment_phase():
+        if self.judge_model:
+            async for state in self._execute_pipelined():
+                yield state
+        else:
+            async for state in self._execute_inference_phase():
                 yield state
 
         # Final yield
@@ -377,57 +406,88 @@ class BatteryRunner:
                     task.cancel()
                 break
 
-    async def _execute_judgment_phase(self) -> AsyncGenerator[BatteryRun, None]:
+    async def _execute_pipelined(self) -> AsyncGenerator[BatteryRun, None]:
         """
-        Phase 2: Judge all completed results that have criteria.
+        Pipelined execution: inference + eager judge submission.
 
-        Only runs if judge_model is set. Results that failed semantic
-        validation in Phase 1 are skipped.
+        Judge tasks are submitted to the same dispatcher as inference tasks
+        as soon as each inference result completes. The current_model drain
+        guard (#130) naturally routes judge tasks to idle GPUs without
+        displacing active inference models.
+
+        When no GPU idles during inference, judge tasks queue until servers
+        drain — same total time as sequential phases.
         """
-        # Find results that need judging
-        results_to_judge = []
-        for result in self.state.results.values():
-            if result.status == RunStatus.COMPLETED and self._needs_judging(result):
-                results_to_judge.append(result)
+        # Build work items: model-first order (depth-first)
+        work_items = [
+            BatteryWorkItem(test=test, model_id=model_id)
+            for model_id in self.models
+            for test in self.tests
+        ]
 
-        if not results_to_judge:
-            return
+        inference_tasks: set[asyncio.Task] = set()
+        judge_tasks: set[asyncio.Task] = set()
 
-        # Set phase tracking for UI status
-        self.state.phase = "judging"
-        self.state.judge_total = len(results_to_judge)
-        self.state.judge_completed = 0
+        yield self.state
 
-        active_tasks: set[asyncio.Task] = set()
-
-        # Create judge tasks for all eligible results
-        for result in results_to_judge:
+        for item in work_items:
             if app_state.should_stop():
                 break
-            task = asyncio.create_task(self._judge_single_result(result))
-            active_tasks.add(task)
-            task.add_done_callback(active_tasks.discard)
+            task = asyncio.create_task(
+                self._inference_then_judge(item, judge_tasks)
+            )
+            inference_tasks.add(task)
 
-        # Wait for completion, yielding state periodically
-        while active_tasks:
+        while inference_tasks or judge_tasks:
+            all_current = frozenset(inference_tasks | judge_tasks)
+            if not all_current:
+                break
+
             done, _ = await asyncio.wait(
-                active_tasks,
+                all_current,
                 timeout=0.2,
                 return_when=asyncio.FIRST_COMPLETED
             )
 
-            for task in done:
+            for t in done:
+                inference_tasks.discard(t)
+                judge_tasks.discard(t)
                 try:
-                    task.result()
+                    t.result()
                 except Exception:
                     pass  # Errors already recorded in state
+
+            # Phase transition: inference done, judge tasks remain
+            if not inference_tasks and judge_tasks and self.state.phase != "judging":
+                self.state.phase = "judging"
 
             yield self.state
 
             if app_state.should_stop():
-                for task in active_tasks:
-                    task.cancel()
+                for t in (inference_tasks | judge_tasks):
+                    t.cancel()
                 break
+
+    async def _inference_then_judge(
+        self,
+        item: BatteryWorkItem,
+        judge_tasks: set[asyncio.Task],
+    ) -> None:
+        """
+        Run inference for a work item, then eagerly submit judge task if needed.
+
+        The judge task is added to the shared judge_tasks set so the outer
+        pipelined loop can track it.
+        """
+        await self._execute_test(item)
+
+        result = self.state.get_result(item.test.id, item.model_id)
+        if (result
+                and result.status == RunStatus.COMPLETED
+                and self._needs_judging(result)):
+            self.state.judge_total += 1
+            task = asyncio.create_task(self._judge_single_result(result))
+            judge_tasks.add(task)
 
     def _needs_judging(self, result: RunResult) -> bool:
         """Check if a result needs judge evaluation."""
@@ -505,8 +565,9 @@ class BatteryRunner:
         """
         Execute a single test inference with retry logic.
 
-        Phase 1 only: inference + semantic validation.
-        Judging happens in Phase 2 via _judge_single_result().
+        Inference + semantic validation only. Judging is handled by the
+        caller (_inference_then_judge for pipelined, or not at all for
+        inference-only runs).
         """
         # Mark as running
         self.state.set_result(RunResult(
@@ -575,13 +636,40 @@ class BatteryRunner:
                 ))
                 return
 
+            # Drift validation (fast, inline — ~50ms via embedding)
+            # Uses expected_response (exemplar text), not pass_criteria (judge rubric)
+            drift_score = None
+            drift_target = item.test.expected_response
+            if (self.drift_threshold > 0
+                    and drift_target):
+                try:
+                    from prompt_prix.mcp.tools.drift import calculate_drift
+                    drift_score = await calculate_drift(response, drift_target)
+                except ImportError:
+                    logger.warning("semantic-chunker not installed, skipping drift validation")
+                except Exception as e:
+                    logger.warning(f"Drift calculation failed (fail open): {e}")
+
+            if drift_score is not None and drift_score > self.drift_threshold:
+                self.state.set_result(RunResult(
+                    test_id=item.test.id,
+                    model_id=item.model_id,
+                    status=RunStatus.SEMANTIC_FAILURE,
+                    response=response,
+                    latency_ms=latency_ms,
+                    drift_score=drift_score,
+                    failure_reason=f"Drift {drift_score:.3f} exceeds threshold {self.drift_threshold}"
+                ))
+                return
+
             # COMPLETED - judging (if needed) happens in Phase 2
             self.state.set_result(RunResult(
                 test_id=item.test.id,
                 model_id=item.model_id,
                 status=RunStatus.COMPLETED,
                 response=response,
-                latency_ms=latency_ms
+                latency_ms=latency_ms,
+                drift_score=drift_score
             ))
 
         except Exception as e:

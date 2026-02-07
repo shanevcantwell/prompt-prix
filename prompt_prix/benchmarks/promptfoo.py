@@ -317,13 +317,17 @@ class PromptfooLoader:
                 user_content = vars_dict.get("user", prompt_text)
                 system_content = vars_dict.get("system", "You are a helpful assistant.")
 
+                # Extract expected_response from vars (exemplar text for drift)
+                expected_response = vars_dict.get("expected_response")
+
                 test_cases.append(BenchmarkCase(
                     id=test_id,
                     user=user_content,
                     system=system_content,
                     name=description or f"Test {test_idx}",
                     category=category or "",
-                    pass_criteria=pass_criteria
+                    pass_criteria=pass_criteria,
+                    expected_response=expected_response
                 ))
 
         return test_cases

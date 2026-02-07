@@ -212,6 +212,37 @@ class ConsistencyRun(BaseModel):
         """Completed individual runs."""
         return sum(len(agg.results) for agg in self.aggregates.values())
 
+    def recalculate_drift_threshold(self, new_threshold: float) -> None:
+        """
+        Re-evaluate pass/fail for all individual results based on new drift threshold.
+
+        Recomputes aggregate pass counts after flipping statuses.
+        """
+        for agg in self.aggregates.values():
+            for result in agg.results:
+                if result.drift_score is None:
+                    continue
+
+                was_pass = result.status == RunStatus.COMPLETED
+                is_drift_fail = (result.failure_reason or "").startswith("Drift")
+
+                if new_threshold <= 0:
+                    # Disabled — restore drift failures to pass
+                    if result.status == RunStatus.SEMANTIC_FAILURE and is_drift_fail:
+                        result.status = RunStatus.COMPLETED
+                        result.failure_reason = None
+                        agg.passes += 1
+                elif result.drift_score > new_threshold:
+                    if was_pass:
+                        result.status = RunStatus.SEMANTIC_FAILURE
+                        result.failure_reason = f"Drift {result.drift_score:.3f} exceeds threshold {new_threshold}"
+                        agg.passes -= 1
+                else:
+                    if result.status == RunStatus.SEMANTIC_FAILURE and is_drift_fail:
+                        result.status = RunStatus.COMPLETED
+                        result.failure_reason = None
+                        agg.passes += 1
+
 
 class ConsistencyRunner:
     """
@@ -230,6 +261,7 @@ class ConsistencyRunner:
         max_tokens: int = 2048,
         timeout_seconds: int = 300,
         judge_model: Optional[str] = None,
+        drift_threshold: float = 0.0,
     ):
         """
         Initialize consistency runner.
@@ -242,6 +274,7 @@ class ConsistencyRunner:
             max_tokens: Max tokens per response
             timeout_seconds: Timeout per request
             judge_model: Optional model for semantic evaluation
+            drift_threshold: Cosine distance threshold for expected_response (0 = disabled)
         """
         self.tests = tests
         self.models = models
@@ -250,6 +283,7 @@ class ConsistencyRunner:
         self.max_tokens = max_tokens
         self.timeout_seconds = timeout_seconds
         self.judge_model = judge_model
+        self.drift_threshold = drift_threshold
 
         # Generate seeds upfront for reproducibility
         self.seeds = [random.randint(0, 2**31 - 1) for _ in range(runs)]
@@ -265,18 +299,16 @@ class ConsistencyRunner:
         """
         Execute all tests across all models with N runs each.
 
-        Phase 1: All inferences (N runs per cell)
-        Phase 2: Judge evaluation (if judge_model set)
+        When judge_model is set, uses pipelined execution: judge tasks are
+        submitted eagerly as inference results complete.
 
         Yields state snapshots for UI updates.
         """
-        # PHASE 1: Inference
-        async for state in self._execute_inference_phase():
-            yield state
-
-        # PHASE 2: Judgment
-        if self.judge_model and not app_state.should_stop():
-            async for state in self._execute_judgment_phase():
+        if self.judge_model:
+            async for state in self._execute_pipelined():
+                yield state
+        else:
+            async for state in self._execute_inference_phase():
                 yield state
 
         yield self.state
@@ -322,49 +354,79 @@ class ConsistencyRunner:
                     task.cancel()
                 break
 
-    async def _execute_judgment_phase(self) -> AsyncGenerator[ConsistencyRun, None]:
-        """Judge all completed results that have criteria."""
-        results_to_judge = []
-        for agg in self.state.aggregates.values():
-            for result in agg.results:
-                if result.status == RunStatus.COMPLETED and self._needs_judging(result):
-                    results_to_judge.append(result)
+    async def _execute_pipelined(self) -> AsyncGenerator[ConsistencyRun, None]:
+        """
+        Pipelined execution: inference + eager judge submission.
 
-        if not results_to_judge:
-            return
+        Same pattern as BatteryRunner._execute_pipelined. Judge tasks are
+        submitted as inference results complete; the dispatcher routes them
+        to idle GPUs via current_model drain guard.
+        """
+        work_items = []
+        for model_id in self.models:
+            for test in self.tests:
+                for run_idx, seed in enumerate(self.seeds):
+                    work_items.append((test, model_id, run_idx, seed))
 
-        self.state.phase = "judging"
-        self.state.judge_total = len(results_to_judge)
-        self.state.judge_completed = 0
+        inference_tasks: set[asyncio.Task] = set()
+        judge_tasks: set[asyncio.Task] = set()
 
-        active_tasks: set[asyncio.Task] = set()
+        yield self.state
 
-        for result in results_to_judge:
+        for test, model_id, run_idx, seed in work_items:
             if app_state.should_stop():
                 break
-            task = asyncio.create_task(self._judge_single_result(result))
-            active_tasks.add(task)
-            task.add_done_callback(active_tasks.discard)
+            task = asyncio.create_task(
+                self._inference_then_judge(test, model_id, run_idx, seed, judge_tasks)
+            )
+            inference_tasks.add(task)
 
-        while active_tasks:
+        while inference_tasks or judge_tasks:
+            all_current = frozenset(inference_tasks | judge_tasks)
+            if not all_current:
+                break
+
             done, _ = await asyncio.wait(
-                active_tasks,
+                all_current,
                 timeout=0.2,
                 return_when=asyncio.FIRST_COMPLETED
             )
 
-            for task in done:
+            for t in done:
+                inference_tasks.discard(t)
+                judge_tasks.discard(t)
                 try:
-                    task.result()
+                    t.result()
                 except Exception:
                     pass
+
+            if not inference_tasks and judge_tasks and self.state.phase != "judging":
+                self.state.phase = "judging"
 
             yield self.state
 
             if app_state.should_stop():
-                for task in active_tasks:
-                    task.cancel()
+                for t in (inference_tasks | judge_tasks):
+                    t.cancel()
                 break
+
+    async def _inference_then_judge(
+        self,
+        test: "BenchmarkCase",
+        model_id: str,
+        run_idx: int,
+        seed: int,
+        judge_tasks: set[asyncio.Task],
+    ) -> None:
+        """Run a single inference, then eagerly submit judge task if needed."""
+        result = await self._execute_single_run(test, model_id, run_idx, seed)
+
+        if (result
+                and result.status == RunStatus.COMPLETED
+                and self._needs_judging(result)):
+            self.state.judge_total += 1
+            task = asyncio.create_task(self._judge_single_result(result))
+            judge_tasks.add(task)
 
     def _needs_judging(self, result: RunResult) -> bool:
         """Check if result needs judge evaluation."""
@@ -413,8 +475,11 @@ class ConsistencyRunner:
         model_id: str,
         run_idx: int,
         seed: int
-    ) -> None:
-        """Execute a single test run with a specific seed."""
+    ) -> Optional[RunResult]:
+        """Execute a single test run with a specific seed.
+
+        Returns the RunResult for pipelined judge submission.
+        """
 
         @retry(
             stop=stop_after_attempt(get_retry_attempts()),
@@ -468,15 +533,41 @@ class ConsistencyRunner:
                     failure_reason=failure_reason
                 )
             else:
-                result = RunResult(
-                    test_id=test.id,
-                    model_id=model_id,
-                    status=RunStatus.COMPLETED,
-                    response=response,
-                    latency_ms=latency_ms
-                )
+                # Drift validation (fast, inline — ~50ms via embedding)
+                # Uses expected_response (exemplar text), not pass_criteria (judge rubric)
+                drift_score = None
+                drift_target = test.expected_response
+                if self.drift_threshold > 0 and drift_target:
+                    try:
+                        from prompt_prix.mcp.tools.drift import calculate_drift
+                        drift_score = await calculate_drift(response, drift_target)
+                    except ImportError:
+                        logger.warning("semantic-chunker not installed, skipping drift")
+                    except Exception as e:
+                        logger.warning(f"Drift calculation failed (fail open): {e}")
+
+                if drift_score is not None and drift_score > self.drift_threshold:
+                    result = RunResult(
+                        test_id=test.id,
+                        model_id=model_id,
+                        status=RunStatus.SEMANTIC_FAILURE,
+                        response=response,
+                        latency_ms=latency_ms,
+                        drift_score=drift_score,
+                        failure_reason=f"Drift {drift_score:.3f} exceeds threshold {self.drift_threshold}"
+                    )
+                else:
+                    result = RunResult(
+                        test_id=test.id,
+                        model_id=model_id,
+                        status=RunStatus.COMPLETED,
+                        response=response,
+                        latency_ms=latency_ms,
+                        drift_score=drift_score
+                    )
 
             self.state.add_result(result)
+            return result
 
         except Exception as e:
             result = RunResult(
@@ -487,3 +578,4 @@ class ConsistencyRunner:
                 latency_ms=None
             )
             self.state.add_result(result)
+            return result

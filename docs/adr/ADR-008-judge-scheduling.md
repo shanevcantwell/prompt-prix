@@ -1,8 +1,8 @@
 # ADR-008: Judge Scheduling Strategy for Multi-GPU Battery Runs
 
-**Status:** Accepted
-**Related:** #111, #107
-**Implemented:** `battery.py` two-phase execution
+**Status:** Accepted (evolved to pipelined — see Addendum)
+**Related:** #111, #107, #130
+**Implemented:** `battery.py` pipelined execution, `consistency.py` pipelined execution
 
 ## Context
 
@@ -176,8 +176,55 @@ Design decisions:
 - Failed tests (semantic validation) are NOT judged
 - Results visible immediately, verdicts populate in second pass
 
+## Addendum: Evolution to Pipelined Judging
+
+**Date:** 2026-02-05
+**Related:** #130 (current_model drain guard)
+
+### Context
+
+The two-phase approach solved the contention problem but left GPU time on the table. In a two-GPU setup (RTX 3090 + RTX 8000), GPU0 finishes its inference work well before GPU1 finishes heavy/thinking models. GPU0 then sits idle for the entire remaining inference phase.
+
+### Change
+
+Replaced strict two-phase execution with **pipelined judging**: judge tasks are submitted eagerly as inference results complete. The dispatcher + `current_model` drain guard (from #130) naturally routes judge tasks to whichever GPU is idle.
+
+```python
+# battery.py - run() now branches:
+async def run(self):
+    if self.judge_model:
+        async for state in self._execute_pipelined():
+            yield state
+    else:
+        async for state in self._execute_inference_phase():
+            yield state
+```
+
+How pipelining works:
+1. Inference tasks submitted to dispatcher (model-first order, as before)
+2. As each inference result completes, its judge task is submitted to the **same** dispatcher
+3. If all servers are busy with inference, judge tasks queue and wait
+4. When a server drains inference (e.g. GPU0 finishes its models), `current_model → None`
+5. Dispatcher routes judge task to idle server → judging starts while inference continues on other GPUs
+
+### Why this is safe
+
+The `current_model` drain guard (commit c78c0ca) prevents dispatching a different model to a server with active requests. Judge tasks only route to servers that have fully drained their inference model. If no GPU idles during inference, judge tasks queue until inference finishes — same total time as two-phase, never worse.
+
+### What didn't change
+
+- `_execute_test`, `_judge_single_result` — inference and judge logic unchanged
+- Model-first work item ordering — unchanged
+- MCP tools — unchanged
+- `ServerPool`, `ConcurrentDispatcher` — unchanged
+
+### Status
+
+`_execute_judgment_phase()` removed. `_execute_pipelined()` and `_inference_then_judge()` replace it. `_execute_inference_phase()` preserved for runs without a judge model (zero overhead path).
+
 ## References
 
 - #111: Judge model requests timeout during battery runs
 - #107: Separate judge timing from model-under-test latency
 - #110: Server affinity removal (current refactor)
+- #130: current_model drain guard (enables pipelining)

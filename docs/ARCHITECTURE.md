@@ -95,6 +95,7 @@ prompt_prix/
 ├── parsers.py           # Input parsing utilities
 ├── export.py            # Report generation
 ├── battery.py           # BatteryRunner (orchestration) - calls MCP tools
+├── consistency.py       # ConsistencyRunner - multi-run variance testing
 ├── mcp/
 │   ├── registry.py      # Adapter registry (get_adapter, register_adapter)
 │   └── tools/
@@ -260,7 +261,7 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        ORCHESTRATION                            │
-│  BatteryRunner │ ComparisonSession                              │
+│  BatteryRunner │ ConsistencyRunner │ ComparisonSession          │
 │                                                                 │
 │  • Calls MCP primitives ONLY — never adapters directly          │
 │  • Controls concurrency via semaphore                           │
@@ -633,6 +634,49 @@ This keeps all GPUs busy even when models are distributed across servers.
 
 See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
 
+## Battery Execution: Pipelined Judging
+
+When a judge model is selected, BatteryRunner uses **pipelined execution** — judge tasks are submitted eagerly as inference results complete, rather than waiting for all inference to finish first.
+
+```
+Without pipelining (original two-phase, ADR-008):
+  Phase 1: [inference][inference][inference][inference]
+  Phase 2:                                              [judge][judge][judge][judge]
+
+With pipelining:
+  GPU0:    [inference][inference][judge][judge][judge]    ← GPU0 idles early, starts judging
+  GPU1:    [inference][inference][inference][inference]   ← GPU1 still doing heavy models
+```
+
+The `current_model` drain guard on `ServerPool` is the enabler — judge tasks queue in the dispatcher until a server drains its inference model. No priority queues or server affinity needed.
+
+Key methods in `battery.py`:
+- `_execute_pipelined()` — tracks `inference_tasks` and `judge_tasks` in separate sets
+- `_inference_then_judge()` — wraps `_execute_test()`, submits judge task on success
+- `_execute_inference_phase()` — used when no judge model (zero overhead)
+
+When no judge model is set, `_execute_inference_phase()` runs directly with no pipelining overhead.
+
+See [ADR-008](adr/ADR-008-judge-scheduling-strategy.md) for the evolution from two-phase to pipelined scheduling.
+
+## Consistency Testing
+
+`ConsistencyRunner` (in `consistency.py`) runs each (test, model) cell N times with different random seeds to identify models that produce inconsistent results.
+
+| Status | Symbol | Meaning |
+|--------|--------|---------|
+| `CONSISTENT_PASS` | ✓ | N/N runs passed |
+| `CONSISTENT_FAIL` | ❌ | 0/N runs passed |
+| `INCONSISTENT` | 🟣 3/5 | Some runs passed, some failed |
+| `PENDING` | ⏳ 2/5 | Not all runs complete |
+
+Key types:
+- `CellAggregate` — aggregated results for one (test, model) cell across N runs
+- `ConsistencyRun` — state model (like `BatteryRun` but stores aggregates)
+- `ConsistencyRunner` — orchestrator with same pipelined judging as `BatteryRunner`
+
+See [ADR-010](adr/ADR-010-consistency-runner.md) for rationale.
+
 ## Architecture Decision Records
 
 | ADR | Decision |
@@ -642,7 +686,7 @@ See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
 | [003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |
 | [006](adr/006-adapter-resource-ownership.md) | Adapters own their resource management (ServerPool internal to LMStudioAdapter) |
 | [007](adr/ADR-007-inference-task-schema.md) | InferenceTask schema for adapter interface |
-| [008](adr/ADR-008-judge-scheduling-strategy.md) | Two-phase batch judging for multi-GPU efficiency |
+| [008](adr/ADR-008-judge-scheduling-strategy.md) | Pipelined judge scheduling for multi-GPU efficiency |
 | [009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
 | [010](adr/ADR-010-consistency-runner.md) | Multi-run consistency analysis (proposed) |
 | [011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation (proposed) |

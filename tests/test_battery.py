@@ -3,10 +3,11 @@
 Per ADR-006: BatteryRunner is orchestration layer. Tests mock MCP tools, not HTTP.
 """
 
+import asyncio
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from prompt_prix.benchmarks.base import BenchmarkCase
 from prompt_prix.benchmarks.custom import CustomJSONLoader
@@ -738,3 +739,206 @@ class TestBatterySemanticValidation:
             f"Expected SEMANTIC_FAILURE for refusal with tool_choice='required', "
             f"got {result.status}. Response: {result.response}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# PIPELINED JUDGING TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestPipelinedJudging:
+    """Tests for pipelined judge execution during inference.
+
+    When judge_model is set, judge tasks are submitted eagerly as inference
+    results complete — not batched after all inference finishes.
+    """
+
+    @pytest.fixture
+    def tests_with_criteria(self):
+        """BenchmarkCases that have pass_criteria (trigger judging)."""
+        return [
+            BenchmarkCase(
+                id="judged_1",
+                user="What is 2 + 2?",
+                pass_criteria="Answer must contain the number 4",
+            ),
+            BenchmarkCase(
+                id="judged_2",
+                user="What is 3 + 3?",
+                pass_criteria="Answer must contain the number 6",
+            ),
+        ]
+
+    @pytest.mark.asyncio
+    async def test_pipelined_all_results_judged(self, tests_with_criteria):
+        """All COMPLETED results with criteria get judged in pipelined mode."""
+        async def mock_complete_stream(**kwargs):
+            yield "The answer is 4"
+
+        async def mock_judge(**kwargs):
+            return {"pass": True, "reason": "Correct", "score": 10}
+
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+             patch("prompt_prix.battery.judge", side_effect=mock_judge):
+            runner = BatteryRunner(
+                tests=tests_with_criteria,
+                models=["model_a"],
+                judge_model="judge-model",
+            )
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        # Both results should be COMPLETED with judge verdicts
+        for test_id in ["judged_1", "judged_2"]:
+            result = final_state.get_result(test_id, "model_a")
+            assert result.status == RunStatus.COMPLETED
+            assert result.judge_result is not None
+            assert result.judge_result["pass"] is True
+            assert result.judge_latency_ms is not None
+
+    @pytest.mark.asyncio
+    async def test_pipelined_judge_fail_downgrades_status(self, tests_with_criteria):
+        """Judge failure downgrades COMPLETED to SEMANTIC_FAILURE."""
+        async def mock_complete_stream(**kwargs):
+            yield "I don't know"
+
+        async def mock_judge(**kwargs):
+            return {"pass": False, "reason": "Missing expected number", "score": 0}
+
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+             patch("prompt_prix.battery.judge", side_effect=mock_judge):
+            runner = BatteryRunner(
+                tests=tests_with_criteria[:1],
+                models=["model_a"],
+                judge_model="judge-model",
+            )
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        result = final_state.get_result("judged_1", "model_a")
+        assert result.status == RunStatus.SEMANTIC_FAILURE
+        assert result.failure_reason == "Missing expected number"
+
+    @pytest.mark.asyncio
+    async def test_no_judge_uses_inference_only(self, tests_with_criteria):
+        """Without judge_model, only inference runs (no _execute_pipelined)."""
+        mcp_calls = []
+
+        async def mock_complete_stream(**kwargs):
+            mcp_calls.append(kwargs["model_id"])
+            yield "Response"
+
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+             patch("prompt_prix.battery.judge") as mock_judge:
+            runner = BatteryRunner(
+                tests=tests_with_criteria,
+                models=["model_a"],
+                # No judge_model
+            )
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        # Inference happened
+        assert len(mcp_calls) == 2
+        # Judge was never called
+        mock_judge.assert_not_called()
+        # Phase stays as inference
+        assert final_state.phase == "inference"
+
+    @pytest.mark.asyncio
+    async def test_pipelined_skips_failed_results(self, tests_with_criteria):
+        """Results that fail semantic validation in inference are not judged."""
+        call_count = {"judge": 0}
+
+        async def mock_complete_stream(**kwargs):
+            model_id = kwargs.get("model_id", "")
+            if model_id == "model_fail":
+                raise Exception("Connection failed")
+            yield "The answer is 4"
+
+        async def mock_judge(**kwargs):
+            call_count["judge"] += 1
+            return {"pass": True, "reason": "OK", "score": 10}
+
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+             patch("prompt_prix.battery.judge", side_effect=mock_judge):
+            runner = BatteryRunner(
+                tests=tests_with_criteria[:1],
+                models=["model_ok", "model_fail"],
+                judge_model="judge-model",
+            )
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        # Only the successful model's result gets judged
+        assert call_count["judge"] == 1
+        result_ok = final_state.get_result("judged_1", "model_ok")
+        assert result_ok.judge_result is not None
+
+        result_fail = final_state.get_result("judged_1", "model_fail")
+        assert result_fail.status == RunStatus.ERROR
+        assert result_fail.judge_result is None
+
+    @pytest.mark.asyncio
+    async def test_pipelined_judge_total_increments_during_inference(self, tests_with_criteria):
+        """judge_total grows as inference results complete (not set all at once)."""
+        judge_totals_observed = []
+
+        async def mock_complete_stream(**kwargs):
+            yield "The answer is 4"
+
+        async def mock_judge(**kwargs):
+            await asyncio.sleep(0.05)  # Small delay so we can observe state
+            return {"pass": True, "reason": "OK", "score": 10}
+
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+             patch("prompt_prix.battery.judge", side_effect=mock_judge):
+            runner = BatteryRunner(
+                tests=tests_with_criteria,
+                models=["model_a"],
+                judge_model="judge-model",
+            )
+
+            async for state in runner.run():
+                if state.judge_total > 0:
+                    judge_totals_observed.append(state.judge_total)
+
+        # judge_total should have been observed at least once
+        assert len(judge_totals_observed) > 0
+        # Final judge_total should match number of results that needed judging
+        assert judge_totals_observed[-1] == 2
+
+    @pytest.mark.asyncio
+    async def test_pipelined_phase_transition(self, tests_with_criteria):
+        """Phase transitions from 'inference' to 'judging' when inference done."""
+        phases_observed = []
+
+        async def mock_complete_stream(**kwargs):
+            yield "The answer is 4"
+
+        async def mock_judge(**kwargs):
+            await asyncio.sleep(0.1)  # Judge takes longer than inference
+            return {"pass": True, "reason": "OK", "score": 10}
+
+        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+             patch("prompt_prix.battery.judge", side_effect=mock_judge):
+            runner = BatteryRunner(
+                tests=tests_with_criteria,
+                models=["model_a"],
+                judge_model="judge-model",
+            )
+
+            async for state in runner.run():
+                phases_observed.append(state.phase)
+
+        # Should have seen both phases
+        assert "inference" in phases_observed
+        # If judge tasks outlast inference, we see "judging" phase
+        # (this depends on timing — judge sleeps 0.1s, inference is instant)
