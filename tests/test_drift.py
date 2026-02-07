@@ -373,9 +373,10 @@ class TestDriftTool:
             "semantic_chunker.mcp.commands.embeddings": sc_mcp_commands_embeddings,
             "semantic_chunker.mcp.state_manager": sc_mcp_state,
         }):
-            # Reset the cached manager so it re-imports
+            # Reset cached state so it re-imports
             import prompt_prix.mcp.tools.drift as drift_mod
             drift_mod._manager = None
+            drift_mod._available = None
             score = await drift_mod.calculate_drift("hello", "world")
 
         assert score == 0.42
@@ -412,5 +413,6 @@ class TestDriftTool:
         }):
             import prompt_prix.mcp.tools.drift as drift_mod
             drift_mod._manager = None
+            drift_mod._available = None
             with pytest.raises(RuntimeError, match="required"):
                 await drift_mod.calculate_drift("", "")

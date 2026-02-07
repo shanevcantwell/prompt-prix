@@ -646,7 +646,7 @@ class BatteryRunner:
                     from prompt_prix.mcp.tools.drift import calculate_drift
                     drift_score = await calculate_drift(response, drift_target)
                 except ImportError:
-                    logger.warning("semantic-chunker not installed, skipping drift validation")
+                    pass  # Logged once by drift module
                 except Exception as e:
                     logger.warning(f"Drift calculation failed (fail open): {e}")
 
