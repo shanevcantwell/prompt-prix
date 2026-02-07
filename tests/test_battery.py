@@ -155,6 +155,47 @@ class TestBenchmarkCase:
         assert messages[1]["role"] == "user"
         assert messages[1]["content"] == "What time is it?"
 
+    def test_to_messages_with_multi_turn_history(self):
+        """Pre-defined messages array takes precedence over system+user."""
+        history = [
+            {"role": "system", "content": "You are a file assistant."},
+            {"role": "user", "content": "List the directory"},
+            {"role": "assistant", "content": "list_directory('./sort_test')"},
+            {"role": "user", "content": "[FILE] 1.txt\n[FILE] 2.txt"},
+            {"role": "assistant", "content": "read_file('./sort_test/1.txt')"},
+            {"role": "user", "content": "The zebra is a striped animal."},
+            {"role": "user", "content": "Now move 1.txt to animals/"},
+        ]
+        tc = BenchmarkCase(
+            id="multi_turn",
+            user="Now move 1.txt to animals/",
+            messages=history,
+        )
+        messages = tc.to_messages()
+        assert messages == history
+        assert len(messages) == 7
+
+    def test_to_messages_without_messages_field_unchanged(self):
+        """Without messages field, to_messages() returns system+user (backward compat)."""
+        tc = BenchmarkCase(id="single", user="Hello", system="Be helpful")
+        messages = tc.to_messages()
+        assert len(messages) == 2
+        assert messages[0] == {"role": "system", "content": "Be helpful"}
+        assert messages[1] == {"role": "user", "content": "Hello"}
+        assert tc.messages is None
+
+    def test_to_messages_returns_copy(self):
+        """to_messages() returns a copy, not the original list."""
+        history = [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": "Hi"},
+            {"role": "user", "content": "Bye"},
+        ]
+        tc = BenchmarkCase(id="copy_test", user="Bye", messages=history)
+        result = tc.to_messages()
+        assert result == history
+        assert result is not history  # Must be a copy
+
     def test_display_name_uses_name_if_set(self):
         """Test display_name property."""
         tc = BenchmarkCase(id="test_id", name="Display Name", user="Hello")

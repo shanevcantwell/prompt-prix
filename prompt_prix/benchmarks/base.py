@@ -31,6 +31,7 @@ class BenchmarkCase(BaseModel):
     pass_criteria: Optional[str] = None
     fail_criteria: Optional[str] = None
     expected_response: Optional[str] = None  # Exemplar text for drift comparison
+    messages: Optional[list[dict]] = None  # Pre-defined multi-turn conversation history
 
     @field_validator('id')
     @classmethod
@@ -52,9 +53,11 @@ class BenchmarkCase(BaseModel):
         """
         Convert to OpenAI messages format.
 
-        Returns:
-            List with system and user messages
+        If pre-defined multi-turn history is set, returns a copy of it.
+        Otherwise builds from system + user (single-turn, backward compatible).
         """
+        if self.messages:
+            return list(self.messages)
         return [
             {"role": "system", "content": self.system},
             {"role": "user", "content": self.user}
