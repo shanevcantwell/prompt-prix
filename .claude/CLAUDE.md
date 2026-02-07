@@ -74,9 +74,9 @@ Output: Side-by-side visual comparison
 
 **Required fields:** `id`, `user`
 
-**Optional fields:** `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `expected`, `pass_criteria`, `fail_criteria`
+**Optional fields:** `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `expected`, `pass_criteria`, `fail_criteria`, `expected_response`
 
-**Formats supported:** JSON (with `prompts` array), JSONL (one per line), yaml (TBD: promptfoo - need to cherry pick from branch v2-simplified)
+**Formats supported:** JSON (with `prompts` array), JSONL (one per line), Promptfoo YAML (with `prompts` + `tests`)
 
 ---
 

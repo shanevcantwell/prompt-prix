@@ -524,7 +524,7 @@ The Battery tab accepts test files in multiple formats:
 
 **Required fields**: `id`, `user`
 
-**Optional fields**: `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `expected`, `pass_criteria`, `fail_criteria`
+**Optional fields**: `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `expected`, `pass_criteria`, `fail_criteria`, `expected_response`
 
 ### Promptfoo YAML
 
@@ -541,16 +541,24 @@ tests:
     vars:
       system: "You are evaluating tool call outputs..."
       user: "Evaluate this output..."
-      expected_verdict: PASS      # Used for semantic validation
+      expected_verdict: PASS                    # → pass_criteria (for LLM judge)
+      expected_response: "The answer is 4"      # → expected_response (for drift)
       category: clear_discrimination
     assert:
-      - type: javascript          # Logged but NOT evaluated
+      - type: javascript                        # Logged but NOT evaluated
         value: "result.verdict === 'PASS'"
 ```
 
-**Promptfoo-specific handling**:
-- `vars.expected_verdict` → Extracted to `pass_criteria` for semantic validation
-- `vars.category` → Extracted to test category for filtering
+**Promptfoo vars extraction**:
+
+| Var | BenchmarkCase field | Purpose |
+|-----|-------------------|---------|
+| `expected_verdict` | `pass_criteria` | Rubric text for LLM judge evaluation |
+| `expected_response` | `expected_response` | Exemplar text for embedding drift comparison |
+| `category` | `category` | Test category for filtering/grouping |
+| `system` | `system` | System message |
+| `user` | `user` | User message |
+
 - `assert` blocks → **Logged but NOT evaluated** (warning emitted)
 
 See `prompt_prix/benchmarks/promptfoo.py` for implementation.

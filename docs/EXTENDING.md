@@ -444,14 +444,18 @@ A response containing both a refusal phrase AND a tool call will fail with "Mode
 
 When loading promptfoo YAML files (`prompt_prix/benchmarks/promptfoo.py`):
 
-**Supported:**
-- `expected_verdict` in `vars` → converted to `pass_criteria` for verdict matching
-- `category` in `vars` → stored for filtering/grouping
-- `{{variable}}` substitution in prompts
+**Supported vars extraction:**
 
-**Not evaluated by prompt-prix:**
-- `assert:` blocks (e.g., `type: contains`, `type: llm-rubric`)
-- These are logged with a warning but not executed
+| Var | BenchmarkCase field | Purpose |
+|-----|-------------------|---------|
+| `expected_verdict` | `pass_criteria` | Rubric text for LLM judge evaluation |
+| `expected_response` | `expected_response` | Exemplar text for embedding drift comparison |
+| `category` | `category` | Test category for filtering/grouping |
+| `system` | `system` | System message |
+| `user` | `user` | User message |
+
+- `{{variable}}` substitution in prompts
+- `assert:` blocks → **Logged but NOT evaluated** (warning emitted)
 
 **Example promptfoo test:**
 ```yaml
@@ -461,11 +465,13 @@ tests:
       system: "You are a helpful assistant."
       user: "What's the weather in Tokyo?"
       expected_verdict: "PASS"
+      expected_response: '{"tool_calls": [{"name": "get_weather", "arguments": {"city": "Tokyo"}}]}'
       category: "tool_calls"
 ```
 
 This becomes a `BenchmarkCase` with:
 - `pass_criteria`: `"The verdict in the JSON response must be 'PASS'"`
+- `expected_response`: the exemplar text (used by drift threshold validation)
 - `category`: `"tool_calls"`
 
 ### Testing Your Changes
