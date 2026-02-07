@@ -468,12 +468,12 @@ def _get_consistency_cell_detail(model: str, test: str) -> str:
             detail = (
                 f"### Run {i}: {status_sym} Failed ({latency})\n"
                 f"**Reason:** {reason}\n\n"
-                f"```\n{result.response[:500]}{'...' if len(result.response) > 500 else ''}\n```"
+                f"```\n{result.response}\n```"
             )
         else:
             detail = (
                 f"### Run {i}: {status_sym} Passed ({latency})\n\n"
-                f"```\n{result.response[:500]}{'...' if len(result.response) > 500 else ''}\n```"
+                f"```\n{result.response}\n```"
             )
         run_details.append(detail)
 
