@@ -4,7 +4,7 @@ Generalized cycle detection for sequences.
 Ported from langgraph-agentic-scaffold (app/src/resilience/cycle_detection.py).
 Zero external dependencies.
 
-Used by react_execute() to detect tool call stagnation
+Used by ReactRunner to detect tool call stagnation
 (e.g., model calls read_file on same 4 files repeatedly).
 
 Addresses LAS Issue #78: Tool stagnation doesn't catch cyclic patterns.

@@ -2,7 +2,8 @@
 
 Mirrors BatteryRunner pattern (ADR-006 orchestration layer):
 - Defines WHAT to run (react tests × models)
-- Calls react_execute() MCP tool — never adapters directly
+- Calls react_step() MCP tool in a loop — never adapters directly
+- Owns loop control: max_iterations, stagnation detection
 - Model-first ordering for VRAM efficiency
 - Yields state snapshots for live UI updates
 """
@@ -12,7 +13,9 @@ from typing import AsyncGenerator, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from prompt_prix.mcp.tools.react_execute import react_execute
+from prompt_prix.mcp.tools.react_step import react_step
+from prompt_prix.react.cycle_detection import detect_cycle_with_pattern
+from prompt_prix.react.schemas import ReActIteration
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class ReactResult(BaseModel):
-    """Result of a single react_execute() call for one (test, model) cell."""
+    """Result of a complete ReAct loop for one (test, model) cell."""
 
     test_id: str = ""
     model_id: str = ""
@@ -106,11 +109,17 @@ class ReactRun(BaseModel):
 
 
 class ReactRunner:
-    """Orchestrates react_execute() across test × model matrix.
+    """Orchestrates react_step() across test × model matrix.
+
+    Owns the ReAct loop: calls react_step() (stateless MCP primitive)
+    repeatedly, manages trace accumulation, stagnation detection,
+    and max_iterations enforcement.
 
     Model-first ordering: all tests for model A, then model B, etc.
     Minimizes VRAM swaps on multi-GPU setups.
     """
+
+    CYCLE_MIN_REPETITIONS = 3
 
     def __init__(
         self,
@@ -144,38 +153,93 @@ class ReactRunner:
         yield self.state
 
     async def _execute_one(self, test, model_id: str) -> None:
-        """Execute one (test, model) cell."""
+        """Execute one (test, model) cell — owns the ReAct loop."""
         try:
-            raw = await react_execute(
-                model_id=model_id,
-                system_prompt=test.system,
-                initial_message=test.user,
-                mock_tools=test.mock_tools or {},
-                tools=test.tools or [],
-                max_iterations=test.max_iterations,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                timeout_seconds=self.timeout_seconds,
-            )
+            trace: list[ReActIteration] = []
+            call_counter = 0
+            total_latency_ms = 0.0
+            final_response = None
+            termination_reason = None
+            cycle_detected = False
+            cycle_pattern = None
+            valid_iterations = 0
+            invalid_iterations = 0
+
+            for _ in range(test.max_iterations):
+                step = await react_step(
+                    model_id=model_id,
+                    system_prompt=test.system,
+                    initial_message=test.user,
+                    trace=trace,
+                    mock_tools=test.mock_tools or {},
+                    tools=test.tools or [],
+                    call_counter=call_counter,
+                    temperature=self.temperature,
+                    max_tokens=self.max_tokens,
+                    timeout_seconds=self.timeout_seconds,
+                )
+
+                call_counter = step["call_counter"]
+                total_latency_ms += step["latency_ms"]
+
+                if step["completed"]:
+                    final_response = step["final_response"]
+                    break
+
+                # Accumulate iterations from this step
+                for new_iter in step["new_iterations"]:
+                    trace.append(new_iter)
+                    if new_iter.success:
+                        valid_iterations += 1
+                    else:
+                        invalid_iterations += 1
+
+                # Check stagnation
+                if len(trace) >= self.CYCLE_MIN_REPETITIONS * 2:
+                    signatures = [
+                        (s.tool_call.name, tuple(sorted(s.tool_call.args.items())))
+                        for s in trace
+                    ]
+                    period, pattern = detect_cycle_with_pattern(
+                        signatures, min_repetitions=self.CYCLE_MIN_REPETITIONS
+                    )
+                    if period is not None:
+                        cycle_detected = True
+                        cycle_pattern = [
+                            {"name": name, "args": dict(args)}
+                            for name, args in pattern
+                        ] if pattern else None
+                        termination_reason = "cycle_detected"
+                        logger.info(
+                            "Stagnation detected for %s/%s: period=%d",
+                            test.id, model_id, period,
+                        )
+                        break
+            else:
+                # Loop exhausted without break → max iterations
+                termination_reason = "max_iterations"
+
+            total_iterations = len(trace)
+            completed = final_response is not None
 
             self.state.set_result(ReactResult(
                 test_id=test.id,
                 model_id=model_id,
-                completed=raw["completed"],
-                final_response=raw.get("final_response"),
-                total_iterations=raw["total_iterations"],
-                valid_iterations=raw["valid_iterations"],
-                invalid_iterations=raw["invalid_iterations"],
-                completion_rate=raw["completion_rate"],
-                total_latency_ms=raw["total_latency_ms"],
-                cycle_detected=raw["cycle_detected"],
-                cycle_pattern=raw.get("cycle_pattern"),
-                termination_reason=raw.get("termination_reason"),
-                iterations=raw["iterations"],
+                completed=completed,
+                final_response=final_response,
+                total_iterations=total_iterations,
+                valid_iterations=valid_iterations,
+                invalid_iterations=invalid_iterations,
+                completion_rate=valid_iterations / total_iterations if total_iterations > 0 else 0.0,
+                total_latency_ms=total_latency_ms,
+                cycle_detected=cycle_detected,
+                cycle_pattern=cycle_pattern,
+                termination_reason=termination_reason,
+                iterations=[step.model_dump() for step in trace],
             ))
 
         except Exception as e:
-            logger.error("react_execute failed for %s/%s: %s", test.id, model_id, e)
+            logger.error("react loop failed for %s/%s: %s", test.id, model_id, e)
             self.state.set_result(ReactResult(
                 test_id=test.id,
                 model_id=model_id,

@@ -466,7 +466,7 @@ async def stream_completion(
             if not stream_done and not has_content:
                 raise LMStudioError(f"Stream aborted for {model_id} (no [DONE], no content)")
 
-            # Yield structured tool call sentinel (for react_execute and similar)
+            # Yield structured tool call sentinel (for react_step and similar)
             if tool_call_accumulator:
                 structured = [
                     {"name": tc["name"], "arguments": tc["arguments"]}

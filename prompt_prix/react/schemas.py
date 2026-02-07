@@ -4,7 +4,7 @@ ReAct loop trace schemas.
 Adapted from langgraph-agentic-scaffold (react_mixin.py).
 Pydantic models for structured iteration tracking.
 
-Used by react_execute() MCP tool to record each step of
+Used by react_step() MCP tool and ReactRunner to record each step of
 a model's ReAct loop execution.
 """
 
