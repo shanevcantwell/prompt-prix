@@ -196,6 +196,7 @@ class ServerConfig(BaseModel):
     available_models: list[str] = []
     active_requests: int = 0
     max_concurrent: int = 1  # LM Studio parallel slots (set via UI)
+    current_model: Optional[str] = None  # Model currently being served (prevents JIT swap mid-stream)
 
     @property
     def is_busy(self) -> bool:

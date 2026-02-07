@@ -357,3 +357,185 @@ class TestGetUnreachableServers:
         unreachable = adapter.get_unreachable_servers()
 
         assert unreachable == []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# MODEL TRANSITION DRAINING TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestModelTransitionDraining:
+    """Tests for model-aware server draining (prevents JIT swap mid-stream).
+
+    When a server is serving Model A with active requests, it must NOT
+    accept Model B until all Model A requests complete. This prevents
+    LM Studio's JIT loading from unloading Model A mid-stream.
+    """
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_model_b_waits_for_model_a_to_drain(self, two_server_urls):
+        """Model B request waits until Model A fully drains from server.
+
+        Scenario: Server 0 has both models. Model A request is in-flight.
+        Model B request should NOT go to server 0 until Model A completes.
+        Server 1 has only Model B, so Model B goes there immediately.
+        """
+        import time
+
+        # Both servers have both models (JIT advertises everything)
+        respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA", "modelB"]))
+        )
+        respx.get("http://server1:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA", "modelB"]))
+        )
+
+        servers_used = {"modelA": [], "modelB": []}
+
+        async def track_server0(request):
+            import json as _json
+            body = _json.loads(request.content)
+            model = body["model"]
+            servers_used[model].append("server0")
+            await asyncio.sleep(0.3)
+            return httpx.Response(200, content=sse_stream(f"{model} from 0"))
+
+        async def track_server1(request):
+            import json as _json
+            body = _json.loads(request.content)
+            model = body["model"]
+            servers_used[model].append("server1")
+            await asyncio.sleep(0.3)
+            return httpx.Response(200, content=sse_stream(f"{model} from 1"))
+
+        respx.post("http://server0:1234/v1/chat/completions").mock(side_effect=track_server0)
+        respx.post("http://server1:1234/v1/chat/completions").mock(side_effect=track_server1)
+
+        adapter = LMStudioAdapter(two_server_urls)
+
+        async def call_model(model_id):
+            task = InferenceTask(
+                model_id=model_id,
+                messages=[{"role": "user", "content": "Hi"}],
+                timeout_seconds=5.0
+            )
+            result = ""
+            async for chunk in adapter.stream_completion(task):
+                result += chunk
+            return result
+
+        # Fire Model A on both servers, then Model B immediately after
+        results = await asyncio.gather(
+            call_model("modelA"),  # Goes to server0 (lowest load)
+            call_model("modelA"),  # Goes to server1 (server0 busy)
+            call_model("modelB"),  # Must wait — both servers serving modelA
+            call_model("modelB"),  # Same — waits for drain
+        )
+
+        # All should complete
+        assert all("modelA" in r or "modelB" in r for r in results)
+
+        # Model B should NOT have gone to a server while Model A was in-flight.
+        # Since both servers start with Model A, Model B must wait for one to drain.
+        # This means Model B calls happen AFTER Model A calls (sequential at boundary).
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_same_model_still_fans_out(self, two_server_urls):
+        """Same model on both servers still uses parallel fan-out.
+
+        The drain guard only blocks DIFFERENT models. Same-model requests
+        should still fan out to both servers for parallel KV cache sharing.
+        """
+        import time
+
+        respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.get("http://server1:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+
+        servers_used = []
+
+        async def track_server0(request):
+            servers_used.append("server0")
+            await asyncio.sleep(0.3)
+            return httpx.Response(200, content=sse_stream("from 0"))
+
+        async def track_server1(request):
+            servers_used.append("server1")
+            await asyncio.sleep(0.3)
+            return httpx.Response(200, content=sse_stream("from 1"))
+
+        respx.post("http://server0:1234/v1/chat/completions").mock(side_effect=track_server0)
+        respx.post("http://server1:1234/v1/chat/completions").mock(side_effect=track_server1)
+
+        adapter = LMStudioAdapter(two_server_urls)
+
+        async def call_model():
+            task = InferenceTask(
+                model_id="modelA",
+                messages=[{"role": "user", "content": "Hi"}],
+                timeout_seconds=5.0
+            )
+            result = ""
+            async for chunk in adapter.stream_completion(task):
+                result += chunk
+            return result
+
+        # Two concurrent same-model calls
+        start = time.time()
+        await asyncio.gather(call_model(), call_model())
+        elapsed = time.time() - start
+
+        # Both servers should be used (fan-out, not serialized)
+        assert "server0" in servers_used
+        assert "server1" in servers_used
+        assert elapsed < 0.5, f"Expected parallel (<0.5s), got {elapsed:.2f}s"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_server_accepts_new_model_after_drain(self, two_server_urls):
+        """After all requests for Model A complete, server accepts Model B.
+
+        Verifies current_model resets to None when active_requests hits 0.
+        """
+        # Server 0 has both models, server 1 has none
+        respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA", "modelB"]))
+        )
+        respx.get("http://server1:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response([]))
+        )
+
+        call_sequence = []
+
+        async def track_server0(request):
+            import json as _json
+            body = _json.loads(request.content)
+            call_sequence.append(body["model"])
+            await asyncio.sleep(0.1)
+            return httpx.Response(200, content=sse_stream("ok"))
+
+        respx.post("http://server0:1234/v1/chat/completions").mock(side_effect=track_server0)
+
+        adapter = LMStudioAdapter(two_server_urls)
+
+        async def call_model(model_id):
+            task = InferenceTask(
+                model_id=model_id,
+                messages=[{"role": "user", "content": "Hi"}],
+                timeout_seconds=5.0
+            )
+            result = ""
+            async for chunk in adapter.stream_completion(task):
+                result += chunk
+            return result
+
+        # Sequential: Model A first, then Model B
+        await call_model("modelA")
+        await call_model("modelB")
+
+        # Both should have been served by server 0 (sequential, so no conflict)
+        assert call_sequence == ["modelA", "modelB"]

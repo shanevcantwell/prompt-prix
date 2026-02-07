@@ -125,6 +125,24 @@ class TestServerConfig:
         config.active_requests = 2
         assert config.is_busy is True
 
+    def test_server_config_current_model_default(self):
+        """Test current_model defaults to None."""
+        from prompt_prix.config import ServerConfig
+
+        config = ServerConfig(url="http://localhost:1234")
+        assert config.current_model is None
+
+    def test_server_config_current_model_tracks_assignment(self):
+        """Test current_model can be set and cleared."""
+        from prompt_prix.config import ServerConfig
+
+        config = ServerConfig(url="http://localhost:1234")
+        config.current_model = "modelA"
+        assert config.current_model == "modelA"
+
+        config.current_model = None
+        assert config.current_model is None
+
 
 class TestModelConfig:
     """Tests for ModelConfig model."""

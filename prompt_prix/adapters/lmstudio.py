@@ -94,18 +94,27 @@ class _ServerPool:
         Returns server_url if successful, None otherwise.
 
         Prefers servers with the fewest active requests (load balancing).
+        Refuses to dispatch a different model to a server with active requests,
+        preventing JIT model swaps from killing in-flight streams.
         """
         best_url = None
         best_load = float('inf')
 
         for url, server in self.servers.items():
-            if model_id in server.available_models:
-                if not server.is_busy and server.active_requests < best_load:
-                    best_url = url
-                    best_load = server.active_requests
+            if model_id not in server.available_models:
+                continue
+            # Don't cause a JIT swap on a server still serving a different model
+            if (server.current_model is not None
+                    and server.current_model != model_id
+                    and server.active_requests > 0):
+                continue
+            if not server.is_busy and server.active_requests < best_load:
+                best_url = url
+                best_load = server.active_requests
 
         if best_url is not None:
             self.servers[best_url].active_requests += 1
+            self.servers[best_url].current_model = model_id
             logger.info(
                 f"Acquired server {best_url} for {model_id} "
                 f"(slot {self.servers[best_url].active_requests}/{self.servers[best_url].max_concurrent})"
@@ -119,9 +128,12 @@ class _ServerPool:
         if server_url in self.servers:
             server = self.servers[server_url]
             server.active_requests = max(0, server.active_requests - 1)
+            if server.active_requests == 0:
+                server.current_model = None  # Fully drained — ready for any model
             logger.info(
                 f"Released server {server_url} "
-                f"(slot {server.active_requests}/{server.max_concurrent})"
+                f"(slot {server.active_requests}/{server.max_concurrent}, "
+                f"model={server.current_model})"
             )
             self.resource_available.set()
 
