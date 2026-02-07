@@ -74,8 +74,8 @@ Each test needs: `id`, `user` (the prompt). Optional: `tools`, `system`, `pass_c
                 drift_threshold = gr.Slider(
                     label="Drift Threshold",
                     minimum=0.0,
-                    maximum=1.0,
-                    step=0.05,
+                    maximum=0.5,
+                    step=0.025,
                     value=0.0,
                     info="Cosine distance to expected_response (0 = disabled). Lower = stricter."
                 )
