@@ -104,6 +104,15 @@ def create_app() -> gr.Blocks:
                     value=DEFAULT_MAX_TOKENS,
                     scale=1
                 )
+                parallel_slots_slider = gr.Slider(
+                    label="Parallel Slots",
+                    minimum=1,
+                    maximum=8,
+                    step=1,
+                    value=1,
+                    scale=1,
+                    info="Concurrent requests per server (LM Studio parallel slots)"
+                )
 
         gr.Markdown("---")
 
@@ -197,7 +206,8 @@ def create_app() -> gr.Blocks:
             inputs=[
                 battery.file, models_checkbox, servers_input,
                 timeout_slider, max_tokens_slider, battery.system_prompt,
-                battery.judge_model, battery.runs_slider, battery.display_mode
+                battery.judge_model, battery.runs_slider, battery.display_mode,
+                parallel_slots_slider
             ],
             outputs=[battery.status, battery.grid]
         )

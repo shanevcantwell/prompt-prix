@@ -99,7 +99,7 @@ async def _get_loaded_models_via_http(servers: list[str]) -> set[str] | None:
     return loaded_ids if any_server_responded else None
 
 
-def _ensure_adapter_registered(servers: list[str]) -> None:
+def _ensure_adapter_registered(servers: list[str], parallel_slots: int = 1) -> None:
     """
     Ensure an adapter is registered with the given servers.
 
@@ -116,6 +116,7 @@ def _ensure_adapter_registered(servers: list[str]) -> None:
     # LM Studio mode: re-register with current servers from UI
     from prompt_prix.adapters.lmstudio import LMStudioAdapter
     adapter = LMStudioAdapter(server_urls=servers)
+    adapter.set_parallel_slots(parallel_slots)
     register_adapter(adapter)
 
 

@@ -194,7 +194,13 @@ class ServerConfig(BaseModel):
     """Configuration for a single LM Studio server."""
     url: str
     available_models: list[str] = []
-    is_busy: bool = False
+    active_requests: int = 0
+    max_concurrent: int = 1  # LM Studio parallel slots (set via UI)
+
+    @property
+    def is_busy(self) -> bool:
+        """Backwards-compatible check: busy when all slots are in use."""
+        return self.active_requests >= self.max_concurrent
 
 
 class ModelConfig(BaseModel):

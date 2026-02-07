@@ -90,26 +90,45 @@ class _ServerPool:
 
     def find_and_acquire(self, model_id: str) -> Optional[str]:
         """
-        Atomically find a free server with the model and mark it busy.
+        Atomically find a server with available slots for this model.
         Returns server_url if successful, None otherwise.
+
+        Prefers servers with the fewest active requests (load balancing).
         """
+        best_url = None
+        best_load = float('inf')
+
         for url, server in self.servers.items():
-            # Check availability AND busy status in the same synchronous block
             if model_id in server.available_models:
-                if not server.is_busy:
-                    server.is_busy = True
-                    logger.info(f"Acquired server {url} for {model_id}")
-                    return url
-                else:
-                    logger.debug(f"Server {url} has model {model_id} but IS BUSY")
+                if not server.is_busy and server.active_requests < best_load:
+                    best_url = url
+                    best_load = server.active_requests
+
+        if best_url is not None:
+            self.servers[best_url].active_requests += 1
+            logger.info(
+                f"Acquired server {best_url} for {model_id} "
+                f"(slot {self.servers[best_url].active_requests}/{self.servers[best_url].max_concurrent})"
+            )
+            return best_url
+
         return None
 
     def release_server(self, server_url: str) -> None:
-        """Mark server as available and notify listeners."""
+        """Release a slot on a server and notify listeners."""
         if server_url in self.servers:
-            self.servers[server_url].is_busy = False
-            logger.info(f"Released server {server_url}")
+            server = self.servers[server_url]
+            server.active_requests = max(0, server.active_requests - 1)
+            logger.info(
+                f"Released server {server_url} "
+                f"(slot {server.active_requests}/{server.max_concurrent})"
+            )
             self.resource_available.set()
+
+    def set_max_concurrent(self, max_concurrent: int) -> None:
+        """Update max concurrent slots for all servers."""
+        for server in self.servers.values():
+            server.max_concurrent = max(1, max_concurrent)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -269,6 +288,10 @@ class LMStudioAdapter:
         self._dispatcher = _ConcurrentDispatcher(self._pool)
         self._lock = asyncio.Lock()
         self._manifests_loaded = False
+
+    def set_parallel_slots(self, slots: int) -> None:
+        """Set max concurrent requests per server."""
+        self._pool.set_max_concurrent(slots)
 
     async def get_available_models(self) -> list[str]:
         """Return list of all models available across all servers."""

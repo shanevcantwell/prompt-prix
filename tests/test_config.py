@@ -113,10 +113,16 @@ class TestServerConfig:
         assert config.available_models == ["model-a", "model-b"]
 
     def test_server_config_busy_state(self):
-        """Test ServerConfig busy state."""
+        """Test ServerConfig busy when all slots in use."""
         from prompt_prix.config import ServerConfig
 
-        config = ServerConfig(url="http://localhost:1234", is_busy=True)
+        config = ServerConfig(url="http://localhost:1234", max_concurrent=2)
+        assert config.is_busy is False
+
+        config.active_requests = 1
+        assert config.is_busy is False
+
+        config.active_requests = 2
         assert config.is_busy is True
 
 

@@ -75,7 +75,8 @@ async def run_handler(
     system_prompt: str,
     judge_model: str = None,
     runs: int = 1,
-    display_mode_str: str = "Symbols (✓/❌)"
+    display_mode_str: str = "Symbols (✓/❌)",
+    parallel_slots: int = 1
 ):
     """
     Run battery tests across selected models.
@@ -137,8 +138,11 @@ async def run_handler(
     import logging
     logger = logging.getLogger(__name__)
 
+    # Ensure parallel_slots is an int (Gradio slider returns float)
+    parallel_slots = int(parallel_slots) if parallel_slots else 1
+
     # Register adapter with current servers before using MCP tools
-    _ensure_adapter_registered(servers)
+    _ensure_adapter_registered(servers, parallel_slots=parallel_slots)
 
     # Validate models using MCP primitive (uses registry internally)
     result = await list_models()
