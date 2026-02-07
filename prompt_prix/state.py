@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from prompt_prix.battery import BatteryRun
     from prompt_prix.consistency import ConsistencyRun
     from prompt_prix.core import ComparisonSession
+    from prompt_prix.react.runner import ReactRun
 
 
 # Compare tab session state
@@ -21,6 +22,9 @@ battery_run: Optional["BatteryRun"] = None
 
 # Consistency run state - for multi-run variance testing
 consistency_run: Optional["ConsistencyRun"] = None
+
+# React run state - for ReAct loop evaluation
+react_run: Optional["ReactRun"] = None
 
 # Source filename for export naming
 battery_source_file: Optional[str] = None

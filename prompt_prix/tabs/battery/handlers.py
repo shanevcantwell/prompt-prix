@@ -169,87 +169,112 @@ async def run_handler(
             []
         )
 
-    # Choose runner based on runs count
-    if runs > 1:
-        # Multi-run consistency testing
-        from prompt_prix.consistency import ConsistencyRunner
-        logger.info(f"Consistency Run Config: Models={models_selected}, Runs={runs}")
+    # Split tests by mode
+    standard_tests = [t for t in tests if t.mode != "react"]
+    react_tests = [t for t in tests if t.mode == "react"]
 
-        runner = ConsistencyRunner(
-            tests=tests,
-            models=models_selected,
-            runs=runs,
-            temperature=0.0,
-            max_tokens=max_tokens,
-            timeout_seconds=timeout,
-            judge_model=judge_model,
-            drift_threshold=drift_threshold
-        )
+    # Run standard tests (single-shot or consistency)
+    if standard_tests:
+        if runs > 1:
+            # Multi-run consistency testing
+            from prompt_prix.consistency import ConsistencyRunner
+            logger.info(f"Consistency Run Config: Models={models_selected}, Runs={runs}")
 
-        # Store state for later detail retrieval
-        state.consistency_run = runner.state
-        state.battery_run = None  # Clear single-run state
+            runner = ConsistencyRunner(
+                tests=standard_tests,
+                models=models_selected,
+                runs=runs,
+                temperature=0.0,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout,
+                judge_model=judge_model,
+                drift_threshold=drift_threshold
+            )
 
-        # Stream state updates to UI
-        async for consistency_state in runner.run():
-            grid = consistency_state.to_grid(display_mode)
-            if consistency_state.phase == "judging":
-                progress = f"⏳ Judging... ({consistency_state.judge_completed}/{consistency_state.judge_total})"
-            elif consistency_state.judge_total > 0:
-                progress = (
-                    f"⏳ Running {runs}x... ({consistency_state.completed_runs}/{consistency_state.total_runs})"
-                    f" | Judging ({consistency_state.judge_completed}/{consistency_state.judge_total})"
-                )
+            # Store state for later detail retrieval
+            state.consistency_run = runner.state
+            state.battery_run = None
+
+            # Stream state updates to UI
+            async for consistency_state in runner.run():
+                grid = consistency_state.to_grid(display_mode)
+                if consistency_state.phase == "judging":
+                    progress = f"⏳ Judging... ({consistency_state.judge_completed}/{consistency_state.judge_total})"
+                elif consistency_state.judge_total > 0:
+                    progress = (
+                        f"⏳ Running {runs}x... ({consistency_state.completed_runs}/{consistency_state.total_runs})"
+                        f" | Judging ({consistency_state.judge_completed}/{consistency_state.judge_total})"
+                    )
+                else:
+                    progress = f"⏳ Running {runs}x... ({consistency_state.completed_runs}/{consistency_state.total_runs})"
+                yield progress, grid
+
+            # Final status with consistency summary
+            total_cells = consistency_state.total_count
+            inconsistent = sum(
+                1 for agg in consistency_state.aggregates.values()
+                if agg.status.value == "inconsistent"
+            )
+            if inconsistent > 0:
+                yield f"✅ Complete - {inconsistent}/{total_cells} cells inconsistent", grid
             else:
-                progress = f"⏳ Running {runs}x... ({consistency_state.completed_runs}/{consistency_state.total_runs})"
-            yield progress, grid
+                yield f"✅ Complete - all {total_cells} cells consistent", grid
 
-        # Final status with consistency summary
-        total_cells = consistency_state.total_count
-        inconsistent = sum(
-            1 for agg in consistency_state.aggregates.values()
-            if agg.status.value == "inconsistent"
-        )
-        if inconsistent > 0:
-            yield f"✅ Complete - {inconsistent}/{total_cells} cells inconsistent", grid
         else:
-            yield f"✅ Complete - all {total_cells} cells consistent", grid
+            # Standard single-run battery
+            logger.info(f"Battery Run Config: Models={models_selected}")
 
-    else:
-        # Standard single-run battery
-        logger.info(f"Battery Run Config: Models={models_selected}")
+            runner = BatteryRunner(
+                tests=standard_tests,
+                models=models_selected,
+                temperature=0.0,
+                max_tokens=max_tokens,
+                timeout_seconds=timeout,
+                judge_model=judge_model,
+                drift_threshold=drift_threshold
+            )
 
-        runner = BatteryRunner(
-            tests=tests,
+            # Store state for later detail retrieval
+            state.battery_run = runner.state
+            state.consistency_run = None
+
+            # Stream state updates to UI
+            async for battery_state in runner.run():
+                grid = battery_state.to_grid(display_mode)
+                if battery_state.phase == "judging":
+                    progress = f"⏳ Judging... ({battery_state.judge_completed}/{battery_state.judge_total})"
+                elif battery_state.judge_total > 0:
+                    progress = (
+                        f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
+                        f" | Judging ({battery_state.judge_completed}/{battery_state.judge_total})"
+                    )
+                else:
+                    progress = f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
+                yield progress, grid
+
+            yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
+
+    # Run ReAct tests (mode="react")
+    if react_tests:
+        from prompt_prix.react.runner import ReactRunner
+        logger.info(f"React Run Config: {len(react_tests)} tests, Models={models_selected}")
+
+        react_runner = ReactRunner(
+            tests=react_tests,
             models=models_selected,
             temperature=0.0,
             max_tokens=max_tokens,
             timeout_seconds=timeout,
-            judge_model=judge_model,
-            drift_threshold=drift_threshold
         )
 
-        # Store state for later detail retrieval
-        state.battery_run = runner.state
-        state.consistency_run = None  # Clear multi-run state
+        state.react_run = react_runner.state
 
-        # Stream state updates to UI
-        async for battery_state in runner.run():
-            grid = battery_state.to_grid(display_mode)
-            # Show progress — pipelined judging overlaps with inference
-            if battery_state.phase == "judging":
-                progress = f"⏳ Judging... ({battery_state.judge_completed}/{battery_state.judge_total})"
-            elif battery_state.judge_total > 0:
-                progress = (
-                    f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
-                    f" | Judging ({battery_state.judge_completed}/{battery_state.judge_total})"
-                )
-            else:
-                progress = f"⏳ Running tests... ({battery_state.completed_count}/{battery_state.total_count})"
+        async for react_state in react_runner.run():
+            grid = react_state.to_grid()
+            progress = f"⏳ ReAct... ({react_state.completed_count}/{react_state.total_count})"
             yield progress, grid
 
-        # Final status
-        yield f"✅ Battery complete ({battery_state.completed_count} tests)", grid
+        yield f"✅ ReAct complete ({react_state.completed_count} tests)", grid
 
 
 def export_json():
