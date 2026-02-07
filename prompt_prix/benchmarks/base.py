@@ -32,6 +32,9 @@ class BenchmarkCase(BaseModel):
     fail_criteria: Optional[str] = None
     expected_response: Optional[str] = None  # Exemplar text for drift comparison
     messages: Optional[list[dict]] = None  # Pre-defined multi-turn conversation history
+    mode: Optional[str] = None  # None (single-shot) or "react"
+    mock_tools: Optional[dict[str, dict]] = None  # Mock tool responses for mode="react"
+    max_iterations: int = 15  # Max tool call iterations for mode="react"
 
     @field_validator('id')
     @classmethod

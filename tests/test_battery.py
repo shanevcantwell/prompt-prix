@@ -206,6 +206,58 @@ class TestBenchmarkCase:
         tc = BenchmarkCase(id="test_id", user="Hello")
         assert tc.display_name == "test_id"
 
+    def test_react_mode_fields(self):
+        """BenchmarkCase accepts mode, mock_tools, max_iterations for ReAct."""
+        mock_tools = {
+            "read_file": {"./1.txt": "Content about animals"},
+            "move_file": {"_default": "File moved"},
+        }
+        tc = BenchmarkCase(
+            id="react_test",
+            user="Organize these files",
+            mode="react",
+            mock_tools=mock_tools,
+            max_iterations=20,
+            tools=[{"type": "function", "function": {"name": "read_file"}}],
+        )
+        assert tc.mode == "react"
+        assert tc.mock_tools == mock_tools
+        assert tc.max_iterations == 20
+
+    def test_react_mode_defaults(self):
+        """mode=None and max_iterations=15 by default (backward compat)."""
+        tc = BenchmarkCase(id="basic", user="Hello")
+        assert tc.mode is None
+        assert tc.mock_tools is None
+        assert tc.max_iterations == 15
+
+    def test_react_mode_via_json_loader(self, tmp_path):
+        """JSON loader round-trips react fields through BenchmarkCase."""
+        import json
+        battery_file = tmp_path / "react_battery.json"
+        battery_file.write_text(json.dumps({
+            "prompts": [{
+                "id": "react_1",
+                "user": "Organize files",
+                "mode": "react",
+                "mock_tools": {
+                    "list_directory": {"./sort_test": "[FILE] 1.txt"},
+                    "read_file": {"./sort_test/1.txt": "Zebras are animals"},
+                },
+                "max_iterations": 10,
+                "tools": [{"type": "function", "function": {"name": "list_directory"}}],
+                "expected_response": "Files organized",
+            }]
+        }))
+
+        from prompt_prix.benchmarks.custom import CustomJSONLoader
+        cases = CustomJSONLoader.load(battery_file)
+        assert len(cases) == 1
+        tc = cases[0]
+        assert tc.mode == "react"
+        assert tc.mock_tools["read_file"]["./sort_test/1.txt"] == "Zebras are animals"
+        assert tc.max_iterations == 10
+
 
 # ─────────────────────────────────────────────────────────────────────
 # CUSTOMJSONLOADER TESTS
