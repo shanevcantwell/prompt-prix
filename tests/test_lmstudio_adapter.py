@@ -539,3 +539,98 @@ class TestModelTransitionDraining:
 
         # Both should have been served by server 0 (sequential, so no conflict)
         assert call_sequence == ["modelA", "modelB"]
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TOOL CALL SENTINEL TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+def sse_tool_call_stream(tool_name: str, arguments: str) -> str:
+    """Build SSE stream with tool calls (no text content).
+
+    Arguments should be a raw JSON string (e.g., '{"path":"./1.txt"}').
+    It gets JSON-escaped for embedding in the SSE data line.
+    """
+    import json as _json
+    escaped_args = _json.dumps(arguments)[1:-1]  # Strip outer quotes
+    return (
+        f'data: {{"choices":[{{"delta":{{"tool_calls":[{{"index":0,"function":{{"name":"{tool_name}","arguments":""}}}}]}}}}]}}\n\n'
+        f'data: {{"choices":[{{"delta":{{"tool_calls":[{{"index":0,"function":{{"arguments":"{escaped_args}"}}}}]}}}}]}}\n\n'
+        'data: [DONE]\n\n'
+    )
+
+
+class TestToolCallSentinel:
+    """Tests for __TOOL_CALLS__ sentinel in stream_completion()."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_tool_calls_yield_sentinel(self):
+        """Tool calls produce __TOOL_CALLS__ sentinel with structured JSON."""
+        import json
+
+        server_url = "http://server0:1234"
+        respx.get(f"{server_url}/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.post(f"{server_url}/v1/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                content=sse_tool_call_stream("read_file", '{"path":"./1.txt"}').encode(),
+                headers={"content-type": "text/event-stream"},
+            )
+        )
+
+        adapter = LMStudioAdapter([server_url])
+        await adapter.get_available_models()
+
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Read the file"}],
+            tools=[{"type": "function", "function": {"name": "read_file"}}],
+        )
+
+        chunks = []
+        async for chunk in adapter.stream_completion(task):
+            chunks.append(chunk)
+
+        # Find the tool calls sentinel
+        tool_sentinels = [c for c in chunks if c.startswith("__TOOL_CALLS__:")]
+        assert len(tool_sentinels) == 1
+
+        # Parse and verify structure
+        payload = json.loads(tool_sentinels[0].removeprefix("__TOOL_CALLS__:"))
+        assert len(payload) == 1
+        assert payload[0]["name"] == "read_file"
+        assert '"path"' in payload[0]["arguments"]
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_no_tool_calls_no_sentinel(self):
+        """Plain text response does not produce __TOOL_CALLS__ sentinel."""
+        server_url = "http://server0:1234"
+        respx.get(f"{server_url}/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.post(f"{server_url}/v1/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                content=sse_stream("Hello world").encode(),
+                headers={"content-type": "text/event-stream"},
+            )
+        )
+
+        adapter = LMStudioAdapter([server_url])
+        await adapter.get_available_models()
+
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Hello"}],
+        )
+
+        chunks = []
+        async for chunk in adapter.stream_completion(task):
+            chunks.append(chunk)
+
+        tool_sentinels = [c for c in chunks if c.startswith("__TOOL_CALLS__:")]
+        assert len(tool_sentinels) == 0
