@@ -45,8 +45,8 @@ async def analyze_variants(
             "baseline_label": str,
             "variants_count": int,
             "from_baseline": {"passive": 0.084, "interrogative": 0.114, ...},
-            "pairwise": {"imperative-passive": 0.084, ...},
-            "recommendations": [{"label": str, "distance": float}, ...],
+            "pairwise": {"(imperative, passive)": 0.084, ...},
+            "recommendations": [{"variant": str, "distance": float, "text": str}, ...],
         }
 
     Raises:
@@ -161,7 +161,9 @@ async def generate_variants(
 def _parse_variants_response(response: str) -> dict[str, str]:
     """Extract JSON dict from LLM response.
 
-    Handles markdown code blocks and bare JSON.
+    Handles markdown code blocks and bare JSON. Uses brace-depth
+    counting to correctly extract JSON with nested braces or braces
+    inside string values.
     """
     text = response.strip()
 
@@ -170,14 +172,36 @@ def _parse_variants_response(response: str) -> dict[str, str]:
     if json_match:
         text = json_match.group(1)
 
-    # Try to find JSON object
-    json_obj_match = re.search(r"\{[^}]+\}", text, re.DOTALL)
-    if json_obj_match:
-        try:
-            data = json.loads(json_obj_match.group())
-            if isinstance(data, dict) and all(isinstance(v, str) for v in data.values()):
-                return data
-        except json.JSONDecodeError:
-            pass
+    # Find first '{', then use brace-depth counting to find matching '}'
+    start = text.find("{")
+    if start != -1:
+        depth = 0
+        in_string = False
+        escape = False
+        for i in range(start, len(text)):
+            ch = text[i]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\":
+                escape = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        data = json.loads(text[start:i + 1])
+                        if isinstance(data, dict) and all(isinstance(v, str) for v in data.values()):
+                            return data
+                    except json.JSONDecodeError:
+                        pass
+                    break
 
     raise ValueError(f"Could not parse LLM response as JSON variant dict: {response[:200]}")

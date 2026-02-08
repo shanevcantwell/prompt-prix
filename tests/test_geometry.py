@@ -7,46 +7,10 @@ generate_variants: Mocks adapter via registry (same pattern as test_mcp_judge.py
 import json
 import pytest
 import sys
-import types
 from unittest.mock import AsyncMock, MagicMock
 
 from prompt_prix.mcp.registry import register_adapter, clear_adapter
-
-
-# ─────────────────────────────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────────────────────────────
-
-def _make_semantic_chunker_modules():
-    """Create fake semantic_chunker module hierarchy for sys.modules patching."""
-    sc = types.ModuleType("semantic_chunker")
-    sc_mcp = types.ModuleType("semantic_chunker.mcp")
-    sc_mcp_commands = types.ModuleType("semantic_chunker.mcp.commands")
-    sc_mcp_commands_geometry = types.ModuleType("semantic_chunker.mcp.commands.geometry")
-    sc_mcp_state = types.ModuleType("semantic_chunker.mcp.state_manager")
-
-    sc_mcp_state.StateManager = MagicMock
-
-    sc.mcp = sc_mcp
-    sc_mcp.commands = sc_mcp_commands
-    sc_mcp.state_manager = sc_mcp_state
-    sc_mcp_commands.geometry = sc_mcp_commands_geometry
-
-    modules_dict = {
-        "semantic_chunker": sc,
-        "semantic_chunker.mcp": sc_mcp,
-        "semantic_chunker.mcp.commands": sc_mcp_commands,
-        "semantic_chunker.mcp.commands.geometry": sc_mcp_commands_geometry,
-        "semantic_chunker.mcp.state_manager": sc_mcp_state,
-    }
-    return modules_dict, sc_mcp_commands_geometry
-
-
-def _reset_shared_module():
-    """Reset cached state on the shared _semantic_chunker module."""
-    import prompt_prix.mcp.tools._semantic_chunker as sc_mod
-    sc_mod._manager = None
-    sc_mod._available = None
+from tests.sc_mock import make_semantic_chunker_modules, reset_semantic_chunker
 
 
 def _make_variant_stream(variants_json: str):
@@ -94,11 +58,11 @@ class TestAnalyzeVariants:
             "recommendations": [{"label": "passive", "distance": 0.084}],
         }
 
-        modules_dict, geometry_mod = _make_semantic_chunker_modules()
+        modules_dict, geometry_mod = make_semantic_chunker_modules("geometry")
         geometry_mod.analyze_variants = AsyncMock(return_value=mock_result)
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.geometry import analyze_variants
             result = await analyze_variants(
                 variants={"imperative": "File a bug.", "passive": "A bug should be filed."},
@@ -121,11 +85,11 @@ class TestAnalyzeVariants:
                     "variants_count": 1, "from_baseline": {}, "pairwise": {},
                     "recommendations": []}
 
-        modules_dict, geometry_mod = _make_semantic_chunker_modules()
+        modules_dict, geometry_mod = make_semantic_chunker_modules("geometry")
         geometry_mod.analyze_variants = capture_call
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.geometry import analyze_variants
             await analyze_variants(
                 variants={"a": "text a", "b": "text b"},
@@ -142,13 +106,13 @@ class TestAnalyzeVariants:
         """analyze_variants raises RuntimeError when semantic-chunker returns error."""
         from unittest.mock import patch
 
-        modules_dict, geometry_mod = _make_semantic_chunker_modules()
+        modules_dict, geometry_mod = make_semantic_chunker_modules("geometry")
         geometry_mod.analyze_variants = AsyncMock(
             return_value={"error": "Embedding server unreachable"}
         )
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.geometry import analyze_variants
             with pytest.raises(RuntimeError, match="unreachable"):
                 await analyze_variants(variants={"a": "text"})
@@ -156,7 +120,7 @@ class TestAnalyzeVariants:
     @pytest.mark.asyncio
     async def test_raises_import_error_when_unavailable(self):
         """analyze_variants raises ImportError when semantic-chunker not installed."""
-        _reset_shared_module()
+        reset_semantic_chunker()
         # Don't patch sys.modules — semantic-chunker genuinely not available
         import prompt_prix.mcp.tools._semantic_chunker as sc_mod
         sc_mod._available = False
@@ -264,6 +228,13 @@ class TestParseVariantsResponse:
             '```json\n{"passive": "A bug should be filed."}\n```'
         )
         assert result == {"passive": "A bug should be filed."}
+
+    def test_json_with_braces_in_values(self):
+        from prompt_prix.mcp.tools.geometry import _parse_variants_response
+        result = _parse_variants_response(
+            '{"passive": "Use {} syntax for templates."}'
+        )
+        assert result == {"passive": "Use {} syntax for templates."}
 
     def test_raises_on_non_json(self):
         from prompt_prix.mcp.tools.geometry import _parse_variants_response

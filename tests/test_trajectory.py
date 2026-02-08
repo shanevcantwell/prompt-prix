@@ -6,44 +6,9 @@ Both tools delegate to semantic-chunker. Tests mock the module hierarchy
 
 import pytest
 import sys
-import types
 from unittest.mock import AsyncMock, MagicMock
 
-
-# ─────────────────────────────────────────────────────────────────────
-# HELPERS
-# ─────────────────────────────────────────────────────────────────────
-
-def _make_semantic_chunker_modules():
-    """Create fake semantic_chunker module hierarchy for sys.modules patching."""
-    sc = types.ModuleType("semantic_chunker")
-    sc_mcp = types.ModuleType("semantic_chunker.mcp")
-    sc_mcp_commands = types.ModuleType("semantic_chunker.mcp.commands")
-    sc_mcp_commands_trajectory = types.ModuleType("semantic_chunker.mcp.commands.trajectory")
-    sc_mcp_state = types.ModuleType("semantic_chunker.mcp.state_manager")
-
-    sc_mcp_state.StateManager = MagicMock
-
-    sc.mcp = sc_mcp
-    sc_mcp.commands = sc_mcp_commands
-    sc_mcp.state_manager = sc_mcp_state
-    sc_mcp_commands.trajectory = sc_mcp_commands_trajectory
-
-    modules_dict = {
-        "semantic_chunker": sc,
-        "semantic_chunker.mcp": sc_mcp,
-        "semantic_chunker.mcp.commands": sc_mcp_commands,
-        "semantic_chunker.mcp.commands.trajectory": sc_mcp_commands_trajectory,
-        "semantic_chunker.mcp.state_manager": sc_mcp_state,
-    }
-    return modules_dict, sc_mcp_commands_trajectory
-
-
-def _reset_shared_module():
-    """Reset cached state on the shared _semantic_chunker module."""
-    import prompt_prix.mcp.tools._semantic_chunker as sc_mod
-    sc_mod._manager = None
-    sc_mod._available = None
+from tests.sc_mock import make_semantic_chunker_modules, reset_semantic_chunker
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -73,11 +38,11 @@ class TestAnalyzeTrajectory:
             "heller_interpretation": "Low circularity",
         }
 
-        modules_dict, trajectory_mod = _make_semantic_chunker_modules()
+        modules_dict, trajectory_mod = make_semantic_chunker_modules("trajectory")
         trajectory_mod.analyze_trajectory = AsyncMock(return_value=mock_result)
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.trajectory import analyze_trajectory
             result = await analyze_trajectory(
                 text="Ford suffered through the Vogon poetry. Arthur calmly praised the imagery. The Vogon ejected them into space.",
@@ -103,11 +68,11 @@ class TestAnalyzeTrajectory:
                     "tautology_density": 0, "deceleration_score": 0,
                     "adams_interpretation": "", "heller_interpretation": ""}
 
-        modules_dict, trajectory_mod = _make_semantic_chunker_modules()
+        modules_dict, trajectory_mod = make_semantic_chunker_modules("trajectory")
         trajectory_mod.analyze_trajectory = capture_call
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.trajectory import analyze_trajectory
             await analyze_trajectory(
                 text="Sentence one. Sentence two.",
@@ -124,13 +89,13 @@ class TestAnalyzeTrajectory:
         """analyze_trajectory raises RuntimeError on semantic-chunker error."""
         from unittest.mock import patch
 
-        modules_dict, trajectory_mod = _make_semantic_chunker_modules()
+        modules_dict, trajectory_mod = make_semantic_chunker_modules("trajectory")
         trajectory_mod.analyze_trajectory = AsyncMock(
             return_value={"error": "Text must have at least 2 sentences"}
         )
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.trajectory import analyze_trajectory
             with pytest.raises(RuntimeError, match="2 sentences"):
                 await analyze_trajectory(text="Just one sentence.")
@@ -138,7 +103,7 @@ class TestAnalyzeTrajectory:
     @pytest.mark.asyncio
     async def test_raises_import_error_when_unavailable(self):
         """analyze_trajectory raises ImportError when semantic-chunker absent."""
-        _reset_shared_module()
+        reset_semantic_chunker()
         import prompt_prix.mcp.tools._semantic_chunker as sc_mod
         sc_mod._available = False
 
@@ -173,11 +138,11 @@ class TestCompareTrajectories:
             "synthetic_summary": {"n_sentences": 4, "deadpan_score": 0.60},
         }
 
-        modules_dict, trajectory_mod = _make_semantic_chunker_modules()
+        modules_dict, trajectory_mod = make_semantic_chunker_modules("trajectory")
         trajectory_mod.compare_trajectories_handler = AsyncMock(return_value=mock_result)
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.trajectory import compare_trajectories
             result = await compare_trajectories(
                 golden_text="Ford suffered. Arthur praised. The Vogon ejected.",
@@ -204,11 +169,11 @@ class TestCompareTrajectories:
                     "spike_count_match": 0,
                     "golden_summary": {}, "synthetic_summary": {}}
 
-        modules_dict, trajectory_mod = _make_semantic_chunker_modules()
+        modules_dict, trajectory_mod = make_semantic_chunker_modules("trajectory")
         trajectory_mod.compare_trajectories_handler = capture_call
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.trajectory import compare_trajectories
             await compare_trajectories(
                 golden_text="Golden text here.",
@@ -225,13 +190,13 @@ class TestCompareTrajectories:
         """compare_trajectories raises RuntimeError on semantic-chunker error."""
         from unittest.mock import patch
 
-        modules_dict, trajectory_mod = _make_semantic_chunker_modules()
+        modules_dict, trajectory_mod = make_semantic_chunker_modules("trajectory")
         trajectory_mod.compare_trajectories_handler = AsyncMock(
             return_value={"error": "Golden text too short"}
         )
 
         with patch.dict(sys.modules, modules_dict):
-            _reset_shared_module()
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.trajectory import compare_trajectories
             with pytest.raises(RuntimeError, match="too short"):
                 await compare_trajectories(
@@ -241,7 +206,7 @@ class TestCompareTrajectories:
     @pytest.mark.asyncio
     async def test_raises_import_error_when_unavailable(self):
         """compare_trajectories raises ImportError when semantic-chunker absent."""
-        _reset_shared_module()
+        reset_semantic_chunker()
         import prompt_prix.mcp.tools._semantic_chunker as sc_mod
         sc_mod._available = False
 

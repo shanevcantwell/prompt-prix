@@ -166,7 +166,7 @@ result = await analyze_variants(
     constraint_name="deletion_request",
 )
 # {"from_baseline": {"polite": 0.12, "passive": 0.18},
-#  "pairwise": {"imperative↔polite": 0.12, ...},
+#  "pairwise": {"(imperative, polite)": 0.12, ...},
 #  "recommendations": [...]}
 ```
 

@@ -339,44 +339,22 @@ class TestDriftTool:
     """Tests for the mcp/tools/drift.py wrapper.
 
     semantic-chunker is not installed in the test venv (Docker-only dep),
-    so we mock the entire _calculate_drift import inside drift.py.
+    so we mock the entire module hierarchy via tests.sc_mock helpers.
     """
 
     @pytest.mark.asyncio
     async def test_drift_returns_float(self):
         """calculate_drift returns a float from semantic-chunker."""
         import sys
-        import types
+        from tests.sc_mock import make_semantic_chunker_modules, reset_semantic_chunker
 
         mock_result = {"drift": 0.42, "interpretation": "Moderate"}
 
-        # Create fake semantic_chunker module hierarchy so import works
-        sc = types.ModuleType("semantic_chunker")
-        sc_mcp = types.ModuleType("semantic_chunker.mcp")
-        sc_mcp_commands = types.ModuleType("semantic_chunker.mcp.commands")
-        sc_mcp_commands_embeddings = types.ModuleType("semantic_chunker.mcp.commands.embeddings")
-        sc_mcp_state = types.ModuleType("semantic_chunker.mcp.state_manager")
+        modules_dict, embeddings_mod = make_semantic_chunker_modules("embeddings")
+        embeddings_mod.calculate_drift = AsyncMock(return_value=mock_result)
 
-        mock_calc = AsyncMock(return_value=mock_result)
-        sc_mcp_commands_embeddings.calculate_drift = mock_calc
-        sc_mcp_state.StateManager = MagicMock
-
-        sc.mcp = sc_mcp
-        sc_mcp.commands = sc_mcp_commands
-        sc_mcp.state_manager = sc_mcp_state
-        sc_mcp_commands.embeddings = sc_mcp_commands_embeddings
-
-        with patch.dict(sys.modules, {
-            "semantic_chunker": sc,
-            "semantic_chunker.mcp": sc_mcp,
-            "semantic_chunker.mcp.commands": sc_mcp_commands,
-            "semantic_chunker.mcp.commands.embeddings": sc_mcp_commands_embeddings,
-            "semantic_chunker.mcp.state_manager": sc_mcp_state,
-        }):
-            # Reset cached state on the shared module
-            import prompt_prix.mcp.tools._semantic_chunker as sc_mod
-            sc_mod._manager = None
-            sc_mod._available = None
+        with patch.dict(sys.modules, modules_dict):
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.drift import calculate_drift
             score = await calculate_drift("hello", "world")
 
@@ -386,35 +364,27 @@ class TestDriftTool:
     async def test_drift_raises_on_error(self):
         """calculate_drift raises RuntimeError when semantic-chunker returns error."""
         import sys
-        import types
+        from tests.sc_mock import make_semantic_chunker_modules, reset_semantic_chunker
 
         mock_result = {"error": "Both text_a and text_b are required"}
 
-        sc = types.ModuleType("semantic_chunker")
-        sc_mcp = types.ModuleType("semantic_chunker.mcp")
-        sc_mcp_commands = types.ModuleType("semantic_chunker.mcp.commands")
-        sc_mcp_commands_embeddings = types.ModuleType("semantic_chunker.mcp.commands.embeddings")
-        sc_mcp_state = types.ModuleType("semantic_chunker.mcp.state_manager")
+        modules_dict, embeddings_mod = make_semantic_chunker_modules("embeddings")
+        embeddings_mod.calculate_drift = AsyncMock(return_value=mock_result)
 
-        mock_calc = AsyncMock(return_value=mock_result)
-        sc_mcp_commands_embeddings.calculate_drift = mock_calc
-        sc_mcp_state.StateManager = MagicMock
-
-        sc.mcp = sc_mcp
-        sc_mcp.commands = sc_mcp_commands
-        sc_mcp.state_manager = sc_mcp_state
-        sc_mcp_commands.embeddings = sc_mcp_commands_embeddings
-
-        with patch.dict(sys.modules, {
-            "semantic_chunker": sc,
-            "semantic_chunker.mcp": sc_mcp,
-            "semantic_chunker.mcp.commands": sc_mcp_commands,
-            "semantic_chunker.mcp.commands.embeddings": sc_mcp_commands_embeddings,
-            "semantic_chunker.mcp.state_manager": sc_mcp_state,
-        }):
-            import prompt_prix.mcp.tools._semantic_chunker as sc_mod
-            sc_mod._manager = None
-            sc_mod._available = None
+        with patch.dict(sys.modules, modules_dict):
+            reset_semantic_chunker()
             from prompt_prix.mcp.tools.drift import calculate_drift
             with pytest.raises(RuntimeError, match="required"):
                 await calculate_drift("", "")
+
+    @pytest.mark.asyncio
+    async def test_drift_raises_import_error_when_unavailable(self):
+        """calculate_drift raises ImportError when semantic-chunker absent."""
+        from tests.sc_mock import reset_semantic_chunker
+        reset_semantic_chunker()
+        import prompt_prix.mcp.tools._semantic_chunker as sc_mod
+        sc_mod._available = False
+
+        from prompt_prix.mcp.tools.drift import calculate_drift
+        with pytest.raises(ImportError, match="not available"):
+            await calculate_drift("hello", "world")
