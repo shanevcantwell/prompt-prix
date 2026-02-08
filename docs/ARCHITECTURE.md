@@ -1,273 +1,10 @@
 # Architecture
 
-This document describes the system architecture of prompt-prix, including module responsibilities, data flow, and key design decisions.
+prompt-prix is a visual fan-out MCP service: identical data dispatched across multiple LLMs simultaneously. Both a Gradio UI (for humans) and an MCP protocol server (for agents) consume the same stateless tool layer.
 
-## System Overview
+## Four-Layer Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           Browser                                   │
-│  ┌─────────────────────────────────────────────────────────────┐   │
-│  │                    Gradio UI (ui.py)                        │   │
-│  │  ┌─────────────┐ ┌──────────────┐ ┌───────────────────────┐ │   │
-│  │  │ Config Panel│ │ Prompt Input │ │ Model Output Tabs     │ │   │
-│  │  │ • Servers   │ │ • Single     │ │ • Tab 1..10           │ │   │
-│  │  │ • Models    │ │ • Batch      │ │ • Streaming display   │ │   │
-│  │  │ • System    │ │ • Tools JSON │ │ • Status colors       │ │   │
-│  │  │   Prompt    │ └──────────────┘ └───────────────────────┘ │   │
-│  │  └─────────────┘                                             │   │
-│  │  ┌─────────────────────────────────────────────────────────┐ │   │
-│  │  │ localStorage: servers, models, temperature, etc.        │ │   │
-│  │  └─────────────────────────────────────────────────────────┘ │   │
-│  └─────────────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                     Python Backend                                  │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                    handlers.py (Orchestration)                │  │
-│  │  • fetch_available_models()  → adapter.get_available_models() │  │
-│  │  • initialize_session()      → Create ComparisonSession       │  │
-│  │  • send_single_prompt()      → adapter.stream_completion()    │  │
-│  │  • export_markdown/json()    → Report generation              │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                │                                    │
-│  ┌─────────────────────────────┼────────────────────────────────┐  │
-│  │              adapters/ (Resource Management)                  │  │
-│  │                             │                                 │  │
-│  │  ┌─────────────────────────────────────────────────────────┐ │  │
-│  │  │  LMStudioAdapter                                         │ │  │
-│  │  │  • _pool: ServerPool (internal)                          │ │  │
-│  │  │  • stream_completion() → finds server, streams, releases │ │  │
-│  │  │  • get_available_models() → queries all servers          │ │  │
-│  │  └─────────────────────────────────────────────────────────┘ │  │
-│  │                                                               │  │
-│  │  Future: HFInferenceAdapter, SurfMcpAdapter                   │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-│                                │                                    │
-│  ┌──────────────────────────────────────────────────────────────┐  │
-│  │                    config.py                                  │  │
-│  │  Pydantic Models: ServerConfig, ModelContext, SessionState   │  │
-│  │  Constants: DEFAULT_TEMPERATURE, DEFAULT_MAX_TOKENS, etc.    │  │
-│  │  Environment: load_servers_from_env(), get_gradio_port()     │  │
-│  └──────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                    LM Studio Servers                                │
-│  ┌────────────────────────┐    ┌────────────────────────┐          │
-│  │  Server 1 (e.g. 3090)  │    │  Server 2 (e.g. 8000)  │          │
-│  │  • GET /v1/models      │    │  • GET /v1/models      │          │
-│  │  • POST /v1/chat/...   │    │  • POST /v1/chat/...   │          │
-│  │  └─ Model A            │    │  └─ Model B, C         │          │
-│  │  └─ Model B            │    │                        │          │
-│  └────────────────────────┘    └────────────────────────┘          │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-## Layer Import Rules
-
-Per [ADR-006](adr/006-adapter-resource-ownership.md), the codebase has strict layer boundaries:
-
-| Layer | MAY Import | MUST NOT Import |
-|-------|------------|-----------------|
-| **Orchestration** (BatteryRunner, ConsistencyRunner, ComparisonSession) | `react.dispatch`, `mcp.tools.*`, `mcp.registry` | `adapters/*`, ServerPool, ConcurrentDispatcher |
-| **Dispatch** (`react/dispatch.py`) | `mcp.tools.*`, `react.schemas`, `react.cycle_detection` | `adapters/*`, orchestration |
-| **MCP Primitives** | `adapters.base.HostAdapter` (protocol), `mcp.registry` | Concrete adapter classes, ServerPool |
-| **Adapters** | httpx, internal utilities | Nothing from orchestration or MCP |
-
-> **THE RULE:** ServerPool and ConcurrentDispatcher are INTERNAL to LMStudioAdapter.
-> No file outside `adapters/lmstudio.py` may import or reference them.
-
-## Module Breakdown
-
-### Directory Structure
-
-```
-prompt_prix/
-├── main.py              # Gradio UI entry point (prompt-prix command)
-├── ui.py                # Gradio UI definition
-├── handlers.py          # Shared event handlers (fetch, stop)
-├── state.py             # Global mutable state
-├── core.py              # ComparisonSession (orchestration)
-├── config.py            # Pydantic models, constants, env loading
-├── parsers.py           # Input parsing utilities
-├── export.py            # Report generation
-├── battery.py           # BatteryRunner (orchestration) - calls execute_test_case()
-├── consistency.py       # ConsistencyRunner - multi-run variance testing
-├── react/               # ReAct loop execution
-│   ├── dispatch.py      # execute_test_case() — single dispatch (ONLY mode reader)
-│   ├── schemas.py       # ReActIteration, ToolCall data models
-│   └── cycle_detection.py # Stagnation / cycle detection
-├── mcp/
-│   ├── server.py        # MCP protocol server (FastMCP over stdio) — agent entry point
-│   ├── registry.py      # Adapter registry + register_default_adapter()
-│   └── tools/
-│       ├── complete.py  # complete, complete_stream, latency sentinel utilities
-│       ├── react_step.py # Stateless single ReAct iteration primitive
-│       ├── drift.py     # Embedding-based semantic drift calculation
-│       ├── geometry.py  # Prompt variant generation and distance analysis
-│       ├── trajectory.py # Semantic velocity/acceleration analysis
-│       ├── judge.py     # LLM-as-judge evaluation
-│       ├── list_models.py
-│       └── _semantic_chunker.py  # Shared helpers for semantic-chunker tools
-├── tabs/
-│   ├── __init__.py
-│   ├── battery/
-│   │   ├── __init__.py
-│   │   └── handlers.py  # Battery-specific handlers
-│   └── compare/
-│       ├── __init__.py
-│       └── handlers.py  # Compare-specific handlers
-├── adapters/
-│   ├── base.py          # HostAdapter protocol
-│   └── lmstudio.py      # LMStudioAdapter (OWNS ServerPool, ConcurrentDispatcher)
-├── semantic_validator.py # Response validation (refusals, tool calls, verdicts)
-└── benchmarks/
-    ├── base.py          # BenchmarkCase dataclass
-    ├── custom_json.py   # CustomJSONLoader (JSON/JSONL)
-    └── promptfoo.py     # PromptfooLoader (YAML format)
-```
-
-### config.py - Configuration & Data Models
-
-**Purpose**: Define all Pydantic models for type-safe configuration and state.
-
-| Class | Purpose |
-|-------|---------|
-| `ServerConfig` | Single LM Studio server state (URL, available_models, is_busy) |
-| `ModelConfig` | Model identity and display name |
-| `Message` | Single message in a conversation (role, content - supports multimodal) |
-| `ModelContext` | Complete conversation history for one model |
-| `SessionState` | Full session: models, contexts, system_prompt, halted status |
-
-**Message Multimodal Support**:
-The `Message` model supports both text and multimodal content:
-```python
-# Text-only message
-Message(role="user", content="Hello")
-
-# Multimodal message (text + image)
-Message(role="user", content=[
-    {"type": "text", "text": "What's in this image?"},
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}
-])
-
-# Helper methods
-msg.get_text()   # Extract text content
-msg.has_image()  # Check if message contains an image
-```
-
-**Key Functions**:
-- `load_servers_from_env()` - Read LM_STUDIO_SERVER_N environment variables
-- `get_default_servers()` - Return env servers or placeholder defaults
-- `get_gradio_port()` - Read GRADIO_PORT or default to 7860
-- `encode_image_to_data_url(path)` - Convert image file to base64 data URL
-- `build_multimodal_content(text, image_path)` - Build OpenAI-format multimodal content
-
-### core.py - Session Management (Orchestration Layer)
-
-**Purpose**: Orchestration-level session management.
-
-#### ComparisonSession
-
-Manages a comparison session. Calls MCP tools, not adapters directly.
-
-```python
-class ComparisonSession:
-    state: SessionState  # Contains models, contexts, config
-
-    async def send_prompt_to_model(model_id, prompt, on_chunk=None)
-    async def send_prompt_to_all(prompt, on_chunk=None)
-    def get_context_display(model_id) -> str
-```
-
-### handlers.py - Shared Event Handlers
-
-**Purpose**: Shared async handlers used across multiple tabs.
-
-| Handler | Purpose | Returns |
-|---------|---------|---------|
-| `fetch_available_models(servers_text)` | Query all servers for available models | `(status, gr.update(choices=[...]))` |
-| `handle_stop()` | Signal cancellation via global state | `status` |
-| `_init_pool_and_validate(servers_text, models)` | Initialize ServerPool and validate models | `(pool, error_message)` |
-
-### tabs/battery/handlers.py - Battery Tab Handlers
-
-**Purpose**: Handlers specific to the Battery (benchmark) tab.
-
-| Handler | Trigger | Returns |
-|---------|---------|---------|
-| `validate_file(file_path)` | File upload | Validation status string |
-| `get_test_ids(file_path)` | File upload | List of test IDs |
-| `run_handler(file, models, servers, ...)` | "Run Battery" button | Generator yielding `(status, grid_df)` |
-| `quick_prompt_handler(prompt, models, ...)` | "Run Prompt" button | Markdown results |
-| `export_json()` | "Export JSON" button | `(status, preview)` |
-| `export_csv()` | "Export CSV" button | `(status, preview)` |
-| `get_cell_detail(model, test)` | Detail dropdown | Markdown detail |
-| `refresh_grid(display_mode)` | Display mode change | Updated grid DataFrame |
-
-### tabs/compare/handlers.py - Compare Tab Handlers
-
-**Purpose**: Handlers specific to the Compare (interactive) tab.
-
-| Handler | Trigger | Returns |
-|---------|---------|---------|
-| `initialize_session(servers, models, system_prompt, ...)` | Auto-init on send | `(status, *model_tabs)` |
-| `send_single_prompt(prompt, tools_json, image_path, seed, repeat_penalty)` | "Send to All" button | Generator yielding `(status, tab_states, *model_outputs)` |
-| `export_markdown()` | "Export Markdown" button | `(status, preview)` |
-| `export_json()` | "Export JSON" button | `(status, preview)` |
-| `launch_beyond_compare(model_a, model_b)` | "Open in Beyond Compare" button | `status` |
-
-**Compare Tab Features**:
-- **Image Attachment**: Upload images for vision models (encoded as base64 data URLs)
-- **Seed Parameter**: Set a seed for reproducible outputs across models
-- **Repeat Penalty**: Configurable penalty (1.0-2.0) to reduce repetitive token generation
-
-### ui.py - Gradio UI Definition
-
-**Purpose**: Define all Gradio components and wire up event bindings.
-
-**Key Components**:
-
-| Component | Type | Purpose |
-|-----------|------|---------|
-| `servers_input` | Textbox | LM Studio server URLs (one per line) |
-| `models_checkboxes` | CheckboxGroup | Select models to compare |
-| `system_prompt_input` | Textbox (50 lines) | Editable system prompt |
-| `temperature_slider` | Slider | Model temperature (0-2) |
-| `timeout_slider` | Slider | Request timeout (30-600s) |
-| `max_tokens_slider` | Slider | Max tokens (256-8192) |
-| `seed_input` | Number | Optional seed for reproducible outputs |
-| `repeat_penalty_slider` | Slider | Repeat penalty (1.0-2.0, default 1.1) |
-| `prompt_input` | Textbox | User prompt entry |
-| `image_input` | Image | Optional image attachment for vision models |
-| `tools_input` | Code (JSON) | Tools for function calling |
-| `model_outputs[0..9]` | Markdown | Model response tabs |
-| `tab_states` | JSON (hidden) | Tab status for color updates |
-
-**Event Bindings**:
-- Buttons trigger async handlers
-- `tab_states.change` triggers JavaScript for inline style updates
-- `app.load` restores state from localStorage
-
-### state.py - Global State
-
-**Purpose**: Holds mutable state shared across handlers.
-
-```python
-session: Optional[ComparisonSession] = None
-```
-
-**Design Decision**: Separated to avoid circular imports between ui.py and handlers.py.
-
-### adapters/ - Inference Provider Adapters
-
-**Purpose**: Encapsulate backend-specific logic behind a uniform interface.
-
-Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three strict layers:
+Per [ADR-006](adr/006-adapter-resource-ownership.md), every import in the codebase follows this strict layer model:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -312,387 +49,96 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three
 │    INTERNAL: ServerPool, ConcurrentDispatcher, httpx            │
 │    STRATEGY: Multi-GPU parallel dispatch                        │
 │                                                                 │
-│  HFInferenceAdapter                                             │
+│  HuggingFaceAdapter                                             │
 │    INTERNAL: API client, rate limiter                           │
 │    STRATEGY: Rate-limited cloud calls                           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-#### HostAdapter Protocol
+## Layer Import Rules
 
-```python
-class HostAdapter(Protocol):
-    async def get_available_models(self) -> list[str]: ...
-    async def stream_completion(
-        self,
-        model_id: str,
-        messages: list[dict],
-        temperature: float,
-        max_tokens: int,
-        timeout_seconds: int,
-        tools: Optional[list[dict]] = None
-    ) -> AsyncGenerator[str, None]: ...
-```
+| Layer | MAY Import | MUST NOT Import |
+|-------|------------|-----------------|
+| **Orchestration** (BatteryRunner, ConsistencyRunner, ComparisonSession) | `react.dispatch`, `mcp.tools.*`, `mcp.registry` | `adapters/*`, ServerPool, ConcurrentDispatcher |
+| **Dispatch** (`react/dispatch.py`) | `mcp.tools.*`, `react.schemas`, `react.cycle_detection` | `adapters/*`, orchestration |
+| **MCP Primitives** | `adapters.base.HostAdapter` (protocol), `mcp.registry` | Concrete adapter classes, ServerPool |
+| **Adapters** | httpx, internal utilities | Nothing from orchestration or MCP |
 
-#### LMStudioAdapter
+> **THE RULE:** ServerPool and ConcurrentDispatcher are INTERNAL to LMStudioAdapter.
+> No file outside `adapters/lmstudio.py` may import or reference them.
 
-```python
-class LMStudioAdapter:
-    def __init__(self, server_urls: list[str]):
-        # ServerPool and ConcurrentDispatcher are INTERNAL
-        self._pool = ServerPool(server_urls)
-        self._dispatcher = ConcurrentDispatcher(self._pool)
+## Entry Points
 
-    async def stream_completion(...) -> AsyncGenerator[str, None]:
-        # Finds available server, acquires it, streams, releases
-```
-
-**Key Principle**: ServerPool and ConcurrentDispatcher are LM Studio concepts. Other backends have different resource models. The adapter encapsulates this — orchestration never sees these classes.
-
-### parsers.py - Text Parsing Utilities
-
-**Purpose**: Parse user input from UI components.
-
-| Function | Input | Output |
-|----------|-------|--------|
-| `parse_models_input(text)` | "model1\nmodel2" | `["model1", "model2"]` |
-| `parse_servers_input(text)` | "http://...\nhttp://..." | `["http://...", "http://..."]` |
-| `parse_prompts_file(content)` | File content | List of prompts |
-| `load_system_prompt(file_path)` | Optional file path | System prompt string |
-| `get_default_system_prompt()` | - | Default prompt from file or constant |
-
-### export.py - Report Generation
-
-**Purpose**: Generate exportable reports from session state.
-
-```python
-def generate_markdown_report(state: SessionState) -> str:
-    """Create Markdown with header, system prompt, and all model conversations."""
-
-def generate_json_report(state: SessionState) -> str:
-    """Create structured JSON with configuration and conversations."""
-
-def save_report(content: str, filepath: str):
-    """Write report to file."""
-```
-
-### Entry Points
-
-prompt-prix has two entry points into the same tool layer:
+Both entry points bootstrap with `register_default_adapter()` and consume `mcp/tools/*`:
 
 | Command | Module | Audience | Transport |
 |---------|--------|----------|-----------|
 | `prompt-prix` | `main.py` | Humans | Gradio web UI |
 | `prompt-prix-mcp` | `mcp/server.py` | Agents | MCP stdio (JSON-RPC) |
 
-Both call `register_default_adapter()` at startup and then consume `mcp/tools/*`.
+`server.py` registers 9 tools with FastMCP via `add_tool()`. Agents (LAS, Claude Desktop, any MCP client) launch `prompt-prix-mcp` as a subprocess.
 
-### main.py - Gradio UI Entry Point
+## Directory Structure
+
+```
+prompt_prix/
+├── main.py              # Gradio UI entry point (prompt-prix command)
+├── ui.py                # Gradio UI definition
+├── handlers.py          # Shared event handlers (fetch, stop)
+├── state.py             # Global mutable state
+├── core.py              # ComparisonSession (orchestration)
+├── config.py            # Pydantic models, constants, env loading
+├── parsers.py           # Input parsing utilities
+├── export.py            # Report generation
+├── battery.py           # BatteryRunner (orchestration) - calls execute_test_case()
+├── consistency.py       # ConsistencyRunner - multi-run variance testing
+├── react/               # ReAct loop execution
+│   ├── dispatch.py      # execute_test_case() — single dispatch (ONLY mode reader)
+│   ├── schemas.py       # ReActIteration, ToolCall data models
+│   └── cycle_detection.py # Stagnation / cycle detection
+├── mcp/
+│   ├── server.py        # MCP protocol server (FastMCP over stdio) — agent entry point
+│   ├── registry.py      # Adapter registry + register_default_adapter()
+│   └── tools/
+│       ├── complete.py  # complete, complete_stream, latency sentinel utilities
+│       ├── react_step.py # Stateless single ReAct iteration primitive
+│       ├── drift.py     # Embedding-based semantic drift calculation
+│       ├── geometry.py  # Prompt variant generation and distance analysis
+│       ├── trajectory.py # Semantic velocity/acceleration analysis
+│       ├── judge.py     # LLM-as-judge evaluation
+│       ├── list_models.py
+│       └── _semantic_chunker.py  # Shared helpers for semantic-chunker tools
+├── tabs/
+│   ├── battery/
+│   │   └── handlers.py  # Battery-specific handlers
+│   └── compare/
+│       └── handlers.py  # Compare-specific handlers
+├── adapters/
+│   ├── base.py          # HostAdapter protocol
+│   ├── lmstudio.py      # LMStudioAdapter (OWNS ServerPool, ConcurrentDispatcher)
+│   └── huggingface.py   # HuggingFaceAdapter (rate-limited cloud calls)
+├── semantic_validator.py # Response validation (refusals, tool calls, verdicts)
+└── benchmarks/
+    ├── base.py          # BenchmarkCase dataclass
+    ├── custom_json.py   # CustomJSONLoader (JSON/JSONL)
+    └── promptfoo.py     # PromptfooLoader (YAML format)
+```
+
+## Adapter Layer
+
+All adapters implement the `HostAdapter` protocol:
 
 ```python
-def run():
-    register_default_adapter()
-    app = create_app()
-    app.launch(server_name="0.0.0.0", server_port=get_gradio_port())
+class HostAdapter(Protocol):
+    async def get_available_models(self) -> list[str]: ...
+    async def stream_completion(self, task: InferenceTask) -> AsyncGenerator[str, None]: ...
 ```
 
-### mcp/server.py - MCP Protocol Server
-
-Registers 9 tools with FastMCP and runs over stdio. Agents (LAS, Claude Desktop, any MCP client) launch this as a subprocess.
-
-```python
-mcp = FastMCP("prompt-prix", instructions="...")
-mcp.add_tool(list_models)
-mcp.add_tool(complete)
-# ... 7 more tools
-
-def run():
-    register_default_adapter()
-    mcp.run(transport="stdio")
-```
-
-## Data Flow: Sending a Prompt
-
-```
-1. User types prompt, clicks "Send Prompt"
-         │
-         ▼
-2. ui.py: send_button.click(fn=send_single_prompt, inputs=[prompt, tools])
-         │
-         ▼
-3. handlers.py: send_single_prompt(prompt, tools_json)
-   │ - Validate session exists
-   │ - Parse tools JSON
-   │ - Add user message to all model contexts
-   │ - Refresh server manifests
-         │
-         ▼
-4. Concurrent Dispatcher Loop:
-   │ ┌─────────────────────────────────────────┐
-   │ │ For each idle server:                   │
-   │ │   Find model in queue this server has   │
-   │ │   If found: start async task            │
-   │ └─────────────────────────────────────────┘
-   │ │ await asyncio.sleep(0.1)
-   │ │ yield (status, tab_states, *outputs)  ──────► UI updates
-   │ │ Clean up completed tasks
-   │ └─────────── while queue or active_tasks
-         │
-         ▼
-5. Each async task: run_model_on_server(model_id, server_url)
-   │ - Mark model as "streaming"
-   │ - Call stream_completion() ───────────────────► LM Studio API
-   │ - Accumulate chunks in streaming_responses[model_id]
-   │ - On complete: add assistant message to context
-   │ - Release server
-         │
-         ▼
-6. Final yield: ("✅ All responses complete", final_states, *final_outputs)
-```
-
-## State Management
-
-### Session State (Python)
-
-```python
-SessionState:
-  models: list[str]                    # Selected models
-  contexts: dict[str, ModelContext]    # model_id -> conversation
-  system_prompt: str
-  temperature: float
-  timeout_seconds: int
-  max_tokens: int
-  halted: bool                         # True if any model failed
-  halt_reason: Optional[str]
-```
-
-### UI State (Browser localStorage)
-
-| Key | Type | Purpose |
-|-----|------|---------|
-| `promptprix_servers` | string | Server URLs (newline-separated) |
-| `promptprix_model_choices` | JSON array | Available models from last fetch |
-| `promptprix_models` | JSON array | Selected models |
-| `promptprix_temperature` | float | Temperature setting |
-| `promptprix_timeout` | int | Timeout setting |
-| `promptprix_max_tokens` | int | Max tokens setting |
-| `promptprix_tools` | string | Tools JSON |
-| `promptprix_system_prompt` | string | System prompt text |
-
-**Persistence**: Only saved when user clicks "Save State" button (explicit save).
-
-## Tab Status Visualization
-
-Tab colors indicate model status during streaming:
-
-| Status | Color | Border |
-|--------|-------|--------|
-| `pending` | Red gradient (#fee2e2 → #fecaca) | 4px solid #ef4444 |
-| `streaming` | Yellow gradient (#fef3c7 → #fde68a) | 4px solid #f59e0b |
-| `completed` | Green gradient (#d1fae5 → #a7f3d0) | 4px solid #10b981 |
-
-**Implementation**: Uses inline JavaScript styles (`element.style`) to overcome Gradio theme CSS.
-
-## Error Handling
-
-### Fail-Fast Validation
-
-1. `initialize_session` validates:
-   - Servers are configured
-   - Models are configured
-   - All selected models exist on at least one server
-
-2. `send_single_prompt` validates:
-   - Session is initialized
-   - Session is not halted
-   - Prompt is not empty
-   - Tools JSON is valid (if provided)
-
-### Halt-on-Error
-
-If any model fails during `send_prompt_to_all`:
-- `state.halted = True`
-- `state.halt_reason = "Model {model_id} failed: {error}"`
-- Subsequent prompts are rejected
-
-### Human-Readable Errors
-
-The `LMStudioError` exception extracts error messages from LM Studio's JSON responses:
-
-```python
-{"error": {"message": "Model not loaded"}}  →  "Model not loaded"
-```
-
-## Integration Points
-
-### Upstream: Benchmark Sources
-
-prompt-prix can consume test cases from established benchmark ecosystems:
-
-| Source | Format | Usage |
-|--------|--------|-------|
-| **BFCL** | JSON with function schemas | Export test cases, load in batch mode |
-| **Inspect AI** | Python test definitions | Export prompts, import as JSON |
-| **Custom JSON** | OpenAI-compatible messages | Direct load in prompt-prix |
-
-See [ADR-001](adr/001-use-existing-benchmarks.md) for rationale.
-
-### API Layer: OpenAI-Compatible
-
-All inference servers must expose OpenAI-compatible endpoints:
-
-```
-GET  /v1/models              → List available models
-POST /v1/chat/completions    → Chat completion (streaming)
-```
-
-Supported servers:
-- LM Studio (native)
-- Ollama (OpenAI mode)
-- vLLM
-- llama.cpp server
-- Any OpenAI-compatible proxy
-
-See [ADR-003](adr/003-openai-compatible-api.md) for rationale.
-
-## Battery File Formats
-
-The Battery tab accepts test files in multiple formats:
-
-### JSON / JSONL
-
-```json
-{
-  "prompts": [
-    {"id": "test-1", "user": "What is 2+2?", "expected": "4"},
-    {"id": "test-2", "user": "Call get_weather", "tools": [...], "tool_choice": "required"}
-  ]
-}
-```
-
-**Required fields**: `id`, `user`
-
-**Optional fields**: `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `expected`, `pass_criteria`, `fail_criteria`, `expected_response`
-
-### Promptfoo YAML
-
-[Promptfoo](https://promptfoo.dev) config files are supported with variable substitution:
-
-```yaml
-prompts:
-  - |
-    {{system}}
-    User: {{user}}
-
-tests:
-  - description: "Clear Pass - Exact Match"
-    vars:
-      system: "You are evaluating tool call outputs..."
-      user: "Evaluate this output..."
-      expected_verdict: PASS                    # → pass_criteria (for LLM judge)
-      expected_response: "The answer is 4"      # → expected_response (for drift)
-      category: clear_discrimination
-    assert:
-      - type: javascript                        # Logged but NOT evaluated
-        value: "result.verdict === 'PASS'"
-```
-
-**Promptfoo vars extraction**:
-
-| Var | BenchmarkCase field | Purpose |
-|-----|-------------------|---------|
-| `expected_verdict` | `pass_criteria` | Rubric text for LLM judge evaluation |
-| `expected_response` | `expected_response` | Exemplar text for embedding drift comparison |
-| `category` | `category` | Test category for filtering/grouping |
-| `system` | `system` | System message |
-| `user` | `user` | User message |
-
-- `assert` blocks → **Logged but NOT evaluated** (warning emitted)
-
-See `prompt_prix/benchmarks/promptfoo.py` for implementation.
-
-## Semantic Validation
-
-Battery tests validate responses beyond HTTP success. The semantic validator (`prompt_prix/semantic_validator.py`) checks:
-
-### Validation Types
-
-| Check | Trigger | Failure Reason |
-|-------|---------|----------------|
-| **Empty response** | Response is empty/whitespace | "Empty response" |
-| **Refusal detection** | Matches refusal phrases | "Model refused: '{phrase}'" |
-| **Tool call required** | `tool_choice: "required"` | "Expected tool call but got text response" |
-| **Tool call forbidden** | `tool_choice: "none"` | "Tool call made when tool_choice='none'" |
-| **Verdict matching** | `pass_criteria` contains verdict | "Verdict mismatch: expected X, got Y" |
-
-### Verdict Matching (Judge Competence Tests)
-
-When `pass_criteria` contains "verdict must be", the validator extracts the verdict from JSON in the response and compares it:
-
-```python
-# pass_criteria: "The verdict in the JSON response must be 'FAIL'"
-# Response: {"verdict": "PASS", "score": 1.0, "reasoning": "..."}
-# Result: SEMANTIC_FAILURE - "Verdict mismatch: expected FAIL, got PASS"
-```
-
-This enables testing whether a model can correctly judge other outputs (judge competence tests).
-
-### Test Status Values
-
-| Status | Symbol | Meaning |
-|--------|--------|---------|
-| `COMPLETED` | ✓ | Response passed semantic validation |
-| `SEMANTIC_FAILURE` | ❌ | Response received but failed semantic check |
-| `ERROR` | ⚠ | Infrastructure error (timeout, connection, etc.) |
-
-### Validation Order
-
-Checks run in order (first failure wins):
-1. Empty response check
-2. Refusal detection
-3. Tool call validation (if `tool_choice` set)
-4. Verdict matching (if `pass_criteria` specifies verdict)
-
-## Fan-Out Dispatcher Pattern
-
-The core abstraction is **fan-out**: one prompt dispatched to N models in parallel.
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                     Fan-Out Dispatcher                       │
-│                                                              │
-│  Input: (prompt, [model_a, model_b, model_c])               │
-│                        │                                     │
-│         ┌──────────────┼──────────────┐                     │
-│         ▼              ▼              ▼                     │
-│    ┌─────────┐    ┌─────────┐    ┌─────────┐               │
-│    │ Model A │    │ Model B │    │ Model C │               │
-│    │ Server1 │    │ Server1 │    │ Server2 │               │
-│    └────┬────┘    └────┬────┘    └────┬────┘               │
-│         │              │              │                     │
-│         ▼              ▼              ▼                     │
-│    Response A     Response B     Response C                 │
-│                                                              │
-│  Output: {model_a: resp_a, model_b: resp_b, model_c: resp_c}│
-└─────────────────────────────────────────────────────────────┘
-```
-
-### Parallel Dispatch
-
-The dispatcher maximizes GPU utilization:
-
-1. **Queue**: All work items (model + test pairs)
-2. **Match**: Find idle server that has the required model loaded
-3. **Execute**: Stream response, update UI
-4. **Release**: Server becomes available for next item
-
-This keeps all GPUs busy even when models are distributed across servers.
-
-See [ADR-002](adr/002-fan-out-pattern-as-core.md) for rationale.
+ServerPool and ConcurrentDispatcher are LM Studio concepts. Other backends have different resource models. The adapter encapsulates its internals — orchestration never sees these classes.
 
 ## Battery Execution: Pipelined Judging
 
-When a judge model is selected, BatteryRunner uses **pipelined execution** — judge tasks are submitted eagerly as inference results complete, rather than waiting for all inference to finish first.
+When a judge model is selected, BatteryRunner uses **pipelined execution** — judge tasks are submitted eagerly as inference results complete, rather than waiting for all inference to finish first:
 
 ```
 Without pipelining (original two-phase, ADR-008):
@@ -704,82 +150,84 @@ With pipelining:
   GPU1:    [inference][inference][inference][inference]   ← GPU1 still doing heavy models
 ```
 
-The `current_model` drain guard on `ServerPool` is the enabler — judge tasks queue in the dispatcher until a server drains its inference model. No priority queues or server affinity needed.
-
-Key methods in `battery.py`:
-- `_execute_pipelined()` — tracks `inference_tasks` and `judge_tasks` in separate sets
-- `_inference_then_judge()` — wraps `_execute_test()`, submits judge task on success
-- `_execute_inference_phase()` — used when no judge model (zero overhead)
-
-When no judge model is set, `_execute_inference_phase()` runs directly with no pipelining overhead.
+The `current_model` drain guard on `ServerPool` is the enabler — judge tasks queue in the dispatcher until a server drains its inference model. When no judge model is set, `_execute_inference_phase()` runs directly with no pipelining overhead.
 
 See [ADR-008](adr/ADR-008-judge-scheduling-strategy.md) for the evolution from two-phase to pipelined scheduling.
 
 ## ReAct Loop Execution
 
-Tests can specify `mode="react"` to evaluate multi-step tool-use loops. The key design decision: **a react loop is just another way to produce a pass/fail verdict for a (test, model) cell.** React tests flow through the same `BatteryRunner`/`ConsistencyRunner` pipeline as standard tests — they get drift validation, judge evaluation, and consistency testing for free.
+Tests with `mode="react"` evaluate multi-step tool-use loops. The key design decision: **a react loop is just another way to produce a pass/fail verdict for a (test, model) cell.** React tests flow through the same orchestration pipeline as standard tests — they get drift validation, judge evaluation, and consistency testing for free.
 
-### Dispatch Layer
+`execute_test_case()` in `react/dispatch.py` is the **only place** that reads `test.mode`. Orchestration above and MCP tools below have zero mode awareness.
 
-`react/dispatch.py` contains `execute_test_case()`, the **single dispatch function** and the ONLY place that reads `test.mode`:
-
-```python
-async def execute_test_case(test, model_id, ...) -> CaseResult:
-    if test.mode == "react":
-        return await _execute_react(...)    # react_step() × N
-    else:
-        return await _execute_single_shot(...)  # complete_stream()
-```
-
-Orchestration above has zero mode awareness. MCP tools below have zero mode awareness.
-
-### CaseResult → RunResult Flow
-
-| `CaseResult` field | `RunResult` field | Notes |
-|-------------------|-------------------|-------|
-| `response` | `response` | Final text answer (model output or react loop conclusion) |
-| `latency_ms` | `latency_ms` | Total inference time (summed across all steps for react) |
-| `react_trace` | `react_trace` | `None` for single-shot; dict with iteration detail for react |
-
-### React Loop Mechanics
-
-The react loop in `_execute_react()`:
+The react loop:
 1. Calls `react_step()` MCP primitive (stateless — takes trace in, returns one step out)
 2. Accumulates `ReActIteration` objects in the trace
 3. Checks for stagnation via `detect_cycle_with_pattern()` after each step
-4. If the model responds with text only (no tool calls), the loop completes
-5. If `max_iterations` is exhausted or a cycle is detected, raises `ReactLoopIncomplete`
-
-### Error Handling
+4. Completes when the model responds with text only (no tool calls)
+5. Raises `ReactLoopIncomplete` on cycle detection or `max_iterations` exhaustion
 
 | Outcome | Result |
 |---------|--------|
-| Loop completes (model gives final text answer) | `CaseResult` with `react_trace` → `RunResult(COMPLETED)` |
-| Cycle detected (model repeats tool call pattern) | `ReactLoopIncomplete` → `RunResult(SEMANTIC_FAILURE)` |
-| Max iterations exhausted | `ReactLoopIncomplete` → `RunResult(SEMANTIC_FAILURE)` |
-| Infrastructure error (connection, timeout) | Exception propagates → `RunResult(ERROR)` |
-
-### Detail View
-
-When a user clicks a react test cell in the battery grid, the detail view renders the `react_trace` dict showing each iteration: tool name, arguments, observation, success/fail status, and latency.
+| Loop completes (final text answer) | `RunResult(COMPLETED)` |
+| Cycle detected or max iterations | `RunResult(SEMANTIC_FAILURE)` |
+| Infrastructure error | `RunResult(ERROR)` |
 
 ## Consistency Testing
 
-`ConsistencyRunner` (in `consistency.py`) runs each (test, model) cell N times with different random seeds to identify models that produce inconsistent results.
+`ConsistencyRunner` runs each (test, model) cell N times with different random seeds to identify models that produce inconsistent results.
 
 | Status | Symbol | Meaning |
 |--------|--------|---------|
 | `CONSISTENT_PASS` | ✓ | N/N runs passed |
 | `CONSISTENT_FAIL` | ❌ | 0/N runs passed |
 | `INCONSISTENT` | 🟣 3/5 | Some runs passed, some failed |
-| `PENDING` | ⏳ 2/5 | Not all runs complete |
-
-Key types:
-- `CellAggregate` — aggregated results for one (test, model) cell across N runs
-- `ConsistencyRun` — state model (like `BatteryRun` but stores aggregates)
-- `ConsistencyRunner` — orchestrator with same pipelined judging as `BatteryRunner`
 
 See [ADR-010](adr/ADR-010-consistency-runner.md) for rationale.
+
+## Semantic Validation
+
+Battery tests validate responses beyond HTTP success (`semantic_validator.py`):
+
+| Check | Trigger | Failure Reason |
+|-------|---------|----------------|
+| **Empty response** | Response is empty/whitespace | "Empty response" |
+| **Refusal detection** | Matches refusal phrases | "Model refused: '{phrase}'" |
+| **Tool call required** | `tool_choice: "required"` | "Expected tool call but got text response" |
+| **Tool call forbidden** | `tool_choice: "none"` | "Tool call made when tool_choice='none'" |
+| **Verdict matching** | `pass_criteria` contains verdict | "Verdict mismatch: expected X, got Y" |
+
+Checks run in order (first failure wins). Verdict matching enables judge competence tests — testing whether a model can correctly judge other outputs.
+
+| Status | Symbol | Meaning |
+|--------|--------|---------|
+| `COMPLETED` | ✓ | Response passed semantic validation |
+| `SEMANTIC_FAILURE` | ❌ | Response received but failed semantic check |
+| `ERROR` | ⚠ | Infrastructure error (timeout, connection, etc.) |
+
+## Battery File Formats
+
+**Required fields:** `id`, `user`
+
+**Optional fields:** `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `mode`, `mock_tools`, `max_iterations`, `expected`, `pass_criteria`, `fail_criteria`, `expected_response`
+
+**Formats:** JSON (with `prompts` array), JSONL (one per line), Promptfoo YAML (with `prompts` + `tests`).
+
+Promptfoo vars extraction:
+
+| Var | BenchmarkCase field | Purpose |
+|-----|-------------------|---------|
+| `expected_verdict` | `pass_criteria` | Rubric text for LLM judge evaluation |
+| `expected_response` | `expected_response` | Exemplar text for embedding drift comparison |
+| `category` | `category` | Test category for filtering/grouping |
+| `system` | `system` | System message |
+| `user` | `user` | User message |
+
+Promptfoo `assert` blocks are logged but **not evaluated** (warning emitted).
+
+## Integration Points
+
+All inference servers must expose OpenAI-compatible endpoints (`GET /v1/models`, `POST /v1/chat/completions`). Supported: LM Studio, Ollama, vLLM, llama.cpp server, any OpenAI-compatible proxy. See [ADR-003](adr/003-openai-compatible-api.md).
 
 ## Architecture Decision Records
 
