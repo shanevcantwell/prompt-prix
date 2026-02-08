@@ -29,8 +29,8 @@ from tenacity import (
     before_sleep_log,
 )
 
-from prompt_prix.mcp.tools.complete import complete_stream
 from prompt_prix.mcp.tools.judge import judge
+from prompt_prix.react.dispatch import execute_test_case, ReactLoopIncomplete
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
 from prompt_prix import state as app_state
 from prompt_prix.semantic_validator import validate_response_semantic
@@ -146,6 +146,7 @@ class RunResult(BaseModel):
     failure_reason: Optional[str] = None  # Explains semantic failures
     judge_result: Optional[dict] = None  # LLM judge evaluation result
     drift_score: Optional[float] = None  # Cosine distance to expected_response
+    react_trace: Optional[dict] = None  # ReAct loop metadata (mode="react" only)
 
     @property
     def status_symbol(self) -> str:
@@ -563,8 +564,9 @@ class BatteryRunner:
 
     async def _execute_test(self, item: BatteryWorkItem) -> None:
         """
-        Execute a single test inference with retry logic.
+        Execute a single test via execute_test_case() dispatch.
 
+        Mode-unaware: dispatch handles single-shot vs react internally.
         Inference + semantic validation only. Judging is handled by the
         caller (_inference_then_judge for pipelined, or not at all for
         inference-only runs).
@@ -583,42 +585,26 @@ class BatteryRunner:
             before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
-        async def stream_with_retry() -> tuple[str, float]:
-            """Stream completion with retry for transient errors.
-
-            Returns (response, latency_ms) tuple.
-            Latency is measured by the adapter around the actual HTTP call.
-            """
-            # Check for cancellation before each attempt
+        async def dispatch_with_retry():
+            """Dispatch test case with retry for transient errors."""
             if app_state.should_stop():
                 raise CancelledError("Battery run cancelled by user")
 
-            response = ""
-            latency_ms = 0.0
-            # Call MCP primitive - adapter handles server selection
-            async for chunk in complete_stream(
+            result = await execute_test_case(
+                test=item.test,
                 model_id=item.model_id,
-                messages=item.test.to_messages(),
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 timeout_seconds=self.timeout_seconds,
-                tools=item.test.tools
-            ):
-                # Capture latency sentinel from adapter
-                if chunk.startswith("__LATENCY_MS__:"):
-                    latency_ms = float(chunk.split(":")[1])
-                else:
-                    response += chunk
-                # Check for cancellation during streaming
-                if app_state.should_stop():
-                    raise CancelledError("Battery run cancelled by user")
-
-            # Validate response to catch false positives (empty/error responses)
-            validate_response(response)
-            return response, latency_ms
+            )
+            validate_response(result.response)
+            return result
 
         try:
-            response, latency_ms = await stream_with_retry()
+            case_result = await dispatch_with_retry()
+            response = case_result.response
+            latency_ms = case_result.latency_ms
+            react_trace = case_result.react_trace
 
             # Local semantic checks (fast, free)
             is_valid, failure_reason = validate_response_semantic(
@@ -632,12 +618,12 @@ class BatteryRunner:
                     status=RunStatus.SEMANTIC_FAILURE,
                     response=response,
                     latency_ms=latency_ms,
-                    failure_reason=failure_reason
+                    failure_reason=failure_reason,
+                    react_trace=react_trace,
                 ))
                 return
 
             # Drift validation (fast, inline — ~50ms via embedding)
-            # Uses expected_response (exemplar text), not pass_criteria (judge rubric)
             drift_score = None
             drift_target = item.test.expected_response
             if (self.drift_threshold > 0
@@ -658,7 +644,8 @@ class BatteryRunner:
                     response=response,
                     latency_ms=latency_ms,
                     drift_score=drift_score,
-                    failure_reason=f"Drift {drift_score:.3f} exceeds threshold {self.drift_threshold}"
+                    failure_reason=f"Drift {drift_score:.3f} exceeds threshold {self.drift_threshold}",
+                    react_trace=react_trace,
                 ))
                 return
 
@@ -669,12 +656,23 @@ class BatteryRunner:
                 status=RunStatus.COMPLETED,
                 response=response,
                 latency_ms=latency_ms,
-                drift_score=drift_score
+                drift_score=drift_score,
+                react_trace=react_trace,
+            ))
+
+        except ReactLoopIncomplete as e:
+            # React loop didn't complete — model failed the task
+            self.state.set_result(RunResult(
+                test_id=item.test.id,
+                model_id=item.model_id,
+                status=RunStatus.SEMANTIC_FAILURE,
+                response="",
+                failure_reason=e.reason,
+                react_trace=e.react_trace,
             ))
 
         except Exception as e:
             # Mark as error (fail loudly - record error, don't hide it)
-            # No latency for errors - adapter didn't complete successfully
             self.state.set_result(RunResult(
                 test_id=item.test.id,
                 model_id=item.model_id,

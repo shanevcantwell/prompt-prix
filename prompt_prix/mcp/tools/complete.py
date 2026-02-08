@@ -23,6 +23,18 @@ from typing import AsyncGenerator, Optional
 from prompt_prix.mcp.registry import get_adapter
 from prompt_prix.adapters.schema import InferenceTask
 
+LATENCY_SENTINEL = "__LATENCY_MS__:"
+
+
+def parse_latency_sentinel(chunk: str) -> Optional[float]:
+    """Extract latency_ms from adapter sentinel chunk, or None if not a sentinel."""
+    if not chunk.startswith(LATENCY_SENTINEL):
+        return None
+    try:
+        return float(chunk[len(LATENCY_SENTINEL):])
+    except ValueError:
+        return None
+
 
 async def complete(
     model_id: str,
@@ -53,11 +65,10 @@ async def complete(
         repeat_penalty=repeat_penalty,
     )
 
-    # Collect streaming response into final string
-    # Filter out latency sentinel (adapter yields "__LATENCY_MS__:{ms}" at end)
+    # Collect streaming response into final string, filtering out latency sentinel
     response_parts = []
     async for chunk in adapter.stream_completion(task):
-        if not chunk.startswith("__LATENCY_MS__:"):
+        if parse_latency_sentinel(chunk) is None:
             response_parts.append(chunk)
 
     return "".join(response_parts)

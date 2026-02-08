@@ -121,7 +121,7 @@ Each test needs: `id`, `user` (the prompt). Optional: `tools`, `system`, `pass_c
 
         battery_grid = gr.Dataframe(
             label="Model × Test Results",
-            interactive=True,  # Required for cell selection in Gradio 6.x
+            interactive=False,
             wrap=True,
             elem_id="battery-grid"
         )

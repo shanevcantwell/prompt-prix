@@ -12,7 +12,7 @@ import json
 import logging
 from typing import Optional
 
-from prompt_prix.mcp.tools.complete import complete_stream
+from prompt_prix.mcp.tools.complete import complete_stream, parse_latency_sentinel
 from prompt_prix.react.schemas import (
     ToolCall,
     ReActIteration,
@@ -110,11 +110,8 @@ def parse_tool_calls_from_stream(chunks: list[str]) -> tuple[str, list[dict], fl
                 tool_calls = json.loads(chunk[len("__TOOL_CALLS__:"):])
             except json.JSONDecodeError:
                 logger.warning("Failed to parse __TOOL_CALLS__ sentinel")
-        elif chunk.startswith("__LATENCY_MS__:"):
-            try:
-                latency_ms = float(chunk[len("__LATENCY_MS__:"):])
-            except ValueError:
-                pass
+        elif (lat := parse_latency_sentinel(chunk)) is not None:
+            latency_ms = lat
         else:
             text_parts.append(chunk)
 

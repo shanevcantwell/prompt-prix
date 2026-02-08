@@ -457,7 +457,7 @@ class TestBatteryRunner:
             yield "Test response"
 
         # Patch at the MCP layer - BatteryRunner SHOULD call this
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
                 tests=sample_test_cases,
                 models=models
@@ -499,7 +499,7 @@ class TestBatteryRunner:
                 raise LMStudioError("Connection failed")
             yield "Success"
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
                 tests=sample_test_cases[:1],  # Just one test
                 models=models
@@ -540,7 +540,7 @@ class TestBatteryRunner:
             mcp_calls.append(kwargs)
             yield "Response"
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
                 tests=sample_test_cases[:1],
                 models=models
@@ -578,7 +578,7 @@ class TestBatteryRunner:
             yield "Response"
             yield "__LATENCY_MS__:10.5"  # Latency sentinel from adapter
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
                 tests=sample_test_cases[:1],
                 models=models
@@ -815,7 +815,7 @@ class TestBatterySemanticValidation:
             tool_choice="required"
         )
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
                 tests=[test_with_tools],
                 models=models
@@ -870,7 +870,7 @@ class TestPipelinedJudging:
         async def mock_judge(**kwargs):
             return {"pass": True, "reason": "Correct", "score": 10}
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.battery.judge", side_effect=mock_judge):
             runner = BatteryRunner(
                 tests=tests_with_criteria,
@@ -899,7 +899,7 @@ class TestPipelinedJudging:
         async def mock_judge(**kwargs):
             return {"pass": False, "reason": "Missing expected number", "score": 0}
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.battery.judge", side_effect=mock_judge):
             runner = BatteryRunner(
                 tests=tests_with_criteria[:1],
@@ -924,7 +924,7 @@ class TestPipelinedJudging:
             mcp_calls.append(kwargs["model_id"])
             yield "Response"
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.battery.judge") as mock_judge:
             runner = BatteryRunner(
                 tests=tests_with_criteria,
@@ -958,7 +958,7 @@ class TestPipelinedJudging:
             call_count["judge"] += 1
             return {"pass": True, "reason": "OK", "score": 10}
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.battery.judge", side_effect=mock_judge):
             runner = BatteryRunner(
                 tests=tests_with_criteria[:1],
@@ -991,7 +991,7 @@ class TestPipelinedJudging:
             await asyncio.sleep(0.05)  # Small delay so we can observe state
             return {"pass": True, "reason": "OK", "score": 10}
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.battery.judge", side_effect=mock_judge):
             runner = BatteryRunner(
                 tests=tests_with_criteria,
@@ -1020,7 +1020,7 @@ class TestPipelinedJudging:
             await asyncio.sleep(0.1)  # Judge takes longer than inference
             return {"pass": True, "reason": "OK", "score": 10}
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.battery.judge", side_effect=mock_judge):
             runner = BatteryRunner(
                 tests=tests_with_criteria,
@@ -1035,3 +1035,216 @@ class TestPipelinedJudging:
         assert "inference" in phases_observed
         # If judge tasks outlast inference, we see "judging" phase
         # (this depends on timing — judge sleeps 0.1s, inference is instant)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# REACT-AS-ATOM: UNIFIED PIPELINE TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestReactAsAtom:
+    """Tests proving react tests flow through BatteryRunner as standard RunResults.
+
+    React-as-atom: a react loop is an execution detail, not an orchestration path.
+    BatteryRunner has zero mode awareness — dispatch handles mode internally.
+    """
+
+    @pytest.fixture
+    def react_test(self):
+        """A react-mode BenchmarkCase."""
+        return BenchmarkCase(
+            id="react_categorize",
+            user="Organize the files",
+            mode="react",
+            system="You are a file organizer.",
+            mock_tools={
+                "read_file": {"./1.txt": "Content about animals"},
+                "move_file": {"_default": "File moved"},
+            },
+            tools=[
+                {"type": "function", "function": {"name": "read_file"}},
+                {"type": "function", "function": {"name": "move_file"}},
+            ],
+            max_iterations=10,
+        )
+
+    @pytest.fixture
+    def mixed_tests(self, react_test):
+        """Mixed battery: standard + react tests in one file."""
+        return [
+            BenchmarkCase(id="simple_math", user="What is 2+2?"),
+            react_test,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_react_completed_produces_run_result(self, react_test):
+        """Completed react loop produces a standard RunResult with react_trace."""
+        from prompt_prix.react.schemas import ReActIteration, ToolCall
+
+        step_count = {"n": 0}
+
+        async def mock_step(**kwargs):
+            step_count["n"] += 1
+            if step_count["n"] <= 2:
+                return {
+                    "completed": False,
+                    "final_response": None,
+                    "new_iterations": [
+                        ReActIteration(
+                            iteration=1,
+                            tool_call=ToolCall(
+                                id=f"call_{step_count['n']}",
+                                name="read_file",
+                                args={"path": f"./file{step_count['n']}.txt"},
+                            ),
+                            observation="mock data",
+                            success=True,
+                            latency_ms=50.0,
+                        )
+                    ],
+                    "call_counter": step_count["n"],
+                    "latency_ms": 50.0,
+                }
+            return {
+                "completed": True,
+                "final_response": "All files organized.",
+                "new_iterations": [],
+                "call_counter": step_count["n"],
+                "latency_ms": 30.0,
+            }
+
+        with patch("prompt_prix.react.dispatch.react_step", side_effect=mock_step):
+            runner = BatteryRunner(tests=[react_test], models=["model_a"])
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        result = final_state.get_result("react_categorize", "model_a")
+        assert result.status == RunStatus.COMPLETED
+        assert result.response == "All files organized."
+        assert result.react_trace is not None
+        assert result.react_trace["completed"] is True
+        assert result.react_trace["total_iterations"] == 2
+
+    @pytest.mark.asyncio
+    async def test_react_incomplete_is_semantic_failure(self, react_test):
+        """React loop hitting max_iterations produces SEMANTIC_FAILURE."""
+        step_count = {"n": 0}
+
+        async def mock_step(**kwargs):
+            step_count["n"] += 1
+            return {
+                "completed": False,
+                "final_response": None,
+                "new_iterations": [
+                    __import__("prompt_prix.react.schemas", fromlist=["ReActIteration"]).ReActIteration(
+                        iteration=1,
+                        tool_call=__import__("prompt_prix.react.schemas", fromlist=["ToolCall"]).ToolCall(
+                            id=f"call_{step_count['n']}",
+                            name="read_file",
+                            args={"path": f"./unique_{step_count['n']}.txt"},
+                        ),
+                        observation="data",
+                        success=True,
+                        latency_ms=50.0,
+                    )
+                ],
+                "call_counter": step_count["n"],
+                "latency_ms": 50.0,
+            }
+
+        with patch("prompt_prix.react.dispatch.react_step", side_effect=mock_step):
+            runner = BatteryRunner(tests=[react_test], models=["model_a"])
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        result = final_state.get_result("react_categorize", "model_a")
+        assert result.status == RunStatus.SEMANTIC_FAILURE
+        assert "max_iterations" in result.failure_reason
+        assert result.react_trace is not None
+        assert result.react_trace["termination_reason"] == "max_iterations"
+
+    @pytest.mark.asyncio
+    async def test_mixed_battery_unified_grid(self, mixed_tests):
+        """Standard and react tests appear in the same grid."""
+        from prompt_prix.react.schemas import ReActIteration, ToolCall
+
+        async def mock_stream(**kwargs):
+            yield "The answer is 4."
+            yield "__LATENCY_MS__:100"
+
+        async def mock_step(**kwargs):
+            return {
+                "completed": True,
+                "final_response": "Files organized.",
+                "new_iterations": [],
+                "call_counter": 0,
+                "latency_ms": 50.0,
+            }
+
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_stream), \
+             patch("prompt_prix.react.dispatch.react_step", side_effect=mock_step):
+            runner = BatteryRunner(tests=mixed_tests, models=["model_a"])
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        # Both tests in the same grid
+        assert final_state.completed_count == 2
+        assert final_state.total_count == 2
+
+        # Standard test: no react_trace
+        simple = final_state.get_result("simple_math", "model_a")
+        assert simple.status == RunStatus.COMPLETED
+        assert simple.react_trace is None
+
+        # React test: has react_trace
+        react = final_state.get_result("react_categorize", "model_a")
+        assert react.status == RunStatus.COMPLETED
+        assert react.react_trace is not None
+        assert react.react_trace["completed"] is True
+
+    @pytest.mark.asyncio
+    async def test_react_with_drift_validation(self):
+        """React test with expected_response gets drift validation on final_response."""
+        test = BenchmarkCase(
+            id="react_drift",
+            user="Organize files",
+            mode="react",
+            mock_tools={"read_file": {"_default": "data"}},
+            tools=[{"type": "function", "function": {"name": "read_file"}}],
+            expected_response="Files organized into animals and fruits",
+            max_iterations=10,
+        )
+
+        async def mock_step(**kwargs):
+            return {
+                "completed": True,
+                "final_response": "Something completely different about weather.",
+                "new_iterations": [],
+                "call_counter": 0,
+                "latency_ms": 50.0,
+            }
+
+        async def mock_drift(response, expected):
+            return 0.8  # High drift
+
+        with patch("prompt_prix.react.dispatch.react_step", side_effect=mock_step), \
+             patch("prompt_prix.mcp.tools.drift.calculate_drift", side_effect=mock_drift):
+            runner = BatteryRunner(
+                tests=[test], models=["model_a"],
+                drift_threshold=0.3,
+            )
+
+            final_state = None
+            async for state in runner.run():
+                final_state = state
+
+        result = final_state.get_result("react_drift", "model_a")
+        assert result.status == RunStatus.SEMANTIC_FAILURE
+        assert "Drift" in result.failure_reason
+        assert result.drift_score == 0.8
+        assert result.react_trace is not None  # Trace preserved even on drift failure

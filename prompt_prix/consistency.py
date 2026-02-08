@@ -29,7 +29,7 @@ from prompt_prix.battery import (
     is_retryable_error,
     CancelledError,
 )
-from prompt_prix.mcp.tools.complete import complete_stream
+from prompt_prix.react.dispatch import execute_test_case, ReactLoopIncomplete
 from prompt_prix.mcp.tools.judge import judge
 from prompt_prix.semantic_validator import validate_response_semantic
 from prompt_prix import state as app_state
@@ -81,11 +81,16 @@ class CellAggregate:
 
     @property
     def status_symbol(self) -> str:
-        """UI symbol for aggregate status."""
+        """UI symbol for aggregate status.
+
+        For CONSISTENT_FAIL, distinguishes all-error (⚠) from semantic failures (❌).
+        """
         status = self.status
         if status == ConsistencyStatus.CONSISTENT_PASS:
             return "✓"
         elif status == ConsistencyStatus.CONSISTENT_FAIL:
+            if self.errors == self.total:
+                return "⚠"
             return "❌"
         elif status == ConsistencyStatus.INCONSISTENT:
             return "🟣"
@@ -117,9 +122,20 @@ class CellAggregate:
                 return f"{avg / 1000:.1f}s"
             return "—"
 
-        # Symbols mode - show status with pass rate for inconsistent
+        # Symbols mode
         if self.status == ConsistencyStatus.INCONSISTENT:
-            return f"🟣 {self.pass_rate_display}"
+            base = f"🟣 {self.pass_rate_display}"
+            if self.errors > 0:
+                base += f" ⚠{self.errors}"
+            return base
+
+        if self.status == ConsistencyStatus.CONSISTENT_FAIL:
+            if self.errors == self.total:
+                return "⚠"
+            elif self.errors > 0:
+                return f"❌ ⚠{self.errors}"
+            return "❌"
+
         return self.status_symbol
 
 
@@ -476,8 +492,9 @@ class ConsistencyRunner:
         run_idx: int,
         seed: int
     ) -> Optional[RunResult]:
-        """Execute a single test run with a specific seed.
+        """Execute a single test run via execute_test_case() dispatch.
 
+        Mode-unaware: dispatch handles single-shot vs react internally.
         Returns the RunResult for pipelined judge submission.
         """
 
@@ -488,35 +505,26 @@ class ConsistencyRunner:
             before_sleep=before_sleep_log(logger, logging.WARNING),
             reraise=True,
         )
-        async def stream_with_retry() -> tuple[str, float]:
+        async def dispatch_with_retry():
             if app_state.should_stop():
                 raise CancelledError("Cancelled by user")
 
-            response = ""
-            latency_ms = 0.0
-
-            async for chunk in complete_stream(
+            case_result = await execute_test_case(
+                test=test,
                 model_id=model_id,
-                messages=test.to_messages(),
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 timeout_seconds=self.timeout_seconds,
-                tools=test.tools,
                 seed=seed,
-            ):
-                if chunk.startswith("__LATENCY_MS__:"):
-                    latency_ms = float(chunk.split(":")[1])
-                else:
-                    response += chunk
-
-                if app_state.should_stop():
-                    raise CancelledError("Cancelled by user")
-
-            validate_response(response)
-            return response, latency_ms
+            )
+            validate_response(case_result.response)
+            return case_result
 
         try:
-            response, latency_ms = await stream_with_retry()
+            case_result = await dispatch_with_retry()
+            response = case_result.response
+            latency_ms = case_result.latency_ms
+            react_trace = case_result.react_trace
 
             # Semantic validation
             is_valid, failure_reason = validate_response_semantic(
@@ -530,11 +538,11 @@ class ConsistencyRunner:
                     status=RunStatus.SEMANTIC_FAILURE,
                     response=response,
                     latency_ms=latency_ms,
-                    failure_reason=failure_reason
+                    failure_reason=failure_reason,
+                    react_trace=react_trace,
                 )
             else:
                 # Drift validation (fast, inline — ~50ms via embedding)
-                # Uses expected_response (exemplar text), not pass_criteria (judge rubric)
                 drift_score = None
                 drift_target = test.expected_response
                 if self.drift_threshold > 0 and drift_target:
@@ -554,7 +562,8 @@ class ConsistencyRunner:
                         response=response,
                         latency_ms=latency_ms,
                         drift_score=drift_score,
-                        failure_reason=f"Drift {drift_score:.3f} exceeds threshold {self.drift_threshold}"
+                        failure_reason=f"Drift {drift_score:.3f} exceeds threshold {self.drift_threshold}",
+                        react_trace=react_trace,
                     )
                 else:
                     result = RunResult(
@@ -563,9 +572,22 @@ class ConsistencyRunner:
                         status=RunStatus.COMPLETED,
                         response=response,
                         latency_ms=latency_ms,
-                        drift_score=drift_score
+                        drift_score=drift_score,
+                        react_trace=react_trace,
                     )
 
+            self.state.add_result(result)
+            return result
+
+        except ReactLoopIncomplete as e:
+            result = RunResult(
+                test_id=test.id,
+                model_id=model_id,
+                status=RunStatus.SEMANTIC_FAILURE,
+                response="",
+                failure_reason=e.reason,
+                react_trace=e.react_trace,
+            )
             self.state.add_result(result)
             return result
 

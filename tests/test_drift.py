@@ -149,7 +149,7 @@ class TestBatteryRunnerDrift:
         async def mock_drift(text_a, text_b):
             return 0.15  # Below threshold
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.mcp.tools.drift.calculate_drift", side_effect=mock_drift):
             runner = BatteryRunner(
                 tests=tests_with_criteria[:1],
@@ -174,7 +174,7 @@ class TestBatteryRunnerDrift:
         async def mock_drift(text_a, text_b):
             return 0.65  # Above threshold
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.mcp.tools.drift.calculate_drift", side_effect=mock_drift):
             runner = BatteryRunner(
                 tests=tests_with_criteria[:1],
@@ -197,7 +197,7 @@ class TestBatteryRunnerDrift:
         async def mock_complete_stream(**kwargs):
             yield "Some response"
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
                 tests=tests_with_criteria[:1],
                 models=["model_a"],
@@ -218,7 +218,7 @@ class TestBatteryRunnerDrift:
         async def mock_complete_stream(**kwargs):
             yield "Hello!"
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream):
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream):
             runner = BatteryRunner(
                 tests=tests_without_criteria,
                 models=["model_a"],
@@ -242,7 +242,7 @@ class TestBatteryRunnerDrift:
         async def mock_drift(text_a, text_b):
             raise RuntimeError("Embedding server unreachable")
 
-        with patch("prompt_prix.battery.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.mcp.tools.drift.calculate_drift", side_effect=mock_drift):
             runner = BatteryRunner(
                 tests=tests_with_criteria[:1],
@@ -278,7 +278,7 @@ class TestConsistencyRunnerDrift:
             call_count["drift"] += 1
             return 0.15
 
-        with patch("prompt_prix.consistency.complete_stream", side_effect=mock_complete_stream), \
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_complete_stream), \
              patch("prompt_prix.mcp.tools.drift.calculate_drift", side_effect=mock_drift):
             runner = ConsistencyRunner(
                 tests=tests_with_criteria[:1],
