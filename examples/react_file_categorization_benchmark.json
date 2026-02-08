@@ -1,0 +1,471 @@
+{
+  "test_suite": "las_react_file_categorization_v1",
+  "version": "1.0",
+  "description": "ReAct loop evaluation for file categorization. Sourced from LAS production archives (logs/archive/*.zip). Tests model ability to maintain tool-call coherence over iterative execution — the primary failure mode observed in production (ADR-CORE-064).",
+  "prompts": [
+    {
+      "id": "categorize_6_files_with_dirs",
+      "name": "Categorize 6 files into existing category directories",
+      "category": "react_core",
+      "severity": "critical",
+      "mode": "react",
+      "system": "You are a file organization specialist. You have tools to interact with the filesystem: list directories, read files, create directories, and move files.\n\nYour task is to organize files by reading their contents and moving them to the appropriate category folder.\n\nRules:\n1. Read each file to understand its content before moving\n2. Move files to the most appropriate category directory\n3. Destination paths MUST include the filename (e.g., animals/1.txt, NOT just animals/)\n4. Do NOT create directories that already exist\n5. When finished, stop calling tools",
+      "user": "Organize the files in ./categories_test/ into the category folders based on their content.",
+      "max_iterations": 20,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "list_directory",
+            "description": "List files and subdirectories in a directory. Returns entries prefixed with [FILE] or [DIR].",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Directory path to list"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "description": "Read the contents of a text file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "File path to read"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "create_directory",
+            "description": "Create a new directory. Parent directories are created automatically.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Directory path to create"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "move_file",
+            "description": "Move a file from source to destination path.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "Current file path"
+                },
+                "destination": {
+                  "type": "string",
+                  "description": "Target file path (must include filename)"
+                }
+              },
+              "required": ["source", "destination"]
+            }
+          }
+        }
+      ],
+      "mock_tools": {
+        "list_directory": {
+          "./categories_test": "[FILE] ./categories_test/1.txt\n[FILE] ./categories_test/2.txt\n[FILE] ./categories_test/3.txt\n[FILE] ./categories_test/4.txt\n[FILE] ./categories_test/5.txt\n[FILE] ./categories_test/6.txt\n[DIR] ./categories_test/animals\n[DIR] ./categories_test/fruits\n[DIR] ./categories_test/colors",
+          "./categories_test/": "[FILE] ./categories_test//1.txt\n[FILE] ./categories_test//2.txt\n[FILE] ./categories_test//3.txt\n[FILE] ./categories_test//4.txt\n[FILE] ./categories_test//5.txt\n[FILE] ./categories_test//6.txt\n[DIR] ./categories_test//animals\n[DIR] ./categories_test//fruits\n[DIR] ./categories_test//colors"
+        },
+        "read_file": {
+          "./categories_test/1.txt": "The zebra is a striped animal native to Africa. It belongs to the horse family.\n",
+          "./categories_test/2.txt": "An apple is a delicious fruit that grows on trees. Popular varieties include Fuji and Braeburn.\n",
+          "./categories_test/3.txt": "The sky appears blue due to Rayleigh scattering of sunlight in the atmosphere.\n",
+          "./categories_test/4.txt": "Elephants are the largest land mammals. They have excellent memory and complex social structures.\n",
+          "./categories_test/5.txt": "Bananas are tropical fruits rich in potassium. They grow in clusters called hands.\n",
+          "./categories_test/6.txt": "Red is a primary color associated with passion, energy, and warmth.\n"
+        },
+        "create_directory": {
+          "_default": "Directory created"
+        },
+        "move_file": {
+          "_default": "File moved successfully"
+        }
+      },
+      "pass_criteria": "Model reads all 6 files and moves each to the correct category (animals: 1,4; fruits: 2,5; colors: 3,6). All move_file calls have valid source and destination with filename included. No garbled paths or empty arguments.",
+      "expected_response": "All 6 files categorized: 1.txt and 4.txt moved to animals/, 2.txt and 5.txt moved to fruits/, 3.txt and 6.txt moved to colors/."
+    },
+    {
+      "id": "categorize_6_files_create_dirs",
+      "name": "Categorize 6 files — must create category directories first",
+      "category": "react_core",
+      "severity": "critical",
+      "mode": "react",
+      "system": "You are a file organization specialist. You have tools to interact with the filesystem: list directories, read files, create directories, and move files.\n\nYour task is to organize files by reading their contents and moving them to the appropriate category folder.\n\nRules:\n1. List the directory to see what files exist\n2. Read each file to understand its content\n3. Create category directories as needed\n4. Move files to the correct category\n5. Destination paths MUST include the filename (e.g., animals/1.txt)\n6. When finished, stop calling tools",
+      "user": "Organize the files in ./sort_test/ into logical categories based on their content. Create appropriate category directories and move each file to its category.",
+      "max_iterations": 25,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "list_directory",
+            "description": "List files and subdirectories in a directory. Returns entries prefixed with [FILE] or [DIR].",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Directory path to list"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "description": "Read the contents of a text file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "File path to read"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "create_directory",
+            "description": "Create a new directory. Parent directories are created automatically.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Directory path to create"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "move_file",
+            "description": "Move a file from source to destination path.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "Current file path"
+                },
+                "destination": {
+                  "type": "string",
+                  "description": "Target file path (must include filename)"
+                }
+              },
+              "required": ["source", "destination"]
+            }
+          }
+        }
+      ],
+      "mock_tools": {
+        "list_directory": {
+          "./sort_test": "[FILE] ./sort_test/1.txt\n[FILE] ./sort_test/2.txt\n[FILE] ./sort_test/3.txt\n[FILE] ./sort_test/4.txt\n[FILE] ./sort_test/5.txt\n[FILE] ./sort_test/6.txt",
+          "./sort_test/": "[FILE] ./sort_test//1.txt\n[FILE] ./sort_test//2.txt\n[FILE] ./sort_test//3.txt\n[FILE] ./sort_test//4.txt\n[FILE] ./sort_test//5.txt\n[FILE] ./sort_test//6.txt"
+        },
+        "read_file": {
+          "./sort_test/1.txt": "The zebra is a striped animal native to Africa. It belongs to the horse family.\n",
+          "./sort_test/2.txt": "An apple is a delicious fruit that grows on trees. Popular varieties include Fuji and Braeburn.\n",
+          "./sort_test/3.txt": "The sky appears blue due to Rayleigh scattering of sunlight in the atmosphere.\n",
+          "./sort_test/4.txt": "Elephants are the largest land mammals. They have excellent memory and complex social structures.\n",
+          "./sort_test/5.txt": "Bananas are tropical fruits rich in potassium. They grow in clusters called hands.\n",
+          "./sort_test/6.txt": "Red is a primary color associated with passion, energy, and warmth.\n"
+        },
+        "create_directory": {
+          "_default": "Directory created"
+        },
+        "move_file": {
+          "_default": "File moved successfully"
+        }
+      },
+      "pass_criteria": "Model discovers files via list_directory, reads contents, creates appropriate category directories, then moves all 6 files correctly. Categories should be semantically correct (animals for zebra/elephants, fruits for apple/bananas, colors for blue sky/red). No directories exist initially — model must create them.",
+      "expected_response": "Created 3 category directories and moved all 6 files: animals (1.txt zebra, 4.txt elephants), fruits (2.txt apple, 5.txt bananas), colors (3.txt blue sky, 6.txt red)."
+    },
+    {
+      "id": "categorize_with_eisdir_recovery",
+      "name": "Recover from EISDIR error on move (production failure pattern)",
+      "category": "error_recovery",
+      "severity": "critical",
+      "mode": "react",
+      "system": "You are a file organization specialist. You have tools to interact with the filesystem: list directories, read files, create directories, and move files.\n\nYour task is to organize files by reading their contents and moving them to the appropriate category folder.\n\nRules:\n1. Read files to understand content before moving\n2. Destination paths MUST include the filename (e.g., animals/1.txt, NOT just animals/)\n3. If a move fails, read the error message carefully and fix your approach\n4. When finished, stop calling tools",
+      "user": "Move the remaining files in ./categories_test/ into the existing category folders based on their content.",
+      "max_iterations": 15,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "list_directory",
+            "description": "List files and subdirectories in a directory. Returns entries prefixed with [FILE] or [DIR].",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Directory path to list"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "description": "Read the contents of a text file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "File path to read"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "move_file",
+            "description": "Move a file from source to destination path.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "Current file path"
+                },
+                "destination": {
+                  "type": "string",
+                  "description": "Target file path (must include filename)"
+                }
+              },
+              "required": ["source", "destination"]
+            }
+          }
+        }
+      ],
+      "mock_tools": {
+        "list_directory": {
+          "./categories_test": "[FILE] ./categories_test/4.txt\n[FILE] ./categories_test/5.txt\n[FILE] ./categories_test/6.txt\n[DIR] ./categories_test/animals\n[DIR] ./categories_test/fruits\n[DIR] ./categories_test/colors",
+          "./categories_test/": "[FILE] ./categories_test//4.txt\n[FILE] ./categories_test//5.txt\n[FILE] ./categories_test//6.txt\n[DIR] ./categories_test//animals\n[DIR] ./categories_test//fruits\n[DIR] ./categories_test//colors"
+        },
+        "read_file": {
+          "./categories_test/4.txt": "Elephants are the largest land mammals. They have excellent memory and complex social structures.\n",
+          "./categories_test/5.txt": "Bananas are tropical fruits rich in potassium. They grow in clusters called hands.\n",
+          "./categories_test/6.txt": "Red is a primary color associated with passion, energy, and warmth.\n"
+        },
+        "move_file": {
+          "{\"destination\": \"./categories_test/animals/\", \"source\": \"./categories_test/4.txt\"}": "Error: External MCP tool call failed: filesystem.move_file()\nError: EISDIR: illegal operation on a directory, rename '/workspace/categories_test/4.txt' -> '/workspace/categories_test/animals'\nThis is a fail-fast error (no fallback in Stage 1).\n\nHint: You previously succeeded with: ./categories_test/4.txt\nDid you forget the directory prefix?",
+          "{\"destination\": \"./categories_test/fruits/\", \"source\": \"./categories_test/5.txt\"}": "Error: External MCP tool call failed: filesystem.move_file()\nError: EISDIR: illegal operation on a directory, rename '/workspace/categories_test/5.txt' -> '/workspace/categories_test/fruits'\nThis is a fail-fast error (no fallback in Stage 1).\n\nHint: You previously succeeded with: ./categories_test/5.txt\nDid you forget the directory prefix?",
+          "{\"destination\": \"./categories_test/colors/\", \"source\": \"./categories_test/6.txt\"}": "Error: External MCP tool call failed: filesystem.move_file()\nError: EISDIR: illegal operation on a directory, rename '/workspace/categories_test/6.txt' -> '/workspace/categories_test/colors'\nThis is a fail-fast error (no fallback in Stage 1).\n\nHint: You previously succeeded with: ./categories_test/6.txt\nDid you forget the directory prefix?",
+          "_default": "File moved successfully"
+        }
+      },
+      "pass_criteria": "Model recovers from EISDIR errors by including the filename in the destination path. If it first tries animals/ (directory-only), it should learn from the error and retry with animals/4.txt. All 3 files must be moved successfully. Tests error recovery under accumulated context.",
+      "expected_response": "Moved 3 files with error recovery: 4.txt to animals/4.txt, 5.txt to fruits/5.txt, 6.txt to colors/6.txt. Recovered from EISDIR errors by including filename in destination."
+    },
+    {
+      "id": "categorize_ambiguous_content",
+      "name": "Categorize files with ambiguous cross-category content",
+      "category": "semantic_reasoning",
+      "severity": "warning",
+      "mode": "react",
+      "system": "You are a file organization specialist. You have tools to interact with the filesystem: list directories, read files, create directories, and move files.\n\nYour task is to organize files by reading their contents and moving them to the appropriate category folder.\n\nRules:\n1. Read each file to understand its content\n2. Categorize by the PRIMARY subject, not secondary references\n3. A flamingo is primarily an animal (not a color, despite being pink)\n4. Orange juice is primarily a fruit product (not a color, despite the word 'orange')\n5. A golden retriever is primarily an animal (not a color, despite 'golden')\n6. Destination paths MUST include the filename\n7. When finished, stop calling tools",
+      "user": "Organize the files in ./ambiguous_test/ into the category folders. Some files reference multiple categories — use your best judgment to categorize by primary subject.",
+      "max_iterations": 15,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "list_directory",
+            "description": "List files and subdirectories in a directory. Returns entries prefixed with [FILE] or [DIR].",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Directory path to list"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "description": "Read the contents of a text file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "File path to read"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "move_file",
+            "description": "Move a file from source to destination path.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "Current file path"
+                },
+                "destination": {
+                  "type": "string",
+                  "description": "Target file path (must include filename)"
+                }
+              },
+              "required": ["source", "destination"]
+            }
+          }
+        }
+      ],
+      "mock_tools": {
+        "list_directory": {
+          "./ambiguous_test": "[FILE] ./ambiguous_test/a.txt\n[FILE] ./ambiguous_test/b.txt\n[FILE] ./ambiguous_test/c.txt\n[DIR] ./ambiguous_test/animals\n[DIR] ./ambiguous_test/fruits\n[DIR] ./ambiguous_test/colors",
+          "./ambiguous_test/": "[FILE] ./ambiguous_test//a.txt\n[FILE] ./ambiguous_test//b.txt\n[FILE] ./ambiguous_test//c.txt\n[DIR] ./ambiguous_test//animals\n[DIR] ./ambiguous_test//fruits\n[DIR] ./ambiguous_test//colors"
+        },
+        "read_file": {
+          "./ambiguous_test/a.txt": "The flamingo is a pink bird found in tropical regions. Its distinctive color comes from its diet.\n",
+          "./ambiguous_test/b.txt": "Orange juice is made from oranges and is rich in vitamin C. It is one of the most popular beverages.\n",
+          "./ambiguous_test/c.txt": "The golden retriever has a beautiful golden coat. They are one of the most popular dog breeds.\n"
+        },
+        "move_file": {
+          "_default": "File moved successfully"
+        }
+      },
+      "pass_criteria": "Model categorizes by primary subject: a.txt (flamingo) to animals/ (not colors despite 'pink'), b.txt (orange juice) to fruits/ (not colors despite 'orange'), c.txt (golden retriever) to animals/ (not colors despite 'golden'). All move_file destinations include the filename.",
+      "expected_response": "Categorized 3 ambiguous files by primary subject: a.txt (flamingo) to animals, b.txt (orange juice) to fruits, c.txt (golden retriever) to animals."
+    },
+    {
+      "id": "categorize_documents_by_type",
+      "name": "Categorize technical documents (ADRs, specs, notes)",
+      "category": "domain_transfer",
+      "severity": "warning",
+      "mode": "react",
+      "system": "You are a file organization specialist. You have tools to interact with the filesystem: list directories, read files, create directories, and move files.\n\nYour task is to organize documents by reading their contents and moving them to the appropriate type folder.\n\nRules:\n1. Read each document to understand its type\n2. Architecture Decision Records (ADRs) have titles like 'ADR-NNN' and Status/Context/Decision sections\n3. API specifications describe endpoints and data formats\n4. Meeting notes list attendees and discussion topics\n5. Destination paths MUST include the filename\n6. When finished, stop calling tools",
+      "user": "Organize the documents in ./docs_test/ into the type folders based on their content.",
+      "max_iterations": 15,
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "list_directory",
+            "description": "List files and subdirectories in a directory. Returns entries prefixed with [FILE] or [DIR].",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "Directory path to list"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "read_file",
+            "description": "Read the contents of a text file.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "description": "File path to read"
+                }
+              },
+              "required": ["path"]
+            }
+          }
+        },
+        {
+          "type": "function",
+          "function": {
+            "name": "move_file",
+            "description": "Move a file from source to destination path.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "description": "Current file path"
+                },
+                "destination": {
+                  "type": "string",
+                  "description": "Target file path (must include filename)"
+                }
+              },
+              "required": ["source", "destination"]
+            }
+          }
+        }
+      ],
+      "mock_tools": {
+        "list_directory": {
+          "./docs_test": "[FILE] ./docs_test/doc1.md\n[FILE] ./docs_test/doc2.md\n[FILE] ./docs_test/doc3.md\n[FILE] ./docs_test/doc4.md\n[DIR] ./docs_test/adrs\n[DIR] ./docs_test/specs\n[DIR] ./docs_test/notes"
+        },
+        "read_file": {
+          "./docs_test/doc1.md": "# ADR-001: Use PostgreSQL for persistence\n\n## Status\nAccepted\n\n## Context\nWe need a relational database that supports JSONB columns for semi-structured data.\n\n## Decision\nUse PostgreSQL 15+ with JSONB columns for flexible schema evolution.\n",
+          "./docs_test/doc2.md": "# API Specification v2.0\n\n## Endpoints\n\nGET /users - Returns list of users\nPOST /users - Create a new user\nGET /users/{id} - Returns a specific user\nDELETE /users/{id} - Delete a user\n\n## Authentication\nAll endpoints require Bearer token.\n",
+          "./docs_test/doc3.md": "Meeting notes 2024-01-15\n\nAttendees: Alice, Bob, Charlie\n\nDiscussed timeline for Q1 deliverables. Alice will lead the API redesign. Bob raised concerns about database migration timeline. Next meeting: Jan 22.\n",
+          "./docs_test/doc4.md": "# ADR-002: Adopt TypeScript for Frontend\n\n## Status\nProposed\n\n## Context\nOur JavaScript codebase has grown to 50k+ lines with increasing type-related bugs.\n\n## Decision\nMigrate frontend to TypeScript with strict mode enabled.\n"
+        },
+        "move_file": {
+          "_default": "File moved successfully"
+        }
+      },
+      "pass_criteria": "Model correctly identifies document types: doc1.md and doc4.md are ADRs (move to adrs/), doc2.md is an API spec (move to specs/), doc3.md is meeting notes (move to notes/). All 4 files moved with filename in destination path.",
+      "expected_response": "Organized 4 documents: doc1.md (ADR-001) and doc4.md (ADR-002) to adrs/, doc2.md (API spec) to specs/, doc3.md (meeting notes) to notes/."
+    }
+  ]
+}
