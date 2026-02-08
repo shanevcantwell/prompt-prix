@@ -136,6 +136,57 @@ class HostAdapter(Protocol):
 
 ServerPool and ConcurrentDispatcher are LM Studio concepts. Other backends have different resource models. The adapter encapsulates its internals — orchestration never sees these classes.
 
+## Timeout Contract
+
+A single MCP tool call (e.g. `complete`) passes through three layers, each with different timeout semantics:
+
+```
+MCP Client (LAS)          prompt-prix              LM Studio
+────────────────          ───────────              ─────────
+client timeout_ms    →    no MCP-layer timeout  →  httpx timeout
+(client controls)         (FastMCP has none)       (= task.timeout_seconds)
+```
+
+| Layer | Timeout | Default | Scope |
+|-------|---------|---------|-------|
+| **MCP transport** | None | — | FastMCP imposes no timeout. The client (LAS) must set its own `timeout_ms` on the MCP call. |
+| **Dispatcher queue** | **Unbounded** | — | `ConcurrentDispatcher.submit()` awaits a server slot with no timeout. If all servers are busy, the call blocks until one frees up. This is intentional: queue wait is excluded from latency measurement. |
+| **HTTP inference** | `task.timeout_seconds` | 300s (`complete`), 60s (`InferenceTask` default) | Applied to the httpx client. Covers connection + streaming from LM Studio. |
+
+### Implications for MCP clients
+
+**Single primitive call** (`complete`, `judge`, `react_step`): Wall-clock time = queue wait + inference. With idle servers, queue wait is near-zero and 300s covers even large generations. With busy servers (battery running on the same adapter), queue wait could be minutes — the call blocks in the dispatcher until a slot opens.
+
+**`react_step` in a loop**: Each step is one MCP call. Total wall-clock for an N-step react loop = N × (queue wait + inference). The MCP client controls the loop and can bail out at any point.
+
+**Battery orchestration** (future `run_battery` tool): Would dispatch the entire test matrix internally. Could run 5-30 minutes. A single MCP tool call sitting open that long is architecturally awkward. Options when this becomes needed:
+1. **Progress notifications** via MCP notifications (MCP protocol supports `notifications/progress`)
+2. **Async pattern**: `start_battery` returns a run ID, `poll_battery` checks status
+3. **Keep it out of MCP**: Battery is an orchestration concern — run via Gradio UI or a script, not as an MCP tool
+
+### What happens on MCP connection drop
+
+If the MCP client times out or disconnects while a tool call is in-flight:
+- The stdio pipe closes
+- FastMCP's event loop exits
+- Any in-flight `await` (dispatcher queue or httpx stream) raises `CancelledError`
+- `ConcurrentDispatcher.submit()` handles cancellation: if a server was already acquired, it's released back to the pool (lines 184-196 of `lmstudio.py`)
+- No orphaned state — the adapter cleans up
+
+### Setting client-side timeout
+
+For LAS or other MCP clients, recommended `timeout_ms`:
+
+| Tool | Recommended | Rationale |
+|------|-------------|-----------|
+| `list_models` | 30s | Network round-trip to each server |
+| `complete` | 600s | 300s inference + up to 300s queue wait |
+| `react_step` | 600s | Same as `complete` (one inference call) |
+| `judge` | 600s | Same as `complete` (uses LLM inference internally) |
+| `calculate_drift` | 10s | Near-instant embedding cosine distance |
+| `analyze_variants`, `analyze_trajectory`, `compare_trajectories` | 10s | Embedding-based, no LLM inference |
+| `generate_variants` | 600s | Uses LLM inference |
+
 ## Battery Execution: Pipelined Judging
 
 When a judge model is selected, BatteryRunner uses **pipelined execution** — judge tasks are submitted eagerly as inference results complete, rather than waiting for all inference to finish first:
