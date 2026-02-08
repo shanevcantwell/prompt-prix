@@ -9,9 +9,10 @@ This guide explains how to extend prompt-prix with new features, following the e
 3. [Adding a New Export Format](#adding-a-new-export-format)
 4. [Modifying the Session State](#modifying-the-session-state)
 5. [Customizing Semantic Validation](#customizing-semantic-validation)
-6. [Adding Tests](#adding-tests)
-7. [Common Patterns](#common-patterns)
-8. [Gotchas and Tips](#gotchas-and-tips)
+6. [Adding a New Test Mode](#adding-a-new-test-mode)
+7. [Adding Tests](#adding-tests)
+8. [Common Patterns](#common-patterns)
+9. [Gotchas and Tips](#gotchas-and-tips)
 
 ---
 
@@ -493,6 +494,40 @@ class TestMyNewValidation:
         is_valid, reason = validate_response_semantic(test, response)
         assert is_valid is True
 ```
+
+---
+
+## Adding a New Test Mode
+
+Test modes control how a `BenchmarkCase` is executed. The dispatch function in `react/dispatch.py` is the **single point** that reads `test.mode` and routes to the appropriate execution strategy.
+
+### How It Works
+
+Currently two modes exist:
+- `mode=None` (default) — single-shot completion via `complete_stream()`
+- `mode="react"` — multi-step tool-use loop via `react_step()` × N
+
+### Adding a New Mode
+
+1. **Add the mode branch** in `react/dispatch.py`:
+
+```python
+async def execute_test_case(test, model_id, ...) -> CaseResult:
+    if test.mode == "react":
+        return await _execute_react(...)
+    elif test.mode == "chain":
+        return await _execute_chain(...)  # Your new mode
+    else:
+        return await _execute_single_shot(...)
+```
+
+2. **Implement the execution function** — it must return a `CaseResult(response, latency_ms, react_trace)`. Use `react_trace` for any mode-specific metadata you want visible in the detail view.
+
+3. **No changes needed** in `BatteryRunner`, `ConsistencyRunner`, or the handler. The orchestration layer is mode-unaware — it calls `execute_test_case()` and processes the `CaseResult` identically regardless of mode.
+
+4. **Add `BenchmarkCase.mode` value** — the new mode string must be accepted by the benchmark case loader if tests specify it in JSON/YAML.
+
+This is the power of the dispatch pattern: new execution strategies are invisible to the rest of the system.
 
 ---
 

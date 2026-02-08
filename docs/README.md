@@ -41,11 +41,14 @@ prompt-prix complements these tools by providing a visual layer for side-by-side
 4. **Semantic Validation** - Detect model refusals, missing tool calls, and verdict mismatches (not just HTTP success)
 5. **Promptfoo Support** - Load test suites from promptfoo YAML files with `expected_verdict` validation
 6. **LLM-as-Judge** - Select a judge model for semantic pass/fail evaluation
-7. **Session Persistence** - Save and restore UI state
-8. **Export** - Generate Markdown/JSON/CSV reports for analysis
-9. **Image Attachment** - Send images to vision models in Compare tab
-10. **Reproducible Outputs** - Optional seed parameter for deterministic results
-11. **Repeat Penalty** - Configurable penalty to reduce repetitive outputs
+7. **ReAct Loop Evaluation** - Execute multi-step tool-use loops with cycle detection and trace recording
+8. **Embedding Drift Validation** - Compare model responses against expected exemplars via semantic distance
+9. **Consistency Testing** - Run each test N times with different seeds to identify variance
+10. **Session Persistence** - Save and restore UI state
+11. **Export** - Generate Markdown/JSON/CSV reports for analysis
+12. **Image Attachment** - Send images to vision models in Compare tab
+13. **Reproducible Outputs** - Optional seed parameter for deterministic results
+14. **Repeat Penalty** - Configurable penalty to reduce repetitive outputs
 
 ## Documentation Index
 
@@ -63,6 +66,11 @@ prompt-prix complements these tools by providing a visual layer for side-by-side
 | [ADR-001](adr/001-use-existing-benchmarks.md) | Use existing benchmarks instead of custom eval schema |
 | [ADR-002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
 | [ADR-003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as integration layer |
+| [ADR-006](adr/ADR-006-adapter-resource-ownership.md) | Adapters own their resource management |
+| [ADR-008](adr/ADR-008-judge-scheduling.md) | Pipelined judge scheduling for multi-GPU efficiency |
+| [ADR-009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
+| [ADR-010](adr/ADR-010-consistency-runner.md) | Multi-run consistency analysis |
+| [ADR-011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation |
 
 ## Quick Start for Developers
 
@@ -140,6 +148,7 @@ Battery tests validate responses beyond HTTP success:
 | Refusal detection | Common refusal phrases |
 | Tool call validation | When `tool_choice: "required"` |
 | Verdict matching | When `pass_criteria` specifies expected verdict |
+| Drift validation | When `expected_response` set and `drift_threshold > 0` |
 
 See [EXTENDING.md](EXTENDING.md) for customizing validation.
 
@@ -168,15 +177,31 @@ The codebase follows patterns documented in `.claude/CLAUDE.md`:
 ```
 prompt_prix/
 ├── __init__.py           # Package version
+├── main.py               # Entry point, adapter registration
+├── ui.py                 # Gradio UI definition
+├── handlers.py           # Shared event handlers (fetch, stop)
+├── state.py              # Global mutable state
+├── core.py               # ComparisonSession (orchestration)
+├── battery.py            # BatteryRunner (orchestration)
+├── consistency.py        # ConsistencyRunner - multi-run variance testing
 ├── config.py             # Pydantic models, constants, env loading
-├── core.py               # ServerPool, ComparisonSession, streaming
-├── handlers.py           # Gradio event handlers (async)
-├── ui.py                 # Gradio component definitions
 ├── parsers.py            # Text parsing utilities
 ├── export.py             # Markdown/JSON report generation
-├── state.py              # Global mutable state (session, server_pool)
 ├── semantic_validator.py # Refusal detection, tool call validation
-└── main.py               # Entry point, re-exports for backwards compat
+├── react/                # ReAct loop execution
+│   ├── dispatch.py       # execute_test_case() — single dispatch
+│   ├── schemas.py        # ReActIteration, ToolCall data models
+│   └── cycle_detection.py
+├── mcp/
+│   ├── registry.py       # Adapter registry
+│   └── tools/            # MCP primitives (complete, react_step, judge, drift)
+├── tabs/
+│   ├── battery/handlers.py
+│   └── compare/handlers.py
+├── adapters/
+│   ├── base.py           # HostAdapter protocol
+│   └── lmstudio.py       # LMStudioAdapter
+└── benchmarks/           # Test case loaders (JSON, JSONL, Promptfoo YAML)
 ```
 
 ## Next Steps

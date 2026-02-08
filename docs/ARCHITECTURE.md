@@ -73,7 +73,8 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the codebase has strict la
 
 | Layer | MAY Import | MUST NOT Import |
 |-------|------------|-----------------|
-| **Orchestration** (BatteryRunner, ComparisonSession) | `mcp.tools.*`, `mcp.registry` | `adapters/*`, ServerPool, ConcurrentDispatcher |
+| **Orchestration** (BatteryRunner, ConsistencyRunner, ComparisonSession) | `react.dispatch`, `mcp.tools.*`, `mcp.registry` | `adapters/*`, ServerPool, ConcurrentDispatcher |
+| **Dispatch** (`react/dispatch.py`) | `mcp.tools.*`, `react.schemas`, `react.cycle_detection` | `adapters/*`, orchestration |
 | **MCP Primitives** | `adapters.base.HostAdapter` (protocol), `mcp.registry` | Concrete adapter classes, ServerPool |
 | **Adapters** | httpx, internal utilities | Nothing from orchestration or MCP |
 
@@ -94,12 +95,18 @@ prompt_prix/
 ├── config.py            # Pydantic models, constants, env loading
 ├── parsers.py           # Input parsing utilities
 ├── export.py            # Report generation
-├── battery.py           # BatteryRunner (orchestration) - calls MCP tools
+├── battery.py           # BatteryRunner (orchestration) - calls execute_test_case()
 ├── consistency.py       # ConsistencyRunner - multi-run variance testing
+├── react/               # ReAct loop execution
+│   ├── dispatch.py      # execute_test_case() — single dispatch (ONLY mode reader)
+│   ├── schemas.py       # ReActIteration, ToolCall data models
+│   └── cycle_detection.py # Stagnation / cycle detection
 ├── mcp/
 │   ├── registry.py      # Adapter registry (get_adapter, register_adapter)
 │   └── tools/
-│       ├── complete.py  # complete, complete_stream primitives
+│       ├── complete.py  # complete, complete_stream, latency sentinel utilities
+│       ├── react_step.py # Stateless single ReAct iteration primitive
+│       ├── drift.py     # Embedding-based semantic drift calculation
 │       ├── judge.py     # LLM-as-judge evaluation
 │       └── list_models.py
 ├── tabs/
@@ -263,18 +270,31 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three
 │                        ORCHESTRATION                            │
 │  BatteryRunner │ ConsistencyRunner │ ComparisonSession          │
 │                                                                 │
-│  • Calls MCP primitives ONLY — never adapters directly          │
-│  • Controls concurrency via semaphore                           │
+│  • Zero mode awareness — doesn't know react from single-shot   │
+│  • Calls execute_test_case(), receives CaseResult              │
+│  • Controls concurrency, validation pipeline (refusal → drift) │
 │  • NEVER IMPORTS: adapters/*, ServerPool, ConcurrentDispatcher  │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ execute_test_case(test, model_id, ...)
+                            ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                     DISPATCH (react/dispatch.py)                │
+│                                                                 │
+│  execute_test_case() — the ONLY place that reads test.mode      │
+│    mode=None    → _execute_single_shot() → complete_stream()    │
+│    mode="react" → _execute_react() → react_step() × N          │
+│                                                                 │
+│  Returns CaseResult(response, latency_ms, react_trace)          │
+│  Raises ReactLoopIncomplete on cycle / max_iterations           │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ MCP tool call
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                       MCP PRIMITIVES                            │
-│  complete │ complete_stream │ judge │ list_models               │
+│  complete_stream │ react_step │ judge │ drift │ list_models     │
 │                                                                 │
 │  • Receives adapter via registry (get_adapter())                │
-│  • Stateless pass-through                                       │
+│  • Stateless — no mode awareness                                │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ adapter.stream_completion()
                             ↓
@@ -284,10 +304,6 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three
 │  LMStudioAdapter                                                │
 │    INTERNAL: ServerPool, ConcurrentDispatcher, httpx            │
 │    STRATEGY: Multi-GPU parallel dispatch                        │
-│                                                                 │
-│  SurfMcpAdapter                                                 │
-│    INTERNAL: browser session                                    │
-│    STRATEGY: Sequential (one browser)                           │
 │                                                                 │
 │  HFInferenceAdapter                                             │
 │    INTERNAL: API client, rate limiter                           │
@@ -666,6 +682,54 @@ Key methods in `battery.py`:
 When no judge model is set, `_execute_inference_phase()` runs directly with no pipelining overhead.
 
 See [ADR-008](adr/ADR-008-judge-scheduling-strategy.md) for the evolution from two-phase to pipelined scheduling.
+
+## ReAct Loop Execution
+
+Tests can specify `mode="react"` to evaluate multi-step tool-use loops. The key design decision: **a react loop is just another way to produce a pass/fail verdict for a (test, model) cell.** React tests flow through the same `BatteryRunner`/`ConsistencyRunner` pipeline as standard tests — they get drift validation, judge evaluation, and consistency testing for free.
+
+### Dispatch Layer
+
+`react/dispatch.py` contains `execute_test_case()`, the **single dispatch function** and the ONLY place that reads `test.mode`:
+
+```python
+async def execute_test_case(test, model_id, ...) -> CaseResult:
+    if test.mode == "react":
+        return await _execute_react(...)    # react_step() × N
+    else:
+        return await _execute_single_shot(...)  # complete_stream()
+```
+
+Orchestration above has zero mode awareness. MCP tools below have zero mode awareness.
+
+### CaseResult → RunResult Flow
+
+| `CaseResult` field | `RunResult` field | Notes |
+|-------------------|-------------------|-------|
+| `response` | `response` | Final text answer (model output or react loop conclusion) |
+| `latency_ms` | `latency_ms` | Total inference time (summed across all steps for react) |
+| `react_trace` | `react_trace` | `None` for single-shot; dict with iteration detail for react |
+
+### React Loop Mechanics
+
+The react loop in `_execute_react()`:
+1. Calls `react_step()` MCP primitive (stateless — takes trace in, returns one step out)
+2. Accumulates `ReActIteration` objects in the trace
+3. Checks for stagnation via `detect_cycle_with_pattern()` after each step
+4. If the model responds with text only (no tool calls), the loop completes
+5. If `max_iterations` is exhausted or a cycle is detected, raises `ReactLoopIncomplete`
+
+### Error Handling
+
+| Outcome | Result |
+|---------|--------|
+| Loop completes (model gives final text answer) | `CaseResult` with `react_trace` → `RunResult(COMPLETED)` |
+| Cycle detected (model repeats tool call pattern) | `ReactLoopIncomplete` → `RunResult(SEMANTIC_FAILURE)` |
+| Max iterations exhausted | `ReactLoopIncomplete` → `RunResult(SEMANTIC_FAILURE)` |
+| Infrastructure error (connection, timeout) | Exception propagates → `RunResult(ERROR)` |
+
+### Detail View
+
+When a user clicks a react test cell in the battery grid, the detail view renders the `react_trace` dict showing each iteration: tool name, arguments, observation, success/fail status, and latency.
 
 ## Consistency Testing
 
