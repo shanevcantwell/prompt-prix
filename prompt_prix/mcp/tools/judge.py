@@ -120,11 +120,18 @@ def _parse_judge_response(response: str) -> dict:
 
     Attempts to extract JSON from the response, with fallback heuristics.
     """
-    # Try to find JSON in the response
-    # Sometimes models wrap JSON in markdown code blocks
+    # Strip <think>...</think> blocks (Qwen, DeepSeek reasoning models)
+    response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
+
+    # Try to find JSON in markdown code blocks first
     json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", response, re.DOTALL)
     if json_match:
         response = json_match.group(1)
+    else:
+        # Try to find a JSON object anywhere in the response
+        json_match = re.search(r"\{[^{}]*\"pass\"[^{}]*\}", response, re.DOTALL)
+        if json_match:
+            response = json_match.group(0)
 
     # Try direct JSON parse
     try:
