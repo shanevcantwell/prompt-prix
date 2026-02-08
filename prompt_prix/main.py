@@ -43,33 +43,9 @@ load_dotenv()
 
 
 def _register_default_adapter() -> None:
-    """
-    Register the appropriate adapter based on environment.
-
-    HF mode (HF_TOKEN set, no LM_STUDIO_SERVER_*):
-        Registers HuggingFaceAdapter with vetted models
-
-    LM Studio mode (default):
-        Registers LMStudioAdapter with servers from environment
-    """
-    from prompt_prix.config import is_huggingface_mode, get_hf_models, get_hf_token
-    from prompt_prix.config import get_default_servers
-    from prompt_prix.mcp.registry import register_adapter
-
-    if is_huggingface_mode():
-        from prompt_prix.adapters.huggingface import HuggingFaceAdapter
-        models = get_hf_models()
-        token = get_hf_token()
-        print(f"  HuggingFace mode: {len(models)} models")
-        adapter = HuggingFaceAdapter(models=models, token=token)
-        register_adapter(adapter)
-    else:
-        from prompt_prix.adapters.lmstudio import LMStudioAdapter
-        servers = get_default_servers()
-        if servers:
-            print(f"  LM Studio mode: {len(servers)} server(s)")
-            adapter = LMStudioAdapter(server_urls=servers)
-            register_adapter(adapter)
+    """Register the appropriate adapter based on environment."""
+    from prompt_prix.mcp.registry import register_default_adapter
+    register_default_adapter()
 
 
 def run():

@@ -87,7 +87,7 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the codebase has strict la
 
 ```
 prompt_prix/
-├── main.py              # Entry point, adapter registration
+├── main.py              # Gradio UI entry point (prompt-prix command)
 ├── ui.py                # Gradio UI definition
 ├── handlers.py          # Shared event handlers (fetch, stop)
 ├── state.py             # Global mutable state
@@ -102,7 +102,8 @@ prompt_prix/
 │   ├── schemas.py       # ReActIteration, ToolCall data models
 │   └── cycle_detection.py # Stagnation / cycle detection
 ├── mcp/
-│   ├── registry.py      # Adapter registry (get_adapter, register_adapter)
+│   ├── server.py        # MCP protocol server (FastMCP over stdio) — agent entry point
+│   ├── registry.py      # Adapter registry + register_default_adapter()
 │   └── tools/
 │       ├── complete.py  # complete, complete_stream, latency sentinel utilities
 │       ├── react_step.py # Stateless single ReAct iteration primitive
@@ -300,6 +301,7 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three
 │                                                                 │
 │  • Receives adapter via registry (get_adapter())                │
 │  • Stateless — no mode awareness                                │
+│  • Exposed over JSON-RPC via server.py (prompt-prix-mcp)        │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ adapter.stream_completion()
                             ↓
@@ -374,14 +376,39 @@ def save_report(content: str, filepath: str):
     """Write report to file."""
 ```
 
-### main.py - Entry Point
+### Entry Points
 
-**Purpose**: Application entry point and backwards-compatibility exports.
+prompt-prix has two entry points into the same tool layer:
+
+| Command | Module | Audience | Transport |
+|---------|--------|----------|-----------|
+| `prompt-prix` | `main.py` | Humans | Gradio web UI |
+| `prompt-prix-mcp` | `mcp/server.py` | Agents | MCP stdio (JSON-RPC) |
+
+Both call `register_default_adapter()` at startup and then consume `mcp/tools/*`.
+
+### main.py - Gradio UI Entry Point
 
 ```python
 def run():
+    register_default_adapter()
     app = create_app()
     app.launch(server_name="0.0.0.0", server_port=get_gradio_port())
+```
+
+### mcp/server.py - MCP Protocol Server
+
+Registers 9 tools with FastMCP and runs over stdio. Agents (LAS, Claude Desktop, any MCP client) launch this as a subprocess.
+
+```python
+mcp = FastMCP("prompt-prix", instructions="...")
+mcp.add_tool(list_models)
+mcp.add_tool(complete)
+# ... 7 more tools
+
+def run():
+    register_default_adapter()
+    mcp.run(transport="stdio")
 ```
 
 ## Data Flow: Sending a Prompt
@@ -769,3 +796,4 @@ See [ADR-010](adr/ADR-010-consistency-runner.md) for rationale.
 | [011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation (proposed) |
 | [012](adr/ADR-012-compare-to-battery-export.md) | Compare to Battery export pipeline (proposed) |
 | [013](adr/ADR-013-semantic-chunker-mcp-primitives.md) | Semantic-chunker MCP primitives (geometry, trajectory) |
+| 014 | MCP protocol server — FastMCP over stdio for agent access |

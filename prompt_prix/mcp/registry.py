@@ -67,3 +67,30 @@ def clear_adapter() -> None:
     """
     global _adapter
     _adapter = None
+
+
+def register_default_adapter() -> None:
+    """
+    Register the appropriate adapter based on environment variables.
+
+    HF mode (HF_TOKEN set, no LM_STUDIO_SERVER_*):
+        Registers HuggingFaceAdapter with vetted models
+
+    LM Studio mode (default):
+        Registers LMStudioAdapter with servers from environment
+    """
+    from prompt_prix.config import is_huggingface_mode, get_hf_models, get_hf_token
+    from prompt_prix.config import get_default_servers
+
+    if is_huggingface_mode():
+        from prompt_prix.adapters.huggingface import HuggingFaceAdapter
+        models = get_hf_models()
+        token = get_hf_token()
+        adapter = HuggingFaceAdapter(models=models, token=token)
+        register_adapter(adapter)
+    else:
+        from prompt_prix.adapters.lmstudio import LMStudioAdapter
+        servers = get_default_servers()
+        if servers:
+            adapter = LMStudioAdapter(server_urls=servers)
+            register_adapter(adapter)

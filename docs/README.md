@@ -246,6 +246,48 @@ for model, response in responses.items():
 
 ---
 
+## MCP Server
+
+prompt-prix runs as an MCP protocol server over stdio, exposing the same 9 tools listed above via JSON-RPC. Any MCP client (LAS, Claude Desktop, custom agent) can launch it as a subprocess.
+
+### Running
+
+```bash
+prompt-prix-mcp
+```
+
+### Client Configuration
+
+**Claude Desktop** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "prompt-prix": {
+      "command": "prompt-prix-mcp"
+    }
+  }
+}
+```
+
+**Generic MCP client** (Python):
+
+```python
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+server = StdioServerParameters(command="prompt-prix-mcp")
+async with stdio_client(server) as (read, write):
+    async with ClientSession(read, write) as session:
+        await session.initialize()
+        tools = await session.list_tools()
+        result = await session.call_tool("list_models", {})
+```
+
+The server reads `LM_STUDIO_SERVER_*` and `HF_TOKEN` from environment (or `.env`) at startup — the same configuration as the Gradio UI.
+
+---
+
 ## Quick Start
 
 ### Prerequisites
