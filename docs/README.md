@@ -1,93 +1,265 @@
-# prompt-prix Documentation
+# prompt-prix
 
-Welcome to the prompt-prix codebase documentation. This guide is designed to help humans and AI assistants quickly understand the project's goals, architecture, and patterns.
+**Visual fan-out for comparing LLM responses side-by-side.**
 
-## What is prompt-prix?
+Send the same prompt to multiple models simultaneously, then compare responses with semantic validation, LLM-as-judge scoring, and embedding drift detection. Built for model selection workflows where you need to audition models against real benchmark test cases.
 
-**prompt-prix** is a visual fan-out UI for running the same evaluation prompts across multiple LLMs simultaneously and comparing results side-by-side. Rather than creating yet another eval framework, it serves as a **visual comparison layer** on top of existing benchmark ecosystems like [BFCL](https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard) (Berkeley Function Calling Leaderboard) and [Inspect AI](https://inspect.ai-safety-institute.org.uk/).
+## UI Tabs
 
-### Core Concept: Fan-Out Pattern
+### Compare Tab
 
-The **fan-out pattern** is the central abstraction:
-- **Input**: One prompt (or benchmark test case)
-- **Output**: N model responses in parallel
-- **Value**: Visual comparison that eval frameworks don't provide
+Interactive side-by-side comparison. Select 2+ models, type a prompt, and stream responses in parallel.
 
-This is not a replacement for proper evaluation frameworks—it's a way to quickly "audition" models using prompts from those frameworks.
+- Real-time streaming with per-model status indicators
+- Multi-turn conversations with separate context per model
+- Image attachment for vision model comparison
+- Configurable temperature, max tokens, system prompt, seed, and repeat penalty
+- Export conversations to Beyond Compare for diff analysis
 
-### Primary Use Cases
+### Battery Tab
 
-1. **Model Selection** - Compare candidate models for agentic workflows using standardized benchmarks
-2. **Quick Comparison** - Fan out a single prompt to see how different models (or quantizations) respond
-3. **Benchmark Exploration** - Import test cases from BFCL, Inspect AI, or custom JSON and see results visually
-4. **Multi-GPU Utilization** - Dispatch tests across multiple inference servers in parallel
+Run test suites across models in a grid. Load a benchmark file, select models, and dispatch all combinations.
 
-### Positioning in the Ecosystem
+- **Grid view**: Model (columns) x Test (rows), with pass/fail/error symbols per cell
+- **Semantic validation**: Detects empty responses, refusals, missing tool calls, verdict mismatches
+- **LLM-as-judge**: Select a judge model to evaluate responses against `pass_criteria`
+- **Embedding drift**: Set a drift threshold to compare responses against `expected_response` exemplars via cosine distance
+- **ReAct loop evaluation**: Tests with `mode: "react"` execute multi-step tool-use loops with mock tools, cycle detection, and full trace recording
+- **Consistency mode**: Run each test N times with different seeds — grid shows pass rates (e.g., `6/10`) and distinguishes infrastructure errors from semantic failures
+- **Cell detail**: Click any grid cell for the full response, latency, drift score, and judge result
+- **Export**: Markdown, JSON, or CSV reports
 
-| Tool | Purpose |
-|------|---------|
-| **BFCL** | Function-calling benchmark with leaderboard |
-| **Inspect AI** | Evaluation framework for safety testing |
-| **NESTful** | Academic benchmark for nested API calls |
-| **prompt-prix** | Visual fan-out UI for comparing model responses |
+### Grid Symbols
 
-prompt-prix complements these tools by providing a visual layer for side-by-side comparison during model selection.
+| Symbol | Meaning |
+|--------|---------|
+| `✓` | Passed — response met all validation criteria |
+| `❌` | Semantic failure — response received but didn't meet criteria |
+| `⚠` | Infrastructure error — connection failure, timeout, etc. |
+| `🟣 6/10` | Inconsistent — passed 6 of 10 consistency runs |
+| `🟣 6/10 ⚠3` | Inconsistent with 3 infrastructure errors in the mix |
 
-### Key Features
+### Battery File Formats
 
-1. **Fan-Out Dispatch** - Same prompt to N models simultaneously
-2. **Visual Comparison** - Real-time streaming with status indicators per model
-3. **Parallel Dispatch** - Concurrent execution across multiple GPUs
-4. **Semantic Validation** - Detect model refusals, missing tool calls, and verdict mismatches (not just HTTP success)
-5. **Promptfoo Support** - Load test suites from promptfoo YAML files with `expected_verdict` validation
-6. **LLM-as-Judge** - Select a judge model for semantic pass/fail evaluation
-7. **ReAct Loop Evaluation** - Execute multi-step tool-use loops with cycle detection and trace recording
-8. **Embedding Drift Validation** - Compare model responses against expected exemplars via semantic distance
-9. **Consistency Testing** - Run each test N times with different seeds to identify variance
-10. **Session Persistence** - Save and restore UI state
-11. **Export** - Generate Markdown/JSON/CSV reports for analysis
-12. **Image Attachment** - Send images to vision models in Compare tab
-13. **Reproducible Outputs** - Optional seed parameter for deterministic results
-14. **Repeat Penalty** - Configurable penalty to reduce repetitive outputs
+Test files can be JSON, JSONL, or Promptfoo YAML:
 
-## Documentation Index
+```json
+{
+  "prompts": [
+    {
+      "id": "categorize_files",
+      "user": "Organize these files by content",
+      "system": "You are a file organizer.",
+      "mode": "react",
+      "tools": [{"type": "function", "function": {"name": "read_file", "description": "...", "parameters": {...}}}],
+      "mock_tools": {"read_file": {"./1.txt": "Content about animals"}, "move_file": {"_default": "File moved"}},
+      "max_iterations": 20,
+      "expected_response": "Files organized into category folders",
+      "pass_criteria": "Model must call move_file for each input file"
+    }
+  ]
+}
+```
 
-| Document | Description |
-|----------|-------------|
-| [DESIGN.md](DESIGN.md) | Original design specification and requirements |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, module breakdown, and data flow |
-| [EXTENDING.md](EXTENDING.md) | Guide for adding features and understanding patterns |
-| [adr/](adr/) | Architecture Decision Records |
+Key fields: `id` and `user` are required. Optional: `system`, `tools`, `tool_choice`, `mode` (`"react"` for multi-step), `mock_tools`, `max_iterations`, `expected_response` (drift exemplar), `pass_criteria` / `fail_criteria` (judge input).
 
-### Architecture Decision Records
+---
 
-| ADR | Decision |
-|-----|----------|
-| [ADR-001](adr/001-use-existing-benchmarks.md) | Use existing benchmarks instead of custom eval schema |
-| [ADR-002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
-| [ADR-003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as integration layer |
-| [ADR-006](adr/ADR-006-adapter-resource-ownership.md) | Adapters own their resource management |
-| [ADR-008](adr/ADR-008-judge-scheduling.md) | Pipelined judge scheduling for multi-GPU efficiency |
-| [ADR-009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
-| [ADR-010](adr/ADR-010-consistency-runner.md) | Multi-run consistency analysis |
-| [ADR-011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation |
+## MCP Tools
 
-## Quick Start for Developers
+prompt-prix exposes its capabilities as stateless MCP primitives. The UI uses these same tools internally — agents and scripts can call them directly.
+
+### `list_models()`
+
+Discover available models across all configured servers.
+
+```python
+result = await list_models()
+# {"models": ["qwen2.5-7b", "llama-3.1-8b", ...],
+#  "servers": {"http://localhost:1234": ["qwen2.5-7b", ...]},
+#  "unreachable": []}
+```
+
+### `complete(model_id, messages, ...)`
+
+Single completion. The adapter handles server selection internally.
+
+```python
+response = await complete(
+    model_id="qwen2.5-7b",
+    messages=[{"role": "user", "content": "What is 2+2?"}],
+    temperature=0.7,
+    max_tokens=2048,
+)
+# "The answer is 4."
+```
+
+### `complete_stream(model_id, messages, ...)`
+
+Streaming variant — yields chunks as they arrive.
+
+```python
+async for chunk in complete_stream(
+    model_id="qwen2.5-7b",
+    messages=[{"role": "user", "content": "Explain quantum computing"}],
+):
+    print(chunk, end="")
+```
+
+### `react_step(model_id, system_prompt, initial_message, trace, mock_tools, tools, ...)`
+
+Execute one ReAct iteration. Stateless: takes the trace in, returns one step out. The caller manages the loop.
+
+```python
+result = await react_step(
+    model_id="qwen2.5-7b",
+    system_prompt="You are a file organizer.",
+    initial_message="Organize the files in ./test/",
+    trace=[],  # previous ReActIteration objects
+    mock_tools={"read_file": {"./1.txt": "Animals content"}},
+    tools=[{"type": "function", "function": {"name": "read_file", ...}}],
+)
+# {"completed": False, "final_response": None,
+#  "new_iterations": [ReActIteration(...)],
+#  "call_counter": 1, "latency_ms": 50.0}
+```
+
+When `completed` is `True`, the model has finished and `final_response` contains its text answer. When `False`, `new_iterations` contains the tool calls made and their mock observations — feed them back into `trace` for the next step.
+
+### `judge(response, criteria, judge_model, ...)`
+
+LLM-as-judge evaluation. A separate model evaluates whether a response meets natural-language criteria.
+
+```python
+result = await judge(
+    response="I'll help you delete report.pdf",
+    criteria="Response must indicate intent to delete the file",
+    judge_model="qwen2.5-7b",
+)
+# {"pass": True, "reason": "Response clearly states intent to delete", "score": 8}
+```
+
+### `calculate_drift(text_a, text_b)`
+
+Cosine distance between two texts via embedding. Requires a running embedding model.
+
+```python
+distance = await calculate_drift(
+    text_a="Files organized into animals/ and vehicles/ folders",
+    text_b="All files categorized by content type into directories",
+)
+# 0.15  (0.0 = identical, 1.0 = orthogonal)
+```
+
+### `analyze_variants(variants, baseline_label, constraint_name)`
+
+Measure embedding distances between prompt variants to understand how reformulations shift meaning.
+
+```python
+result = await analyze_variants(
+    variants={
+        "imperative": "Delete the file report.pdf",
+        "polite": "Could you please delete report.pdf?",
+        "passive": "The file report.pdf should be deleted",
+    },
+    baseline_label="imperative",
+    constraint_name="deletion_request",
+)
+# {"from_baseline": {"polite": 0.12, "passive": 0.18},
+#  "pairwise": {"imperative↔polite": 0.12, ...},
+#  "recommendations": [...]}
+```
+
+### `generate_variants(baseline, model_id, dimensions, temperature)`
+
+Generate prompt variants along semantic dimensions (mood, voice, person, frame) using a specified model.
+
+```python
+result = await generate_variants(
+    baseline="Delete the file report.pdf",
+    model_id="qwen2.5-7b",
+    dimensions=["mood", "voice"],
+    temperature=0.3,
+)
+# {"baseline": "Delete the file report.pdf",
+#  "variants": {"mood": "Please cheerfully remove report.pdf!", "voice": "report.pdf is to be deleted"},
+#  "variant_count": 2}
+```
+
+### `analyze_trajectory(text, acceleration_threshold, include_sentences)`
+
+Analyze the semantic velocity and acceleration profile of a text passage. Detects deadpan structure (Adams-style) and circular reasoning (Heller-style).
+
+```python
+result = await analyze_trajectory(
+    text="Ford suffered through the Vogon poetry. Arthur calmly praised the imagery. The Vogon ejected them into space.",
+)
+# {"n_sentences": 3, "deadpan_score": 0.65, "heller_score": 0.30,
+#  "mean_velocity": 0.42, "acceleration_spikes": [...],
+#  "adams_interpretation": "Moderate deadpan structure", ...}
+```
+
+### `compare_trajectories(golden_text, synthetic_text, acceleration_threshold)`
+
+Compare the trajectory profile of a synthetic (model-generated) text against a golden reference. Returns a fitness score indicating structural similarity.
+
+```python
+result = await compare_trajectories(
+    golden_text="Ford suffered. Arthur praised. The Vogon ejected.",
+    synthetic_text="The cat sat. The dog barked. Thunder struck.",
+)
+# {"fitness_score": 0.35, "acceleration_dtw": 0.20,
+#  "spike_position_match": 0.80, "interpretation": "Good structure, some rhythm deviation",
+#  "golden_summary": {...}, "synthetic_summary": {...}}
+```
+
+### Agent Integration Example
+
+An agent can compose these primitives into custom evaluation workflows:
+
+```python
+# 1. Discover what's available
+models = await list_models()
+
+# 2. Fan out: same prompt to every model
+responses = {}
+for model in models["models"]:
+    responses[model] = await complete(
+        model_id=model,
+        messages=[{"role": "user", "content": test_prompt}],
+    )
+
+# 3. Judge each response
+for model, response in responses.items():
+    verdict = await judge(
+        response=response,
+        criteria="Must call the delete_file tool with correct path",
+        judge_model="qwen2.5-7b",
+    )
+    print(f"{model}: {'PASS' if verdict['pass'] else 'FAIL'} — {verdict['reason']}")
+
+# 4. Measure drift from expected exemplar
+for model, response in responses.items():
+    drift = await calculate_drift(response, expected_exemplar)
+    print(f"{model}: drift={drift:.3f}")
+```
+
+---
+
+## Quick Start
 
 ### Prerequisites
 
 - Python 3.10+
 - LM Studio running on one or more servers with models loaded
-- Virtual environment recommended
 
 ### Setup
 
 ```bash
-# Clone and install
 git clone https://github.com/shanevcantwell/prompt-prix.git
 cd prompt-prix
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
+python -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
 
 # Run tests
@@ -99,113 +271,22 @@ prompt-prix
 
 ### Environment Configuration
 
-Create a `.env` file with your LM Studio servers:
-
 ```bash
-LM_STUDIO_SERVER_1=http://192.168.1.10:1234
-LM_STUDIO_SERVER_2=http://192.168.1.11:1234
+# .env
+LM_STUDIO_SERVER_1=http://localhost:1234
+LM_STUDIO_SERVER_2=http://192.168.137.2:1234
 GRADIO_PORT=7860
-BEYOND_COMPARE_PATH=/usr/bin/bcompare  # Optional
 ```
 
-## Core Concepts
+Multiple servers enable parallel dispatch across GPUs — the adapter manages server selection, model routing, and busy-state tracking internally.
 
-### Server Pool
-Multiple LM Studio servers can host different (or overlapping) sets of models. The ServerPool manages:
-- Manifest refresh (discovering available models)
-- Server busy state tracking
-- Work distribution across servers
+---
 
-### Comparison Session
-A session maintains:
-- Selected models to compare
-- Separate conversation context per model
-- Configuration (temperature, max tokens, system prompt)
-- Halt state (if any model fails)
+## Further Reading
 
-### Concurrent Dispatcher
-For efficient GPU utilization, tests are dispatched in parallel:
-- Queue all work items (model + test pairs)
-- Find idle servers that have the required model loaded
-- Dispatch work and stream responses concurrently
-
-### Battery File Formats
-
-The Battery tab accepts test files in multiple formats:
-- **JSON** - Array of test cases with `prompts` key
-- **JSONL** - One test case per line
-- **Promptfoo YAML** - Promptfoo config files with `prompts` and `tests` sections
-
-For promptfoo files, `expected_verdict` in `vars` enables verdict matching validation. See [ARCHITECTURE.md](ARCHITECTURE.md) for format details.
-
-### Semantic Validation
-
-Battery tests validate responses beyond HTTP success:
-
-| Check | Description |
-|-------|-------------|
-| Empty response | No content returned |
-| Refusal detection | Common refusal phrases |
-| Tool call validation | When `tool_choice: "required"` |
-| Verdict matching | When `pass_criteria` specifies expected verdict |
-| Drift validation | When `expected_response` set and `drift_threshold > 0` |
-
-See [EXTENDING.md](EXTENDING.md) for customizing validation.
-
-## Technology Stack
-
-| Component | Technology | Purpose |
-|-----------|------------|---------|
-| UI Framework | Gradio 4.x | Web interface with reactive components |
-| HTTP Client | httpx | Async HTTP for LM Studio API calls |
-| Data Models | Pydantic 2.x | Configuration and state validation |
-| Streaming | SSE (Server-Sent Events) | Real-time response streaming |
-| Persistence | localStorage (browser) | Save/restore UI state |
-| Testing | pytest + pytest-asyncio | Async test support |
-
-## Design Principles
-
-The codebase follows patterns documented in `.claude/CLAUDE.md`:
-
-1. **Fail-Fast Validation** - Validate servers and models before starting sessions
-2. **Explicit State Management** - Separate session state from UI state
-3. **Separation of Concerns** - UI (ui.py), handlers (handlers.py), and core logic (core.py)
-4. **Progressive Error Handling** - Show human-readable errors, halt on model failures
-
-## File Structure Overview
-
-```
-prompt_prix/
-├── __init__.py           # Package version
-├── main.py               # Entry point, adapter registration
-├── ui.py                 # Gradio UI definition
-├── handlers.py           # Shared event handlers (fetch, stop)
-├── state.py              # Global mutable state
-├── core.py               # ComparisonSession (orchestration)
-├── battery.py            # BatteryRunner (orchestration)
-├── consistency.py        # ConsistencyRunner - multi-run variance testing
-├── config.py             # Pydantic models, constants, env loading
-├── parsers.py            # Text parsing utilities
-├── export.py             # Markdown/JSON report generation
-├── semantic_validator.py # Refusal detection, tool call validation
-├── react/                # ReAct loop execution
-│   ├── dispatch.py       # execute_test_case() — single dispatch
-│   ├── schemas.py        # ReActIteration, ToolCall data models
-│   └── cycle_detection.py
-├── mcp/
-│   ├── registry.py       # Adapter registry
-│   └── tools/            # MCP primitives (complete, react_step, judge, drift)
-├── tabs/
-│   ├── battery/handlers.py
-│   └── compare/handlers.py
-├── adapters/
-│   ├── base.py           # HostAdapter protocol
-│   └── lmstudio.py       # LMStudioAdapter
-└── benchmarks/           # Test case loaders (JSON, JSONL, Promptfoo YAML)
-```
-
-## Next Steps
-
-- Read [ARCHITECTURE.md](ARCHITECTURE.md) for detailed module documentation
-- Read [EXTENDING.md](EXTENDING.md) to understand how to add features
-- Run `pytest -v` to see the test suite structure
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, module breakdown, and data flow |
+| [EXTENDING.md](EXTENDING.md) | Guide for adding features and understanding patterns |
+| [DESIGN.md](DESIGN.md) | Original design specification |
+| [adr/](adr/) | Architecture Decision Records |

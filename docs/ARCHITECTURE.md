@@ -107,8 +107,11 @@ prompt_prix/
 │       ├── complete.py  # complete, complete_stream, latency sentinel utilities
 │       ├── react_step.py # Stateless single ReAct iteration primitive
 │       ├── drift.py     # Embedding-based semantic drift calculation
+│       ├── geometry.py  # Prompt variant generation and distance analysis
+│       ├── trajectory.py # Semantic velocity/acceleration analysis
 │       ├── judge.py     # LLM-as-judge evaluation
-│       └── list_models.py
+│       ├── list_models.py
+│       └── _semantic_chunker.py  # Shared helpers for semantic-chunker tools
 ├── tabs/
 │   ├── __init__.py
 │   ├── battery/
@@ -292,6 +295,8 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), the architecture has three
 ┌─────────────────────────────────────────────────────────────────┐
 │                       MCP PRIMITIVES                            │
 │  complete_stream │ react_step │ judge │ drift │ list_models     │
+│  geometry (analyze/generate variants)                           │
+│  trajectory (analyze/compare trajectories)                      │
 │                                                                 │
 │  • Receives adapter via registry (get_adapter())                │
 │  • Stateless — no mode awareness                                │
@@ -763,3 +768,4 @@ See [ADR-010](adr/ADR-010-consistency-runner.md) for rationale.
 | [010](adr/ADR-010-consistency-runner.md) | Multi-run consistency analysis (proposed) |
 | [011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation (proposed) |
 | [012](adr/ADR-012-compare-to-battery-export.md) | Compare to Battery export pipeline (proposed) |
+| [013](adr/ADR-013-semantic-chunker-mcp-primitives.md) | Semantic-chunker MCP primitives (geometry, trajectory) |
