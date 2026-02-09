@@ -117,7 +117,7 @@ def _ensure_adapter_registered(servers: list[str], parallel_slots: int = 1) -> N
     from prompt_prix.adapters.lmstudio import LMStudioAdapter
     adapter = LMStudioAdapter(server_urls=servers)
     adapter.set_parallel_slots(parallel_slots)
-    register_adapter(adapter)
+    register_adapter(adapter, name="lmstudio")
 
 
 async def fetch_available_models(servers_text: str) -> dict:

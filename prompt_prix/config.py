@@ -170,6 +170,27 @@ def get_hf_models() -> list[str]:
     return list(HF_DEFAULT_MODELS)
 
 
+# ─────────────────────────────────────────────────────────────────────
+# TOGETHER AI MODE
+# ─────────────────────────────────────────────────────────────────────
+
+TOGETHER_DEFAULT_MODELS: list[str] = [
+    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "Qwen/Qwen2.5-72B-Instruct-Turbo",
+    "mistralai/Mistral-Small-24B-Instruct-2501",
+]
+
+
+def get_together_api_key() -> str | None:
+    """Get Together API key from environment."""
+    return os.environ.get("TOGETHER_API_KEY")
+
+
+def get_together_models() -> list[str]:
+    """Get Together AI models to use."""
+    return list(TOGETHER_DEFAULT_MODELS)
+
+
 def get_beyond_compare_path() -> str:
     """
     Get Beyond Compare executable path from environment or default.
