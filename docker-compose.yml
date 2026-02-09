@@ -12,5 +12,7 @@ services:
       # For connecting to LM Studio on host from Docker Desktop (Mac/Windows)
       # Override LM_STUDIO_SERVER_1 in .env with host.docker.internal:1234
       - GRADIO_SERVER_NAME=0.0.0.0
+      # Force port 7860 to match exposed port (overrides .env GRADIO_PORT)
+      - GRADIO_PORT=7860
     # Uncomment for Linux to access host's localhost directly:
     # network_mode: host

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "prompt-prix"
-version = "0.1.0"
+version = "0.2.0"
 description = "Multi-LLM comparison tool for LM Studio"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -12,9 +12,14 @@ license = {text = "MIT"}
 dependencies = [
     "gradio>=4.0.0",
     "httpx>=0.25.0",
+    "local-inference-pool>=0.1.0",
+    "huggingface_hub>=0.25.0",
     "lmstudio>=1.0.0",
+    "mcp>=1.20.0",
+    "pillow>=10.0.0",
     "pydantic>=2.0.0",
     "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.0",
     "tenacity>=8.0.0",
 ]
 
@@ -25,13 +30,9 @@ dev = [
     "pytest-cov>=4.0.0",
     "respx>=0.20.0",
 ]
-gemini = [
-    "playwright>=1.40.0",
-]
-
 [project.scripts]
 prompt-prix = "prompt_prix.main:run"
-prompt-prix-gemini = "prompt_prix.main:gemini_setup"
+prompt-prix-mcp = "prompt_prix.mcp.server:run"
 
 [tool.setuptools.packages.find]
 where = ["."]

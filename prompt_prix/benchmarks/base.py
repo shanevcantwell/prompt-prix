@@ -1,5 +1,5 @@
 """
-TestCase model - represents a single benchmark test case.
+BenchmarkCase model - represents a single benchmark test case.
 
 Explicit state management per CLAUDE.md: Pydantic model, not dict.
 """
@@ -8,7 +8,7 @@ from pydantic import BaseModel, field_validator
 from typing import Optional, Any
 
 
-class TestCase(BaseModel):
+class BenchmarkCase(BaseModel):
     """
     Single benchmark test case.
 
@@ -30,6 +30,11 @@ class TestCase(BaseModel):
     expected: Optional[dict] = None  # For future grading
     pass_criteria: Optional[str] = None
     fail_criteria: Optional[str] = None
+    expected_response: Optional[str] = None  # Exemplar text for drift comparison
+    messages: Optional[list[dict]] = None  # Pre-defined multi-turn conversation history
+    mode: Optional[str] = None  # None (single-shot) or "react"
+    mock_tools: Optional[dict[str, dict]] = None  # Mock tool responses for mode="react"
+    max_iterations: int = 15  # Max tool call iterations for mode="react"
 
     @field_validator('id')
     @classmethod
@@ -51,9 +56,11 @@ class TestCase(BaseModel):
         """
         Convert to OpenAI messages format.
 
-        Returns:
-            List with system and user messages
+        If pre-defined multi-turn history is set, returns a copy of it.
+        Otherwise builds from system + user (single-turn, backward compatible).
         """
+        if self.messages:
+            return list(self.messages)
         return [
             {"role": "system", "content": self.system},
             {"role": "user", "content": self.user}

@@ -5,41 +5,13 @@ Tab-specific handlers are in prompt_prix.tabs.{battery,compare}.handlers
 """
 
 import logging
-from typing import Optional
 
 import gradio as gr
 
 from prompt_prix import state
-from prompt_prix.core import ServerPool
 from prompt_prix.parsers import parse_servers_input
 
 logger = logging.getLogger(__name__)
-
-
-async def _init_pool_and_validate(
-    servers_text: str,
-    models_selected: list[str]
-) -> tuple[Optional[ServerPool], Optional[str]]:
-    """
-    Initialize server pool and validate models are available.
-
-    Returns:
-        (pool, None) on success
-        (None, error_message) on failure
-    """
-    servers = parse_servers_input(servers_text)
-    if not servers:
-        return None, "❌ No servers configured"
-
-    pool = ServerPool(servers)
-    await pool.refresh_all_manifests()
-
-    available = pool.get_all_available_models()
-    missing = [m for m in models_selected if m not in available]
-    if missing:
-        return None, f"❌ Models not available: {', '.join(missing)}"
-
-    return pool, None
 
 
 def handle_stop():
@@ -53,6 +25,9 @@ def _get_loaded_models() -> set[str]:
     Get currently loaded models from LM Studio using the lmstudio SDK.
 
     Returns set of model identifiers that are currently loaded in memory.
+
+    Note: This uses SDK auto-discovery which fails in Docker.
+    Use _get_loaded_models_via_http() instead when server URLs are available.
     """
     try:
         import lmstudio as lms
@@ -79,58 +54,147 @@ def _get_loaded_models() -> set[str]:
         return set()
 
 
-async def fetch_available_models(
-    servers_text: str,
-    only_loaded: bool = False
-) -> tuple[str, dict]:
+async def _get_loaded_models_via_http(servers: list[str]) -> set[str] | None:
     """
-    Query all configured servers and return available models.
+    Query servers directly for loaded models via HTTP.
+
+    This is the Docker-compatible alternative to _get_loaded_models().
+    Uses the LM Studio REST API which returns model state (loaded/not-loaded).
 
     Args:
-        servers_text: Newline-separated server URLs
-        only_loaded: If True, filter to only models currently loaded in LM Studio
+        servers: List of server URLs (e.g., ["http://localhost:1234"])
 
-    Returns (status_message, gr.update for CheckboxGroup choices).
+    Returns:
+        Set of model IDs that are currently loaded in memory.
+        Returns None if all servers failed to respond (can't determine load state).
+        Returns empty set if servers responded but no models are loaded.
     """
+    import httpx
+
+    loaded_ids = set()
+    any_server_responded = False
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for server_url in servers:
+            try:
+                # Use LM Studio's native REST API (not OpenAI-compat) for state info
+                url = f"{server_url.rstrip('/')}/api/v0/models"
+                resp = await client.get(url)
+                if resp.status_code == 200:
+                    any_server_responded = True
+                    data = resp.json()
+                    for model in data.get("data", []):
+                        model_id = model.get("id")
+                        state = model.get("state")
+                        # Debug: log what we're seeing
+                        logger.debug(f"Model {model_id}: state={state}, keys={list(model.keys())}")
+                        # LM Studio REST API returns "state": "loaded" or "not-loaded"
+                        if state == "loaded":
+                            if model_id:
+                                loaded_ids.add(model_id)
+            except Exception as e:
+                logger.debug(f"Could not query {server_url} for loaded models: {e}")
+
+    # Return None if no servers responded (can't determine state)
+    # Return empty set if servers responded but nothing is loaded
+    return loaded_ids if any_server_responded else None
+
+
+def _ensure_adapter_registered(servers: list[str], parallel_slots: int = 1) -> None:
+    """
+    Ensure an adapter is registered with the given servers.
+
+    In HF mode: No-op (adapter is static, configured at startup)
+    In LM Studio mode: Re-registers adapter if server list changes
+    """
+    from prompt_prix.config import is_huggingface_mode
+    from prompt_prix.mcp.registry import register_adapter
+
+    if is_huggingface_mode():
+        # HF mode: adapter is static, no re-registration needed
+        return
+
+    # LM Studio mode: re-register with current servers from UI
+    from prompt_prix.adapters.lmstudio import LMStudioAdapter
+    adapter = LMStudioAdapter(server_urls=servers)
+    adapter.set_parallel_slots(parallel_slots)
+    register_adapter(adapter, name="lmstudio")
+
+
+async def fetch_available_models(servers_text: str) -> dict:
+    """
+    Query all configured servers and return available models per-server.
+
+    In HF mode: Returns pre-configured models (no discovery)
+    In LM Studio mode: Uses list_models MCP tool for discovery
+
+    Args:
+        servers_text: Newline-separated server URLs (ignored in HF mode)
+
+    Returns dict with:
+        - status: Status message string
+        - servers: {url: [models]} mapping
+        - all_models: Combined list of all models (unfiltered)
+        - loaded_models: Set of models currently in VRAM (or None if can't detect)
+    """
+    from prompt_prix.config import is_huggingface_mode, get_hf_models
+    from prompt_prix.mcp.tools.list_models import list_models
+
+    # HF mode: return pre-configured models
+    if is_huggingface_mode():
+        models = get_hf_models()
+        return {
+            "status": f"✅ HuggingFace mode: {len(models)} model(s) configured",
+            "servers": {"huggingface-inference": models},
+            "all_models": models,
+            "loaded_models": None  # N/A for cloud API
+        }
+
+    # LM Studio mode: discover from servers
     servers = parse_servers_input(servers_text)
 
     if not servers:
-        return "❌ No servers configured", gr.update(choices=[])
+        return {
+            "status": "❌ No servers configured",
+            "servers": {},
+            "all_models": [],
+            "loaded_models": None
+        }
 
-    pool = ServerPool(servers)
-    await pool.refresh_all_manifests()
+    # Register adapter with current servers before using MCP tool
+    _ensure_adapter_registered(servers)
 
-    models_by_server: dict[str, list[str]] = {}
-    for url, server in pool.servers.items():
-        if server.available_models:
-            models_by_server[url] = server.available_models
+    # Use MCP tool for model discovery (uses registry internally)
+    result = await list_models()
+
+    models_by_server = {
+        url: models for url, models in result["servers"].items()
+        if models  # Only include servers with models
+    }
 
     if not models_by_server:
-        return "⚠️ No models found on any server. Are models loaded in LM Studio?", gr.update(choices=[])
+        return {
+            "status": "⚠️ No models found on any server. Are models loaded in LM Studio?",
+            "servers": {},
+            "all_models": [],
+            "loaded_models": None
+        }
 
-    all_models = set()
-    for models in models_by_server.values():
-        all_models.update(models)
+    all_models = sorted(result["models"])
 
-    # Filter by loaded models if requested
-    if only_loaded:
-        loaded_models = _get_loaded_models()
-        if loaded_models:
-            all_models = all_models & loaded_models
-            if not all_models:
-                return "⚠️ No loaded models match available models", gr.update(choices=[])
-        else:
-            # Couldn't get loaded models - show warning but continue
-            return "⚠️ Could not detect loaded models (is lmstudio SDK installed?)", gr.update(choices=sorted(all_models))
+    # Get loaded models (for UI filtering)
+    # Try HTTP-based approach first (works in Docker), fall back to SDK
+    loaded_models = await _get_loaded_models_via_http(servers)
+    if loaded_models is None:
+        loaded_models = _get_loaded_models() or None
 
-    sorted_models = sorted(all_models)
-
-    status_parts = [f"✅ Found {len(sorted_models)} model(s)"]
-    if only_loaded:
-        status_parts[0] += " (loaded only)"
-
+    # Build status message
+    status_parts = [f"✅ Found {len(all_models)} model(s)"]
     for url, models in models_by_server.items():
-        count = len([m for m in models if m in all_models]) if only_loaded else len(models)
-        status_parts.append(f"  {url}: {count} model(s)")
+        status_parts.append(f"  {url}: {len(models)} model(s)")
 
-    return " | ".join(status_parts), gr.update(choices=sorted_models)
+    return {
+        "status": " | ".join(status_parts),
+        "servers": models_by_server,
+        "all_models": all_models,
+        "loaded_models": loaded_models
+    }

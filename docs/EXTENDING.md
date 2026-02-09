@@ -8,9 +8,11 @@ This guide explains how to extend prompt-prix with new features, following the e
 2. [Adding a New Handler](#adding-a-new-handler)
 3. [Adding a New Export Format](#adding-a-new-export-format)
 4. [Modifying the Session State](#modifying-the-session-state)
-5. [Adding Tests](#adding-tests)
-6. [Common Patterns](#common-patterns)
-7. [Gotchas and Tips](#gotchas-and-tips)
+5. [Customizing Semantic Validation](#customizing-semantic-validation)
+6. [Adding a New Test Mode](#adding-a-new-test-mode)
+7. [Adding Tests](#adding-tests)
+8. [Common Patterns](#common-patterns)
+9. [Gotchas and Tips](#gotchas-and-tips)
 
 ---
 
@@ -315,6 +317,217 @@ init_button.click(
     outputs=[status_display] + model_outputs
 )
 ```
+
+---
+
+## Customizing Semantic Validation
+
+Battery tests validate model responses beyond HTTP success. The semantic validator (`prompt_prix/semantic_validator.py`) applies these checks in order:
+
+1. **Empty response** - No content returned
+2. **Model refusals** - "I'm sorry, but I can't help with that"
+3. **Missing tool calls** - When `tool_choice: "required"` but no tool was called
+4. **Verdict matching** - When `pass_criteria` specifies an expected verdict
+
+### Understanding Test Status
+
+| Status | Symbol | Meaning |
+|--------|--------|---------|
+| `COMPLETED` | ✓ | Completed and passed semantic validation |
+| `ERROR` | ⚠ | Failure in response from adapter or semantic check |
+| `SEMANTIC_FAILURE` | ❌ | Response received but did not meet expected criteria |
+
+### Verdict Matching (LLM-as-Judge)
+
+When a test has `pass_criteria` containing a verdict expectation, the validator:
+
+1. Extracts the `"verdict"` field from JSON in the response
+2. Compares it (case-insensitive) against the expected verdict
+3. Handles JSON inside markdown code fences (`` ```json ... ``` ``)
+
+**Example pass_criteria:**
+```
+The verdict in the JSON response must be 'PASS'
+```
+
+The validator extracts `PASS`, `FAIL`, or `PARTIAL` from the model's JSON response and compares against the expected value.
+
+**Note:** The validator does NOT enforce strict JSON parsing. A response with valid JSON followed by extra prose ("reasoning bleed") will still pass if the verdict matches. Use the planned **Strict JSON** toggle (ADR-010) to enforce valid-only JSON.
+
+### Adding New Refusal Patterns
+
+Edit `prompt_prix/semantic_validator.py`:
+
+```python
+REFUSAL_PATTERNS = [
+    r"i(?:'m| am) sorry,? but",
+    r"i can(?:'t|not)",
+    r"i(?:'m| am) (?:not )?(?:able|unable)",
+    r"(?:cannot|can't) (?:execute|run|perform|help with)",
+    r"i(?:'m| am) not (?:designed|programmed|able)",
+    r"(?:as an ai|as a language model)",
+    r"i don't have (?:the ability|access)",
+    # Add your pattern here:
+    r"(?:that's|this is) beyond my capabilities",
+]
+```
+
+Then add a test in `tests/test_semantic_validator.py`:
+
+```python
+def test_detects_beyond_capabilities(self):
+    response = "That's beyond my capabilities as an assistant."
+    assert detect_refusal(response) is not None
+```
+
+Run the test:
+```bash
+pytest tests/test_semantic_validator.py -v
+```
+
+### Adding New Validation Types
+
+The `validate_response_semantic()` function checks responses in order. Add new checks after existing ones:
+
+```python
+# In prompt_prix/semantic_validator.py
+
+def validate_response_semantic(
+    test: "TestCase",
+    response: str
+) -> Tuple[bool, Optional[str]]:
+    # Existing refusal check
+    refusal = detect_refusal(response)
+    if refusal:
+        return False, f"Model refused: '{refusal}'"
+
+    # Existing tool call checks
+    if test.tools and test.tool_choice == "required":
+        if not has_tool_calls(response):
+            return False, "Expected tool call but got text response"
+
+    if test.tools and test.tool_choice == "none":
+        if has_tool_calls(response):
+            return False, "Tool call made when tool_choice='none'"
+
+    # ADD YOUR NEW VALIDATION HERE:
+    # Example: Check for hallucination markers
+    if contains_hallucination_markers(response):
+        return False, "Response contains hallucination markers"
+
+    return True, None
+```
+
+### Tool Call Detection
+
+Tool calls are detected by the `**Tool Call:**` marker in formatted responses. This marker is added by `stream_completion()` when the model returns tool calls.
+
+The validation rules for `tool_choice`:
+
+| `tool_choice` | Validation |
+|---------------|------------|
+| `"required"` | Fails if no `**Tool Call:**` in response |
+| `"none"` | Fails if `**Tool Call:**` appears in response |
+| `"auto"` or unset | Always passes (model decides) |
+
+### Validation Order
+
+Checks run in this order (first failure wins):
+1. Empty response detection
+2. Refusal detection
+3. Tool call validation (if applicable)
+4. Verdict matching (if `pass_criteria` specifies expected verdict)
+5. Custom validations (if added)
+
+A response containing both a refusal phrase AND a tool call will fail with "Model refused" because refusals are checked first.
+
+### Promptfoo YAML Files
+
+When loading promptfoo YAML files (`prompt_prix/benchmarks/promptfoo.py`):
+
+**Supported vars extraction:**
+
+| Var | BenchmarkCase field | Purpose |
+|-----|-------------------|---------|
+| `expected_verdict` | `pass_criteria` | Rubric text for LLM judge evaluation |
+| `expected_response` | `expected_response` | Exemplar text for embedding drift comparison |
+| `category` | `category` | Test category for filtering/grouping |
+| `system` | `system` | System message |
+| `user` | `user` | User message |
+
+- `{{variable}}` substitution in prompts
+- `assert:` blocks → **Logged but NOT evaluated** (warning emitted)
+
+**Example promptfoo test:**
+```yaml
+tests:
+  - description: "Should pass tool call"
+    vars:
+      system: "You are a helpful assistant."
+      user: "What's the weather in Tokyo?"
+      expected_verdict: "PASS"
+      expected_response: '{"tool_calls": [{"name": "get_weather", "arguments": {"city": "Tokyo"}}]}'
+      category: "tool_calls"
+```
+
+This becomes a `BenchmarkCase` with:
+- `pass_criteria`: `"The verdict in the JSON response must be 'PASS'"`
+- `expected_response`: the exemplar text (used by drift threshold validation)
+- `category`: `"tool_calls"`
+
+### Testing Your Changes
+
+Always test both positive and negative cases:
+
+```python
+class TestMyNewValidation:
+    def test_detects_bad_response(self):
+        test = TestCase(id="test", user="Do something")
+        response = "This response should fail validation"
+        is_valid, reason = validate_response_semantic(test, response)
+        assert is_valid is False
+        assert "expected reason" in reason
+
+    def test_passes_good_response(self):
+        test = TestCase(id="test", user="Do something")
+        response = "This response should pass validation"
+        is_valid, reason = validate_response_semantic(test, response)
+        assert is_valid is True
+```
+
+---
+
+## Adding a New Test Mode
+
+Test modes control how a `BenchmarkCase` is executed. The dispatch function in `react/dispatch.py` is the **single point** that reads `test.mode` and routes to the appropriate execution strategy.
+
+### How It Works
+
+Currently two modes exist:
+- `mode=None` (default) — single-shot completion via `complete_stream()`
+- `mode="react"` — multi-step tool-use loop via `react_step()` × N
+
+### Adding a New Mode
+
+1. **Add the mode branch** in `react/dispatch.py`:
+
+```python
+async def execute_test_case(test, model_id, ...) -> CaseResult:
+    if test.mode == "react":
+        return await _execute_react(...)
+    elif test.mode == "chain":
+        return await _execute_chain(...)  # Your new mode
+    else:
+        return await _execute_single_shot(...)
+```
+
+2. **Implement the execution function** — it must return a `CaseResult(response, latency_ms, react_trace)`. Use `react_trace` for any mode-specific metadata you want visible in the detail view.
+
+3. **No changes needed** in `BatteryRunner`, `ConsistencyRunner`, or the handler. The orchestration layer is mode-unaware — it calls `execute_test_case()` and processes the `CaseResult` identically regardless of mode.
+
+4. **Add `BenchmarkCase.mode` value** — the new mode string must be accepted by the benchmark case loader if tests specify it in JSON/YAML.
+
+This is the power of the dispatch pattern: new execution strategies are invisible to the rest of the system.
 
 ---
 

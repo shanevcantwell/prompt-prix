@@ -1,4 +1,7 @@
-"""Tests for prompt_prix.main module."""
+"""Tests for prompt_prix.main module.
+
+Per ADR-006: Orchestration tests mock MCP tools, not adapters or ServerPool.
+"""
 
 import pytest
 from pathlib import Path
@@ -11,6 +14,27 @@ from tests.conftest import (
     MOCK_MODEL_1, MOCK_MODEL_2, MOCK_MODELS,
     MOCK_MANIFEST_RESPONSE, MOCK_COMPLETION_RESPONSE
 )
+from prompt_prix.mcp.registry import register_adapter, clear_adapter
+
+
+@pytest.fixture
+def mock_adapter():
+    """Create a mock adapter and register it with the MCP registry."""
+    adapter = MagicMock()
+    adapter.get_available_models = AsyncMock(return_value=[MOCK_MODEL_1, MOCK_MODEL_2])
+    adapter.get_models_by_server = MagicMock(return_value={
+        MOCK_SERVER_1: [MOCK_MODEL_1, MOCK_MODEL_2]
+    })
+    adapter.get_unreachable_servers = MagicMock(return_value=[])
+
+    async def default_stream(*args, **kwargs):
+        yield "The capital of France is Paris."
+
+    adapter.stream_completion = default_stream
+
+    register_adapter(adapter)
+    yield adapter
+    clear_adapter()
 
 
 class TestParseModelsInput:
@@ -157,19 +181,11 @@ class TestParsePromptsFile:
 class TestInitializeSession:
     """Tests for initialize_session function."""
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_initialize_session_success(self):
+    @patch('prompt_prix.tabs.compare.handlers._ensure_adapter_registered')
+    async def test_initialize_session_success(self, mock_ensure, mock_adapter):
         """Test successful session initialization."""
-        from prompt_prix.main import initialize_session
-
-        # Mock server responses
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
-        respx.get(f"{MOCK_SERVER_2}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
+        from prompt_prix.tabs.compare.handlers import initialize_session
 
         servers_text = f"{MOCK_SERVER_1}\n{MOCK_SERVER_2}"
         models_selected = [MOCK_MODEL_1, MOCK_MODEL_2]
@@ -189,7 +205,7 @@ class TestInitializeSession:
     @pytest.mark.asyncio
     async def test_initialize_session_missing_servers(self):
         """Test initialization fails without servers."""
-        from prompt_prix.main import initialize_session
+        from prompt_prix.tabs.compare.handlers import initialize_session
 
         result = await initialize_session(
             servers_text="",
@@ -205,7 +221,7 @@ class TestInitializeSession:
     @pytest.mark.asyncio
     async def test_initialize_session_missing_models(self):
         """Test initialization fails without models."""
-        from prompt_prix.main import initialize_session
+        from prompt_prix.tabs.compare.handlers import initialize_session
 
         result = await initialize_session(
             servers_text=MOCK_SERVER_1,
@@ -218,16 +234,13 @@ class TestInitializeSession:
 
         assert "No models" in result[0] or "❌" in result[0]
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_initialize_session_model_not_found(self):
+    async def test_initialize_session_model_not_found(self, mock_adapter):
         """Test initialization warns when model not on any server."""
-        from prompt_prix.main import initialize_session
+        from prompt_prix.tabs.compare.handlers import initialize_session
 
-        # Servers respond but without the requested model
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json={"data": []})
-        )
+        # Mock adapter returns empty model list
+        mock_adapter.get_available_models = AsyncMock(return_value=[])
 
         result = await initialize_session(
             servers_text=MOCK_SERVER_1,
@@ -244,28 +257,16 @@ class TestInitializeSession:
 class TestSendSinglePrompt:
     """Tests for send_single_prompt function."""
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_send_single_prompt_success(self):
+    async def test_send_single_prompt_success(self, mock_adapter):
         """Test sending a single prompt."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
-
-        # Setup mocks
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
-        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json=MOCK_COMPLETION_RESPONSE)
-        )
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import send_single_prompt
 
         # Initialize session
-        pool = ServerPool([MOCK_SERVER_1])
-        await pool.refresh_all_manifests()
-        main.state.server_pool = pool
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -274,39 +275,41 @@ class TestSendSinglePrompt:
 
         # send_single_prompt is now an async generator for streaming
         result = None
-        async for update in main.send_single_prompt("Test prompt"):
+        async for update in send_single_prompt("Test prompt"):
             result = update
 
         # Should return success
         assert "✅" in result[0] or "complete" in result[0].lower()
 
+        # Cleanup
+        state.session = None
+
     @pytest.mark.asyncio
     async def test_send_single_prompt_no_session(self):
         """Test sending prompt without initialized session."""
-        from prompt_prix import main
+        from prompt_prix import state
+        from prompt_prix.tabs.compare.handlers import send_single_prompt
 
         # Ensure no session
-        main.state.session = None
+        state.session = None
 
         # Consume the generator
         result = None
-        async for update in main.send_single_prompt("Test prompt"):
+        async for update in send_single_prompt("Test prompt"):
             result = update
 
         assert "not initialized" in result[0].lower() or "❌" in result[0]
 
     @pytest.mark.asyncio
-    async def test_send_single_prompt_empty(self):
+    async def test_send_single_prompt_empty(self, mock_adapter):
         """Test sending empty prompt."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import send_single_prompt
 
         # Setup minimal session
-        pool = ServerPool([MOCK_SERVER_1])
-        main.state.server_pool = pool
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -315,10 +318,13 @@ class TestSendSinglePrompt:
 
         # Consume the generator
         result = None
-        async for update in main.send_single_prompt("   "):
+        async for update in send_single_prompt("   "):
             result = update
 
         assert "Empty" in result[0] or "❌" in result[0]
+
+        # Cleanup
+        state.session = None
 
 
 class TestClearSession:
@@ -326,15 +332,13 @@ class TestClearSession:
 
     def test_clear_session_with_active_session(self):
         """Test clearing an active session."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import clear_session
 
         # Setup session
-        pool = ServerPool([MOCK_SERVER_1])
-        main.state.server_pool = pool
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -342,13 +346,13 @@ class TestClearSession:
         )
 
         # Clear session
-        result = main.clear_session()
+        result = clear_session()
 
         # Should return success status
         assert "cleared" in result[0].lower() or "🗑️" in result[0]
 
         # Session should be None
-        assert main.state.session is None
+        assert state.session is None
 
         # Result should have empty tab states and outputs
         assert result[1] == []  # tab_states
@@ -357,17 +361,18 @@ class TestClearSession:
 
     def test_clear_session_without_session(self):
         """Test clearing when no session exists."""
-        from prompt_prix import main
+        from prompt_prix import state
+        from prompt_prix.tabs.compare.handlers import clear_session
 
         # Ensure no session
-        main.state.session = None
+        state.session = None
 
         # Clear session (should not error)
-        result = main.clear_session()
+        result = clear_session()
 
         # Should still return success status
         assert "cleared" in result[0].lower() or "🗑️" in result[0]
-        assert main.state.session is None
+        assert state.session is None
 
 
 class TestExportFunctions:
@@ -375,28 +380,31 @@ class TestExportFunctions:
 
     def test_export_markdown_no_session(self):
         """Test export markdown without session."""
-        from prompt_prix import main
+        from prompt_prix import state
+        from prompt_prix.tabs.compare.handlers import export_markdown
 
-        main.state.session = None
+        state.session = None
 
-        status, content = main.export_markdown()
+        status, content = export_markdown()
 
         assert "No session" in status or "❌" in status
 
     def test_export_json_no_session(self):
         """Test export JSON without session."""
-        from prompt_prix import main
+        from prompt_prix import state
+        from prompt_prix.tabs.compare.handlers import export_json
 
-        main.state.session = None
+        state.session = None
 
-        status, content = main.export_json()
+        status, content = export_json()
 
         assert "No session" in status or "❌" in status
 
     def test_export_markdown_with_session(self, tmp_path):
         """Test export markdown with active session."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import export_markdown
 
         # Change to tmp directory for file output
         import os
@@ -404,28 +412,32 @@ class TestExportFunctions:
         os.chdir(tmp_path)
 
         try:
-            pool = ServerPool([MOCK_SERVER_1])
-            main.state.server_pool = pool
-            main.state.session = ComparisonSession(
+            state.session = ComparisonSession(
                 models=[MOCK_MODEL_1],
-                server_pool=pool,
                 system_prompt="Test",
                 temperature=0.7,
                 timeout_seconds=300,
                 max_tokens=2048
             )
 
-            status, content = main.export_markdown()
+            status, file_update = export_markdown()
 
             assert "✅" in status or "Exported" in status
+            # file_update is a gr.update() dict with the file path
+            assert file_update.get("value") is not None
+            filepath = file_update["value"]
+            with open(filepath) as f:
+                content = f.read()
             assert "# LLM Comparison Report" in content
         finally:
             os.chdir(original_dir)
+            state.session = None
 
     def test_export_json_with_session(self, tmp_path):
         """Test export JSON with active session."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import export_json
         import json
 
         # Change to tmp directory for file output
@@ -434,52 +446,43 @@ class TestExportFunctions:
         os.chdir(tmp_path)
 
         try:
-            pool = ServerPool([MOCK_SERVER_1])
-            main.state.server_pool = pool
-            main.state.session = ComparisonSession(
+            state.session = ComparisonSession(
                 models=[MOCK_MODEL_1],
-                server_pool=pool,
                 system_prompt="Test",
                 temperature=0.7,
                 timeout_seconds=300,
                 max_tokens=2048
             )
 
-            status, content = main.export_json()
+            status, file_update = export_json()
 
             assert "✅" in status or "Exported" in status
+            # file_update is a gr.update() dict with the file path
+            assert file_update.get("value") is not None
+            filepath = file_update["value"]
+            with open(filepath) as f:
+                content = f.read()
             # Verify valid JSON
             parsed = json.loads(content)
             assert "configuration" in parsed
         finally:
             os.chdir(original_dir)
+            state.session = None
 
 
 class TestStreamingOutputNoDuplication:
     """Tests to ensure streaming output doesn't duplicate messages."""
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_streaming_no_user_message_duplication(self):
+    async def test_streaming_no_user_message_duplication(self, mock_adapter):
         """Test that user message is not duplicated during streaming."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
-
-        # Setup mocks
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
-        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
-            return_value=httpx.Response(200, json=MOCK_COMPLETION_RESPONSE)
-        )
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import send_single_prompt
 
         # Initialize session
-        pool = ServerPool([MOCK_SERVER_1])
-        await pool.refresh_all_manifests()
-        main.state.server_pool = pool
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -488,7 +491,7 @@ class TestStreamingOutputNoDuplication:
 
         # Collect all outputs during streaming
         outputs = []
-        async for update in main.send_single_prompt("Hello world"):
+        async for update in send_single_prompt("Hello world"):
             outputs.append(update)
 
         # Check final output - should have exactly one **User:** and one **Assistant:**
@@ -500,31 +503,19 @@ class TestStreamingOutputNoDuplication:
         assert user_count == 1, f"Expected 1 **User:**, got {user_count}. Output: {final_output}"
         assert assistant_count == 1, f"Expected 1 **Assistant:**, got {assistant_count}. Output: {final_output}"
 
-    @respx.mock
+        # Cleanup
+        state.session = None
+
     @pytest.mark.asyncio
-    async def test_streaming_intermediate_output_no_duplication(self):
+    async def test_streaming_intermediate_output_no_duplication(self, mock_adapter):
         """Test intermediate streaming updates don't duplicate messages."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
-
-        # Setup mocks with streaming response
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
-
-        from tests.conftest import MOCK_STREAMING_CHUNKS
-        streaming_content = "\n".join(MOCK_STREAMING_CHUNKS) + "\n"
-        respx.post(f"{MOCK_SERVER_1}/v1/chat/completions").mock(
-            return_value=httpx.Response(200, text=streaming_content)
-        )
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import send_single_prompt
 
         # Initialize session
-        pool = ServerPool([MOCK_SERVER_1])
-        await pool.refresh_all_manifests()
-        main.state.server_pool = pool
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -533,7 +524,7 @@ class TestStreamingOutputNoDuplication:
 
         # Collect all outputs during streaming
         outputs = []
-        async for update in main.send_single_prompt("Test prompt"):
+        async for update in send_single_prompt("Test prompt"):
             outputs.append(update)
 
         # Check ALL intermediate outputs - none should have duplicate **User:**
@@ -544,88 +535,97 @@ class TestStreamingOutputNoDuplication:
                 user_count = model_output.count("**User:**")
                 assert user_count <= 1, f"Output {i} has {user_count} **User:** tags. Output: {model_output}"
 
+        # Cleanup
+        state.session = None
+
 
 class TestLaunchBeyondCompare:
     """Tests for launch_beyond_compare function."""
 
     def test_launch_beyond_compare_no_session(self):
         """Test Beyond Compare fails without session."""
-        from prompt_prix import main
+        from prompt_prix import state
+        from prompt_prix.tabs.compare.handlers import launch_beyond_compare
 
-        main.state.session = None
+        state.session = None
 
-        result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
+        result = launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
 
         assert "No session" in result or "❌" in result
 
     def test_launch_beyond_compare_missing_model_selection(self):
         """Test Beyond Compare fails when models not selected."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import launch_beyond_compare
 
-        pool = ServerPool([MOCK_SERVER_1])
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
             max_tokens=2048
         )
 
-        result = main.launch_beyond_compare("", MOCK_MODEL_2)
+        result = launch_beyond_compare("", MOCK_MODEL_2)
         assert "Select two models" in result or "❌" in result
 
-        result = main.launch_beyond_compare(MOCK_MODEL_1, "")
+        result = launch_beyond_compare(MOCK_MODEL_1, "")
         assert "Select two models" in result or "❌" in result
+
+        # Cleanup
+        state.session = None
 
     def test_launch_beyond_compare_same_model(self):
         """Test Beyond Compare fails when same model selected twice."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import launch_beyond_compare
 
-        pool = ServerPool([MOCK_SERVER_1])
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
             max_tokens=2048
         )
 
-        result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_1)
+        result = launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_1)
 
         assert "different models" in result or "❌" in result
 
+        # Cleanup
+        state.session = None
+
     def test_launch_beyond_compare_model_not_in_session(self):
         """Test Beyond Compare fails when model not in session."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import launch_beyond_compare
 
-        pool = ServerPool([MOCK_SERVER_1])
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1],  # Only one model
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
             max_tokens=2048
         )
 
-        result = main.launch_beyond_compare(MOCK_MODEL_1, "nonexistent-model")
+        result = launch_beyond_compare(MOCK_MODEL_1, "nonexistent-model")
 
         assert "not in session" in result or "❌" in result
 
+        # Cleanup
+        state.session = None
+
     def test_launch_beyond_compare_no_content(self):
         """Test Beyond Compare fails when no conversation content."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import launch_beyond_compare
 
-        pool = ServerPool([MOCK_SERVER_1])
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -633,19 +633,21 @@ class TestLaunchBeyondCompare:
         )
         # Contexts are empty by default
 
-        result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
+        result = launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
 
         assert "No conversation content" in result or "❌" in result
 
+        # Cleanup
+        state.session = None
+
     def test_launch_beyond_compare_executable_not_found(self, monkeypatch):
         """Test Beyond Compare handles missing executable gracefully."""
-        from prompt_prix import main
-        from prompt_prix.core import ServerPool, ComparisonSession
+        from prompt_prix import state
+        from prompt_prix.core import ComparisonSession
+        from prompt_prix.tabs.compare.handlers import launch_beyond_compare
 
-        pool = ServerPool([MOCK_SERVER_1])
-        main.state.session = ComparisonSession(
+        state.session = ComparisonSession(
             models=[MOCK_MODEL_1, MOCK_MODEL_2],
-            server_pool=pool,
             system_prompt="Test",
             temperature=0.7,
             timeout_seconds=300,
@@ -653,10 +655,10 @@ class TestLaunchBeyondCompare:
         )
 
         # Add some content to contexts
-        main.state.session.state.contexts[MOCK_MODEL_1].add_user_message("Hello")
-        main.state.session.state.contexts[MOCK_MODEL_1].add_assistant_message("Hi there!")
-        main.state.session.state.contexts[MOCK_MODEL_2].add_user_message("Hello")
-        main.state.session.state.contexts[MOCK_MODEL_2].add_assistant_message("Greetings!")
+        state.session.state.contexts[MOCK_MODEL_1].add_user_message("Hello")
+        state.session.state.contexts[MOCK_MODEL_1].add_assistant_message("Hi there!")
+        state.session.state.contexts[MOCK_MODEL_2].add_user_message("Hello")
+        state.session.state.contexts[MOCK_MODEL_2].add_assistant_message("Greetings!")
 
         # Mock get_beyond_compare_path to return non-existent path
         monkeypatch.setattr(
@@ -664,61 +666,58 @@ class TestLaunchBeyondCompare:
             lambda: "/nonexistent/path/bcompare"
         )
 
-        result = main.launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
+        result = launch_beyond_compare(MOCK_MODEL_1, MOCK_MODEL_2)
 
         assert "Beyond Compare not found" in result or "❌" in result
+
+        # Cleanup
+        state.session = None
 
 
 class TestFetchAvailableModels:
     """Tests for fetch_available_models function."""
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_fetch_available_models_success(self):
+    @patch('prompt_prix.handlers._ensure_adapter_registered')
+    async def test_fetch_available_models_success(self, mock_ensure, mock_adapter):
         """Test fetching models from servers."""
-        from prompt_prix.main import fetch_available_models
+        from prompt_prix.handlers import fetch_available_models
 
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
+        result = await fetch_available_models(MOCK_SERVER_1)
 
-        status, models_update = await fetch_available_models(MOCK_SERVER_1)
+        assert "✅" in result["status"]
+        # Returns dict with servers and all_models
+        assert MOCK_MODEL_1 in result["all_models"]
+        assert MOCK_MODEL_2 in result["all_models"]
+        assert MOCK_SERVER_1 in result["servers"]
 
-        assert "✅" in status
-        # Returns gr.update dict with choices
-        assert "choices" in models_update
-        assert MOCK_MODEL_1 in models_update["choices"]
-        assert MOCK_MODEL_2 in models_update["choices"]
-
-    @respx.mock
     @pytest.mark.asyncio
     async def test_fetch_available_models_no_servers(self):
         """Test fetch fails with no servers configured."""
-        from prompt_prix.main import fetch_available_models
+        from prompt_prix.handlers import fetch_available_models
 
-        status, models_update = await fetch_available_models("")
+        result = await fetch_available_models("")
 
-        assert "No servers" in status or "❌" in status
-        # Returns gr.update dict with empty choices
-        assert "choices" in models_update
-        assert models_update["choices"] == []
+        assert "No servers" in result["status"] or "❌" in result["status"]
+        assert result["all_models"] == []
+        assert result["servers"] == {}
+        assert result["loaded_models"] is None
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_fetch_available_models_server_down(self):
+    @patch('prompt_prix.handlers._ensure_adapter_registered')
+    async def test_fetch_available_models_server_down(self, mock_ensure, mock_adapter):
         """Test fetch handles unreachable servers."""
-        from prompt_prix.main import fetch_available_models
+        from prompt_prix.handlers import fetch_available_models
 
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            side_effect=httpx.ConnectError("Connection refused")
-        )
+        # Mock adapter returns empty - all servers unreachable
+        mock_adapter.get_available_models = AsyncMock(return_value=[])
+        mock_adapter.get_models_by_server = MagicMock(return_value={})
+        mock_adapter.get_unreachable_servers = MagicMock(return_value=[MOCK_SERVER_1])
 
-        status, models_update = await fetch_available_models(MOCK_SERVER_1)
+        result = await fetch_available_models(MOCK_SERVER_1)
 
-        assert "No models found" in status or "⚠️" in status
-        # Returns gr.update dict with empty choices
-        assert "choices" in models_update
-        assert models_update["choices"] == []
+        assert "No models found" in result["status"] or "⚠️" in result["status"]
+        assert result["all_models"] == []
 
 
 class TestOnlyLoadedFilter:
@@ -829,110 +828,172 @@ class TestOnlyLoadedFilter:
         assert "model-b" in result
         assert "model-c" in result
 
-    @respx.mock
     @pytest.mark.asyncio
-    async def test_fetch_only_loaded_filters_models(self):
-        """Test fetch with only_loaded=True filters to loaded models only."""
+    @patch('prompt_prix.handlers._ensure_adapter_registered')
+    @patch('prompt_prix.handlers._get_loaded_models_via_http')
+    async def test_fetch_returns_loaded_models(self, mock_http_loaded, mock_ensure, mock_adapter):
+        """Test fetch returns loaded_models for UI filtering."""
         from prompt_prix.handlers import fetch_available_models
 
-        # Server has models A, B, C available
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+        # Adapter has models A, B, C available
+        mock_adapter.get_available_models = AsyncMock(return_value=["model-a", "model-b", "model-c"])
+
+        # Mock HTTP-based loaded detection to return model-a and model-c as loaded
+        mock_http_loaded.return_value = {"model-a", "model-c"}
+
+        result = await fetch_available_models(MOCK_SERVER_1)
+
+        assert "✅" in result["status"]
+        # all_models should be unfiltered
+        assert "model-a" in result["all_models"]
+        assert "model-b" in result["all_models"]
+        assert "model-c" in result["all_models"]
+        # loaded_models should be returned for UI to filter
+        assert result["loaded_models"] == {"model-a", "model-c"}
+
+    @pytest.mark.asyncio
+    @patch('prompt_prix.handlers._ensure_adapter_registered')
+    @patch('prompt_prix.handlers._get_loaded_models_via_http')
+    @patch('prompt_prix.handlers._get_loaded_models')
+    async def test_fetch_loaded_models_none_when_detection_fails(self, mock_sdk_loaded, mock_http_loaded, mock_ensure, mock_adapter):
+        """Test fetch returns loaded_models=None when detection fails."""
+        from prompt_prix.handlers import fetch_available_models
+
+        # HTTP returns None (failed to query), SDK returns empty (unavailable)
+        mock_http_loaded.return_value = None
+        mock_sdk_loaded.return_value = set()
+
+        result = await fetch_available_models(MOCK_SERVER_1)
+
+        assert "✅" in result["status"]
+        # all_models should still be returned
+        assert len(result["all_models"]) > 0
+        # loaded_models should be None when detection fails
+        assert result["loaded_models"] is None
+
+
+class TestLoadedModelsViaHttp:
+    """Tests for HTTP-based loaded models detection (Docker-compatible)."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_filters_by_state(self):
+        """Test HTTP-based approach filters models by state=loaded."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        # Server returns models with state field (LM Studio native API)
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [
+                    {"id": "model-a", "state": "loaded"},
+                    {"id": "model-b", "state": "not-loaded"},
+                    {"id": "model-c", "state": "loaded"},
+                ]
+            })
+        )
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
+
+        assert "model-a" in result
+        assert "model-c" in result
+        assert "model-b" not in result  # Not loaded
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_multiple_servers(self):
+        """Test HTTP-based approach aggregates from multiple servers."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [{"id": "model-a", "state": "loaded"}]
+            })
+        )
+        respx.get(f"{MOCK_SERVER_2}/api/v0/models").mock(
+            return_value=httpx.Response(200, json={
+                "data": [{"id": "model-b", "state": "loaded"}]
+            })
+        )
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1, MOCK_SERVER_2])
+
+        assert "model-a" in result
+        assert "model-b" in result
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_handles_missing_state(self):
+        """Test HTTP-based approach handles responses without state field."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        # Server returns models without state field (older LM Studio version)
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [
                     {"id": "model-a"},
                     {"id": "model-b"},
-                    {"id": "model-c"}
                 ]
             })
         )
 
-        # Only model-a and model-c are loaded
-        mock_model_a = MagicMock()
-        mock_model_a.model_key = "model-a"
-        mock_model_c = MagicMock()
-        mock_model_c.model_key = "model-c"
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
 
-        mock_lms = self._create_mock_lmstudio([mock_model_a, mock_model_c])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
-
-        assert "✅" in status
-        assert "(loaded only)" in status
-        choices = models_update["choices"]
-        assert "model-a" in choices
-        assert "model-c" in choices
-        assert "model-b" not in choices  # Not loaded, should be filtered out
+        # Should return empty set since no models have state=loaded
+        assert result == set()
 
     @respx.mock
     @pytest.mark.asyncio
-    async def test_fetch_only_loaded_no_match(self):
-        """Test fetch with only_loaded=True when no loaded models match."""
+    async def test_get_loaded_models_via_http_handles_server_error(self):
+        """Test HTTP-based approach returns None when server errors (can't determine state)."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
+            return_value=httpx.Response(500, json={"error": "Internal error"})
+        )
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
+
+        assert result is None  # Can't determine load state
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_get_loaded_models_via_http_handles_connection_error(self):
+        """Test HTTP-based approach returns None when connection fails (can't determine state)."""
+        from prompt_prix.handlers import _get_loaded_models_via_http
+
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(side_effect=httpx.ConnectError("Connection refused"))
+
+        result = await _get_loaded_models_via_http([MOCK_SERVER_1])
+
+        assert result is None  # Can't determine load state
+
+    @respx.mock
+    @pytest.mark.asyncio
+    @patch('prompt_prix.handlers._ensure_adapter_registered')
+    async def test_fetch_uses_http_for_loaded_models(self, mock_ensure, mock_adapter):
+        """Test fetch_available_models uses HTTP approach to get loaded_models."""
         from prompt_prix.handlers import fetch_available_models
 
-        # Server has models A, B available
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
+        # Adapter returns all models
+        mock_adapter.get_available_models = AsyncMock(return_value=["model-a", "model-b", "model-c"])
+
+        # LM Studio native API for loaded state
+        respx.get(f"{MOCK_SERVER_1}/api/v0/models").mock(
             return_value=httpx.Response(200, json={
                 "data": [
-                    {"id": "model-a"},
-                    {"id": "model-b"}
+                    {"id": "model-a", "state": "loaded"},
+                    {"id": "model-b", "state": "not-loaded"},
+                    {"id": "model-c", "state": "loaded"},
                 ]
             })
         )
 
-        # Only model-x is loaded (not on server)
-        mock_model_x = MagicMock()
-        mock_model_x.model_key = "model-x"
+        result = await fetch_available_models(MOCK_SERVER_1)
 
-        mock_lms = self._create_mock_lmstudio([mock_model_x])
-
-        with patch.dict("sys.modules", {"lmstudio": mock_lms}):
-            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
-
-        assert "⚠️" in status
-        assert "No loaded models match" in status
-        assert models_update["choices"] == []
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_fetch_only_loaded_sdk_unavailable(self):
-        """Test fetch with only_loaded=True when SDK not available."""
-        from prompt_prix.handlers import fetch_available_models
-
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json=MOCK_MANIFEST_RESPONSE)
-        )
-
-        with patch("prompt_prix.handlers._get_loaded_models", return_value=set()):
-            status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=True)
-
-        assert "⚠️" in status
-        assert "Could not detect loaded models" in status
-        # Should still return all models as fallback
-        assert len(models_update["choices"]) > 0
-
-    @respx.mock
-    @pytest.mark.asyncio
-    async def test_fetch_without_only_loaded_returns_all(self):
-        """Test fetch with only_loaded=False returns all available models."""
-        from prompt_prix.handlers import fetch_available_models
-
-        respx.get(f"{MOCK_SERVER_1}/v1/models").mock(
-            return_value=httpx.Response(200, json={
-                "data": [
-                    {"id": "model-a"},
-                    {"id": "model-b"},
-                    {"id": "model-c"}
-                ]
-            })
-        )
-
-        # Even with lmstudio available, should not call it when only_loaded=False
-        status, models_update = await fetch_available_models(MOCK_SERVER_1, only_loaded=False)
-
-        assert "✅" in status
-        assert "(loaded only)" not in status
-        choices = models_update["choices"]
-        assert "model-a" in choices
-        assert "model-b" in choices
-        assert "model-c" in choices
+        assert "✅" in result["status"]
+        # all_models should be unfiltered
+        assert "model-a" in result["all_models"]
+        assert "model-b" in result["all_models"]
+        assert "model-c" in result["all_models"]
+        # loaded_models should contain only loaded ones
+        assert result["loaded_models"] == {"model-a", "model-c"}

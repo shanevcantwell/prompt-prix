@@ -20,6 +20,7 @@ EXPOSE 7860
 # Environment defaults (can be overridden)
 ENV GRADIO_SERVER_NAME=0.0.0.0
 ENV GRADIO_SERVER_PORT=7860
+ENV PYTHONUNBUFFERED=1
 
 # Run the app
 CMD ["prompt-prix"]

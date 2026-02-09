@@ -5,30 +5,33 @@ Battery-first design: Model × Test grid is the primary interface.
 Interactive comparison is secondary (Compare tab).
 
 Tab-specific handlers are in prompt_prix.tabs.{battery,compare}.handlers
-Tab-specific UI layouts are in prompt_prix.tabs.{battery,compare,stability}.ui
+Tab-specific UI layouts are in prompt_prix.tabs.{battery,compare}.ui
 """
 
 import gradio as gr
 
 from prompt_prix import state
 from prompt_prix.handlers import fetch_available_models, handle_stop
+from prompt_prix.config import (
+    get_default_servers,
+    DEFAULT_TIMEOUT_SECONDS,
+    DEFAULT_MAX_TOKENS,
+)
 from prompt_prix.ui_helpers import (
     CUSTOM_CSS,
     TAB_STATUS_JS,
     PERSISTENCE_LOAD_JS,
     SAVE_SERVERS_JS,
-    SAVE_TEMPERATURE_JS,
+    AUTO_DOWNLOAD_JS,
 )
 
 # Import tab-specific handlers
 from prompt_prix.tabs.battery import handlers as battery_handlers
 from prompt_prix.tabs.compare import handlers as compare_handlers
-from prompt_prix.tabs.stability import handlers as stability_handlers
 
 # Import tab-specific UI layouts
 from prompt_prix.tabs.battery import ui as battery_ui
 from prompt_prix.tabs.compare import ui as compare_ui
-from prompt_prix.tabs.stability import ui as stability_ui
 
 
 def create_app() -> gr.Blocks:
@@ -51,95 +54,114 @@ def create_app() -> gr.Blocks:
         available_models = gr.State([])
 
         # ─────────────────────────────────────────────────────────────
+        # SHARED HEADER: Server config + Model selection (collapsible)
+        # ─────────────────────────────────────────────────────────────
+
+        with gr.Accordion("⚙️ Server & Model Configuration", open=True):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    servers_input = gr.Textbox(
+                        label="LM Studio Servers (one per line)",
+                        value="\n".join(get_default_servers()),
+                        lines=2,
+                        placeholder="http://localhost:1234",
+                        elem_id="servers"
+                    )
+                    with gr.Row():
+                        fetch_btn = gr.Button(
+                            "🔄 Fetch Models",
+                            variant="secondary",
+                            size="sm"
+                        )
+                        only_loaded_checkbox = gr.Checkbox(
+                            label="Only Loaded",
+                            value=False,
+                            info="Filter to models in memory"
+                        )
+
+                with gr.Column(scale=2):
+                    models_checkbox = gr.CheckboxGroup(
+                        label="Models",
+                        choices=[],
+                        value=[],
+                        elem_id="models"
+                    )
+
+            with gr.Row():
+                timeout_slider = gr.Slider(
+                    label="Timeout (seconds)",
+                    minimum=30,
+                    maximum=600,
+                    step=30,
+                    value=DEFAULT_TIMEOUT_SECONDS,
+                    scale=1
+                )
+                max_tokens_slider = gr.Slider(
+                    label="Max Tokens",
+                    minimum=256,
+                    maximum=8192,
+                    step=256,
+                    value=DEFAULT_MAX_TOKENS,
+                    scale=1
+                )
+                parallel_slots_slider = gr.Slider(
+                    label="Parallel Slots",
+                    minimum=1,
+                    maximum=8,
+                    step=1,
+                    value=1,
+                    scale=1,
+                    info="Concurrent requests per server (LM Studio parallel slots)"
+                )
+
+        gr.Markdown("---")
+
+        # ─────────────────────────────────────────────────────────────
         # MAIN TABS
         # ─────────────────────────────────────────────────────────────
 
         with gr.Tabs() as main_tabs:
-            
+
             # Render tabs and get their components
             battery = battery_ui.render_tab()
             compare = compare_ui.render_tab()
-            stability = stability_ui.render_tab()
 
         # ─────────────────────────────────────────────────────────────
-        # EVENT BINDINGS: Shared
+        # EVENT BINDINGS: Shared Header
         # ─────────────────────────────────────────────────────────────
 
-        async def on_fetch_models(servers_text, only_loaded, include_gemini):
-            """Fetch models and update all tabs' model selectors."""
-            status, models_update = await fetch_available_models(servers_text, only_loaded)
-            choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
+        async def on_fetch_models(servers_text, only_loaded):
+            """Fetch models and update model selectors.
 
-            # Add Gemini if checkbox is checked
-            if include_gemini:
-                gemini_model = "gemini-2.0-flash-thinking (Web UI)"
-                if gemini_model not in choices:
-                    choices = [gemini_model] + list(choices)
+            Applies 'only loaded' filter locally for models_checkbox.
+            Judge dropdown always shows all available models (unfiltered).
+            """
+            result = await fetch_available_models(servers_text)
+            all_models = result["all_models"]
+            loaded_models = result.get("loaded_models") or set()
+
+            # Filter for checkbox if requested
+            if only_loaded and loaded_models:
+                checkbox_models = [m for m in all_models if m in loaded_models]
+            else:
+                checkbox_models = all_models
 
             return (
-                choices,
-                gr.update(choices=choices),
-                gr.update(choices=choices),
-                gr.update(choices=choices),
-                gr.update(choices=choices),
-                gr.update(choices=choices),
+                all_models,
+                gr.update(choices=sorted(checkbox_models), value=[]),  # models_checkbox - filtered
+                gr.update(choices=sorted(all_models)),  # battery.detail_model - unfiltered
+                gr.update(choices=sorted(all_models)),  # battery.judge_model - unfiltered
             )
 
-        battery.fetch_btn.click(
+        fetch_btn.click(
             fn=on_fetch_models,
-            inputs=[battery.servers_input, battery.only_loaded_checkbox, battery.gemini_checkbox],
+            inputs=[servers_input, only_loaded_checkbox],
             outputs=[
-                available_models, 
-                battery.models, 
-                compare.models, 
-                battery.detail_model, 
-                battery.judge_model, 
-                stability.model
+                available_models,
+                models_checkbox,
+                battery.detail_model,
+                battery.judge_model,
             ]
-        )
-
-        compare.fetch_btn.click(
-            fn=on_fetch_models,
-            inputs=[battery.servers_input, battery.only_loaded_checkbox, battery.gemini_checkbox],
-            outputs=[
-                available_models, 
-                battery.models, 
-                compare.models, 
-                battery.detail_model, 
-                battery.judge_model, 
-                stability.model
-            ]
-        )
-
-        async def on_stability_fetch(servers_text, include_gemini):
-            """Fetch models for Stability tab."""
-            status, models_update = await fetch_available_models(servers_text, only_loaded=False)
-            choices = models_update.get("choices", []) if isinstance(models_update, dict) else []
-
-            if include_gemini:
-                gemini_model = "gemini-2.0-flash-thinking (Web UI)"
-                if gemini_model not in choices:
-                    choices = [gemini_model] + list(choices)
-
-            return gr.update(choices=choices)
-
-        stability.fetch_btn.click(
-            fn=on_stability_fetch,
-            inputs=[battery.servers_input, stability.gemini_checkbox],
-            outputs=[stability.model]
-        )
-
-        def on_gemini_checkbox_change(use_gemini):
-            """Toggle visibility of LM Studio controls based on Gemini checkbox."""
-            return (
-                gr.update(visible=not use_gemini),  # stability_lmstudio_row
-                gr.update(visible=not use_gemini),  # stability_model
-            )
-
-        stability.gemini_checkbox.change(
-            fn=on_gemini_checkbox_change,
-            inputs=[stability.gemini_checkbox],
-            outputs=[stability.lmstudio_row, stability.model]
         )
 
         # ─────────────────────────────────────────────────────────────
@@ -182,19 +204,12 @@ def create_app() -> gr.Blocks:
         battery.run_btn.click(
             fn=battery_handlers.run_handler,
             inputs=[
-                battery.file, battery.models, battery.servers_input,
-                battery.temp, battery.timeout, battery.max_tokens, battery.system_prompt
+                battery.file, models_checkbox, servers_input,
+                timeout_slider, max_tokens_slider, battery.system_prompt,
+                battery.judge_model, battery.runs_slider, battery.display_mode,
+                parallel_slots_slider, battery.drift_threshold
             ],
             outputs=[battery.status, battery.grid]
-        )
-
-        battery.quick_prompt_btn.click(
-            fn=battery_handlers.quick_prompt_handler,
-            inputs=[
-                battery.quick_prompt, battery.models, battery.servers_input,
-                battery.temp, battery.timeout, battery.max_tokens, battery.system_prompt
-            ],
-            outputs=[battery.quick_prompt_output]
         )
 
         battery.stop_btn.click(fn=handle_stop, inputs=[], outputs=[battery.status])
@@ -202,6 +217,12 @@ def create_app() -> gr.Blocks:
         battery.display_mode.change(
             fn=battery_handlers.refresh_grid,
             inputs=[battery.display_mode],
+            outputs=[battery.grid]
+        )
+
+        battery.drift_threshold.change(
+            fn=battery_handlers.recalculate_drift,
+            inputs=[battery.drift_threshold, battery.display_mode],
             outputs=[battery.grid]
         )
 
@@ -223,18 +244,50 @@ def create_app() -> gr.Blocks:
             outputs=[battery.status, battery.export_file]
         )
 
+        battery.export_image_btn.click(
+            fn=battery_handlers.export_grid_image,
+            inputs=[],
+            outputs=[battery.status, battery.export_file]
+        )
+
+        # Auto-download when export file is ready
+        battery.export_file.change(
+            fn=None,
+            inputs=[battery.export_file],
+            outputs=[battery.export_file],
+            js=AUTO_DOWNLOAD_JS
+        )
+
+        # ADR-009: Show dialog on cell select
+        battery.grid.select(
+            fn=battery_handlers.handle_cell_select,
+            inputs=[],
+            outputs=[battery.detail_dialog, battery.detail_markdown]
+        )
+
+        # ADR-009: Hide dialog on close button
+        battery.detail_close_btn.click(
+            fn=lambda: gr.update(visible=False),
+            inputs=[],
+            outputs=[battery.detail_dialog]
+        )
+
         # ─────────────────────────────────────────────────────────────
         # EVENT BINDINGS: Compare Tab
         # ─────────────────────────────────────────────────────────────
 
         async def compare_send_with_auto_init(
-            prompt, tools, image, seed, repeat_penalty, servers_text, models_selected,
-            system_prompt, temperature, timeout, max_tokens
+            prompt, tools, image, seed, repeat_penalty, servers_text,
+            models_selected,
+            system_prompt, timeout, max_tokens
         ):
+            # Temperature fixed at 0.7 for interactive comparison (model default)
+            temperature = 0.7
+
             if (state.session is None or
-                set(state.session.state.models) != set(models_selected)):
+                set(state.session.state.models) != set(models_selected or [])):
                 init_status, *init_outputs = await compare_handlers.initialize_session(
-                    servers_text, models_selected, system_prompt,
+                    servers_text, models_selected or [], system_prompt,
                     temperature, timeout, max_tokens
                 )
                 if "❌" in init_status or "⚠️" in init_status:
@@ -248,8 +301,8 @@ def create_app() -> gr.Blocks:
             fn=compare_send_with_auto_init,
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
-                battery.servers_input, compare.models,
-                compare.system_prompt, compare.temp, compare.timeout, compare.max_tokens
+                servers_input, models_checkbox,
+                compare.system_prompt, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
         )
@@ -258,11 +311,13 @@ def create_app() -> gr.Blocks:
             fn=compare_send_with_auto_init,
             inputs=[
                 compare.prompt, compare.tools, compare.image, compare.seed, compare.repeat_penalty,
-                battery.servers_input, compare.models,
-                compare.system_prompt, compare.temp, compare.timeout, compare.max_tokens
+                servers_input, models_checkbox,
+                compare.system_prompt, timeout_slider, max_tokens_slider
             ],
             outputs=[compare.status, compare.tab_states] + compare.model_outputs
         )
+
+        compare.stop_btn.click(fn=handle_stop, inputs=[], outputs=[compare.status])
 
         compare.clear_btn.click(
             fn=compare_handlers.clear_session,
@@ -272,44 +327,31 @@ def create_app() -> gr.Blocks:
 
         compare.tab_states.change(fn=None, inputs=[compare.tab_states], outputs=[compare.tab_states], js=TAB_STATUS_JS)
 
+        # Re-apply tab styling when returning to Compare tab (fixes #115)
+        main_tabs.select(
+            fn=lambda tab_states: tab_states,
+            inputs=[compare.tab_states],
+            outputs=[compare.tab_states]
+        )
+
         compare.export_md_btn.click(
             fn=compare_handlers.export_markdown,
             inputs=[],
-            outputs=[compare.status, compare.export_preview]
-        ).then(fn=lambda: gr.update(visible=True), outputs=[compare.export_preview])
+            outputs=[compare.status, compare.export_file]
+        )
 
         compare.export_json_btn.click(
             fn=compare_handlers.export_json,
             inputs=[],
-            outputs=[compare.status, compare.export_preview]
-        ).then(fn=lambda: gr.update(visible=True), outputs=[compare.export_preview])
-
-        # ─────────────────────────────────────────────────────────────
-        # EVENT BINDINGS: Stability Tab
-        # ─────────────────────────────────────────────────────────────
-
-        stability.run_btn.click(
-            fn=stability_handlers.run_regenerations,
-            inputs=[
-                stability.gemini_checkbox, stability.model, stability.prompt, stability.regen_count,
-                battery.servers_input, stability.temp, stability.timeout,
-                stability.max_tokens, stability.system_prompt, stability.capture_thinking
-            ],
-            outputs=[stability.status] + stability.regen_outputs
+            outputs=[compare.status, compare.export_file]
         )
 
-        stability.stop_btn.click(fn=handle_stop, inputs=[], outputs=[stability.status])
-
-        stability.export_json_btn.click(
-            fn=stability_handlers.export_json,
-            inputs=[],
-            outputs=[stability.status, stability.export_file]
-        )
-
-        stability.export_md_btn.click(
-            fn=stability_handlers.export_markdown,
-            inputs=[],
-            outputs=[stability.status, stability.export_file]
+        # Auto-download when export file is ready
+        compare.export_file.change(
+            fn=None,
+            inputs=[compare.export_file],
+            outputs=[compare.export_file],
+            js=AUTO_DOWNLOAD_JS
         )
 
         # ─────────────────────────────────────────────────────────────
@@ -319,12 +361,10 @@ def create_app() -> gr.Blocks:
         app.load(
             fn=None,
             inputs=[],
-            outputs=[battery.servers_input, battery.temp, compare.temp],
+            outputs=[servers_input],
             js=PERSISTENCE_LOAD_JS
         )
 
-        battery.servers_input.change(fn=None, inputs=[battery.servers_input], outputs=[battery.servers_input], js=SAVE_SERVERS_JS)
-        battery.temp.change(fn=None, inputs=[battery.temp], outputs=[battery.temp], js=SAVE_TEMPERATURE_JS)
-        compare.temp.change(fn=None, inputs=[compare.temp], outputs=[compare.temp], js=SAVE_TEMPERATURE_JS)
+        servers_input.change(fn=None, inputs=[servers_input], outputs=[servers_input], js=SAVE_SERVERS_JS)
 
     return app

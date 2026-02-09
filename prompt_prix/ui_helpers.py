@@ -62,21 +62,27 @@ function updateTabColors(tabStates) {
     tabStates.forEach((status, index) => {
         if (index < buttons.length) {
             const btn = buttons[index];
+            // Hide tabs without content (empty/null status)
+            btn.style.display = status ? '' : 'none';
             if (status === 'pending') {
                 btn.style.background = 'linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)';
                 btn.style.borderLeft = '4px solid #ef4444';
+                btn.style.color = 'black';
                 btn.style.animation = '';
             } else if (status === 'streaming') {
                 btn.style.background = 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)';
                 btn.style.borderLeft = '4px solid #f59e0b';
+                btn.style.color = 'black';
                 btn.style.animation = 'pulse 1.5s ease-in-out infinite';
             } else if (status === 'completed') {
                 btn.style.background = 'linear-gradient(135deg, #d1fae5 0%, #a7f3d0 100%)';
                 btn.style.borderLeft = '4px solid #10b981';
+                btn.style.color = 'black';
                 btn.style.animation = '';
             } else {
                 btn.style.background = '';
                 btn.style.borderLeft = '';
+                btn.style.color = '';
                 btn.style.animation = '';
             }
         }
@@ -96,18 +102,13 @@ PERSISTENCE_LOAD_JS = """
 () => {
     // Skip load if user has already started editing (race condition guard)
     if (window._promptprix_user_edited) {
-        return [undefined, undefined, undefined];
+        return undefined;
     }
 
     const servers = localStorage.getItem('promptprix_servers');
-    const temp = localStorage.getItem('promptprix_temperature');
 
     // Return undefined to preserve Python defaults when localStorage is empty.
-    return [
-        servers || undefined,
-        temp ? parseFloat(temp) : undefined,
-        temp ? parseFloat(temp) : undefined
-    ];
+    return servers || undefined;
 }
 """
 
@@ -144,5 +145,35 @@ SNAPSHOT_IF_EMPTY_JS = """
         localStorage.setItem('promptprix_temperature', temp.toString());
     }
     return [servers, temp];
+}
+"""
+
+# ─────────────────────────────────────────────────────────────────────
+# JAVASCRIPT: Auto-Download for Exports
+# ─────────────────────────────────────────────────────────────────────
+
+# Triggers immediate download when a file is ready.
+# Uses fileData.url directly instead of DOM scraping (more reliable in Gradio 6.x).
+AUTO_DOWNLOAD_JS = """
+(fileData) => {
+    if (!fileData) return fileData;
+
+    // Gradio 6.x FileData: {path, url, orig_name, size, mime_type, ...}
+    // Use the URL directly to trigger download
+    const url = fileData.url;
+    const filename = fileData.orig_name || fileData.path?.split('/').pop() || 'download';
+
+    if (url) {
+        // Create hidden link and trigger download
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    return fileData;
 }
 """

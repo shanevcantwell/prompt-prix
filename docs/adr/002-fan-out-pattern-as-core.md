@@ -36,7 +36,7 @@ Fan-out directly serves these needs.
 
 ### Implementation Simplicity
 The fan-out pattern maps cleanly to:
-- Work-stealing dispatcher (parallel execution)
+- Concurrent dispatcher (parallel execution)
 - Tab-based UI (one tab per model)
 - Streaming display (real-time feedback)
 
@@ -55,7 +55,7 @@ The fan-out pattern maps cleanly to:
 ### Architecture Implications
 - `ServerPool` manages parallel execution across GPUs
 - `ComparisonSession` maintains isolated context per model
-- Work-stealing dispatcher maximizes GPU utilization during fan-out
+- Concurrent dispatcher maximizes GPU utilization during fan-out
 
 ## Examples
 

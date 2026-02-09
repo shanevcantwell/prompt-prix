@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Union
 
-from .base import TestCase
+from .base import BenchmarkCase
 
 
 class CustomJSONLoader:
@@ -35,7 +35,7 @@ class CustomJSONLoader:
     """
 
     @staticmethod
-    def load(file_path: Union[str, Path]) -> list[TestCase]:
+    def load(file_path: Union[str, Path]) -> list[BenchmarkCase]:
         """
         Load test cases from JSON or JSONL file.
 
@@ -43,7 +43,7 @@ class CustomJSONLoader:
             file_path: Path to JSON/JSONL file
 
         Returns:
-            List of TestCase objects
+            List of BenchmarkCase objects
 
         Raises:
             ValueError: If file format is invalid (fail-fast)
@@ -74,7 +74,7 @@ class CustomJSONLoader:
             return CustomJSONLoader._load_json(content, path)
 
     @staticmethod
-    def _load_json(content: str, path: Path) -> list[TestCase]:
+    def _load_json(content: str, path: Path) -> list[BenchmarkCase]:
         """Load from JSON format with prompts array."""
         data = json.loads(content)
 
@@ -92,18 +92,18 @@ class CustomJSONLoader:
         if len(prompts) == 0:
             raise ValueError("'prompts' array cannot be empty")
 
-        # Parse each prompt into TestCase (Pydantic validates fields)
+        # Parse each prompt into BenchmarkCase (Pydantic validates fields)
         test_cases = []
         for i, prompt in enumerate(prompts):
             try:
-                test_cases.append(TestCase(**prompt))
+                test_cases.append(BenchmarkCase(**prompt))
             except Exception as e:
                 raise ValueError(f"Invalid test case at index {i}: {e}") from e
 
         return test_cases
 
     @staticmethod
-    def _load_jsonl(content: str, path: Path) -> list[TestCase]:
+    def _load_jsonl(content: str, path: Path) -> list[BenchmarkCase]:
         """Load from JSONL format (one test case per line)."""
         test_cases = []
         lines = content.strip().split("\n")
@@ -115,9 +115,9 @@ class CustomJSONLoader:
 
             try:
                 data = json.loads(line)
-                # Map BFCL format to TestCase format
+                # Map BFCL format to BenchmarkCase format
                 data = CustomJSONLoader._normalize_bfcl(data)
-                test_cases.append(TestCase(**data))
+                test_cases.append(BenchmarkCase(**data))
             except json.JSONDecodeError as e:
                 raise ValueError(f"Invalid JSON on line {i + 1}: {e}") from e
             except Exception as e:
@@ -131,7 +131,7 @@ class CustomJSONLoader:
     @staticmethod
     def _normalize_bfcl(data: dict) -> dict:
         """
-        Normalize BFCL format to TestCase format.
+        Normalize BFCL format to BenchmarkCase format.
 
         BFCL uses:
         - question: [{role: system, content: ...}, {role: user, content: ...}]
@@ -172,7 +172,7 @@ class CustomJSONLoader:
                 result["severity"] = data["metadata"]["severity"]
             del result["metadata"]
 
-        # Remove fields TestCase doesn't accept
+        # Remove fields BenchmarkCase doesn't accept
         for field in ["ground_truth", "ground_truth_exclude"]:
             result.pop(field, None)
 
