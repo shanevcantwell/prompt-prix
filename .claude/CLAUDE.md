@@ -1,6 +1,6 @@
 # prompt-prix
 
-**Purpose:** Visual fan-out MCP service for passing identical data across multiple LLMs simultaneously. Contains the ability to utilize another LLM to act as judge for semantic pass/fail. (TBD: cherry pick implementation from branch v2-simplified)
+**Purpose:** Visual fan-out MCP service for passing identical data across multiple LLMs simultaneously. Contains the ability to utilize another LLM to act as judge for semantic pass/fail.
 
 ---
 

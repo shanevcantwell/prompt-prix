@@ -203,7 +203,7 @@ With pipelining:
 
 The `current_model` drain guard on `ServerPool` is the enabler — judge tasks queue in the dispatcher until a server drains its inference model. When no judge model is set, `_execute_inference_phase()` runs directly with no pipelining overhead.
 
-See [ADR-008](adr/ADR-008-judge-scheduling-strategy.md) for the evolution from two-phase to pipelined scheduling.
+See [ADR-008](adr/ADR-008-judge-scheduling.md) for the evolution from two-phase to pipelined scheduling.
 
 ## ReAct Loop Execution
 
@@ -288,8 +288,8 @@ All inference servers must expose OpenAI-compatible endpoints (`GET /v1/models`,
 | [002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
 | [003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |
 | [006](adr/006-adapter-resource-ownership.md) | Adapters own their resource management (ServerPool internal to LMStudioAdapter) |
-| [007](adr/ADR-007-inference-task-schema.md) | InferenceTask schema for adapter interface |
-| [008](adr/ADR-008-judge-scheduling-strategy.md) | Pipelined judge scheduling for multi-GPU efficiency |
+| [007](adr/ADR-007-cli-interface-layer.md) | CLI interface layer above orchestration |
+| [008](adr/ADR-008-judge-scheduling.md) | Pipelined judge scheduling for multi-GPU efficiency |
 | [009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
 | [010](adr/ADR-010-consistency-runner.md) | Multi-run consistency analysis (proposed) |
 | [011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation (proposed) |
