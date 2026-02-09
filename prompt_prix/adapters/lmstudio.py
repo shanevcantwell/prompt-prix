@@ -1,32 +1,20 @@
 """
 LMStudioAdapter - LM Studio implementation of HostAdapter.
 
-Per ADR-006, this adapter OWNS:
-- ServerPool (multi-server management)
-- ConcurrentDispatcher (parallel execution across GPUs)
-- httpx streaming logic
-
-These are INTERNAL implementation details. No other module may import them.
+Per ADR-006, this adapter OWNS its pool and dispatcher infrastructure.
+Pool classes are imported from local-inference-pool (extracted per ADR-068).
 Orchestration and MCP layers only see the HostAdapter protocol interface.
 """
 
 import asyncio
-import collections
 import json
 import logging
 import httpx
-from dataclasses import dataclass, field
-from typing import AsyncGenerator, Callable, Coroutine, Optional, Protocol, TypeVar
+from typing import AsyncGenerator, Optional
 
-from prompt_prix.config import ServerConfig
+from local_inference_pool import ServerPool, ConcurrentDispatcher
 
-# INTERNAL SCHEMA
-@dataclass
-class _InferenceTask:
-    """Represents a pending inference request."""
-    model_id: str
-    # Future resolves to the server_url when acquired
-    future: asyncio.Future[str] = field(default_factory=asyncio.Future)
+from prompt_prix.adapters.schema import InferenceTask
 
 logger = logging.getLogger(__name__)
 
@@ -35,234 +23,6 @@ class LMStudioError(Exception):
     """Human-readable error from LM Studio API."""
     pass
 
-
-# ─────────────────────────────────────────────────────────────────────
-# INTERNAL: ServerPool (not exported)
-# ─────────────────────────────────────────────────────────────────────
-
-class _ServerPool:
-    """
-    INTERNAL: Manages multiple LM Studio servers with atomic acquisition.
-    
-    Provides atomic find_and_acquire operations and strictly synchronous
-    is_busy state management to prevent race conditions.
-    """
-
-    def __init__(self, server_urls: list[str]):
-        self.servers: dict[str, ServerConfig] = {
-            url: ServerConfig(url=url) for url in server_urls
-        }
-        # Event triggered whenever a server becomes available (released)
-        self.resource_available = asyncio.Event()
-
-    async def refresh_all_manifests(self) -> None:
-        """Fetch model lists from all servers."""
-        tasks = [self._refresh_manifest(url) for url in self.servers]
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def _refresh_manifest(self, server_url: str) -> None:
-        """Fetch model list from a single server."""
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(f"{server_url}/v1/models")
-                response.raise_for_status()
-                data = response.json()
-                model_ids = [m["id"] for m in data.get("data", [])]
-                self.servers[server_url].available_models = model_ids
-                logger.info(f"Manifest refresh: {server_url} has models: {model_ids}")
-        except Exception as e:
-            logger.error(f"Manifest refresh FAILED for {server_url}: {e}")
-            self.servers[server_url].available_models = []
-
-    def get_all_available_models(self) -> set[str]:
-        """Return union of all models across all servers."""
-        result = set()
-        for server in self.servers.values():
-            result.update(server.available_models)
-        return result
-
-    def get_server_url_by_index(self, idx: int) -> Optional[str]:
-        """Get server URL by index (0-based)."""
-        server_urls = list(self.servers.keys())
-        if 0 <= idx < len(server_urls):
-            return server_urls[idx]
-        return None
-
-    def find_and_acquire(self, model_id: str) -> Optional[str]:
-        """
-        Atomically find a server with available slots for this model.
-        Returns server_url if successful, None otherwise.
-
-        Prefers servers with the fewest active requests (load balancing).
-        Refuses to dispatch a different model to a server with active requests,
-        preventing JIT model swaps from killing in-flight streams.
-        """
-        best_url = None
-        best_load = float('inf')
-
-        for url, server in self.servers.items():
-            if model_id not in server.available_models:
-                continue
-            # Don't cause a JIT swap on a server still serving a different model
-            if (server.current_model is not None
-                    and server.current_model != model_id
-                    and server.active_requests > 0):
-                continue
-            if not server.is_busy and server.active_requests < best_load:
-                best_url = url
-                best_load = server.active_requests
-
-        if best_url is not None:
-            self.servers[best_url].active_requests += 1
-            self.servers[best_url].current_model = model_id
-            logger.info(
-                f"Acquired server {best_url} for {model_id} "
-                f"(slot {self.servers[best_url].active_requests}/{self.servers[best_url].max_concurrent})"
-            )
-            return best_url
-
-        return None
-
-    def release_server(self, server_url: str) -> None:
-        """Release a slot on a server and notify listeners."""
-        if server_url in self.servers:
-            server = self.servers[server_url]
-            server.active_requests = max(0, server.active_requests - 1)
-            if server.active_requests == 0:
-                server.current_model = None  # Fully drained — ready for any model
-            logger.info(
-                f"Released server {server_url} "
-                f"(slot {server.active_requests}/{server.max_concurrent}, "
-                f"model={server.current_model})"
-            )
-            self.resource_available.set()
-
-    def set_max_concurrent(self, max_concurrent: int) -> None:
-        """Update max concurrent slots for all servers."""
-        for server in self.servers.values():
-            server.max_concurrent = max(1, max_concurrent)
-
-
-# ─────────────────────────────────────────────────────────────────────
-# INTERNAL: ConcurrentDispatcher (not exported)
-# ─────────────────────────────────────────────────────────────────────
-
-class _ConcurrentDispatcher:
-    """
-    INTERNAL: Queue-based dispatcher for inference tasks.
-    
-    Maintains a queue of pending requests and manages the lifecycle of
-    assigning them to available servers in the pool.
-    """
-
-    def __init__(self, pool: _ServerPool):
-        self.pool = pool
-        self._queue: collections.deque[_InferenceTask] = collections.deque()
-        self._state_changed = asyncio.Event()
-        self._dispatcher_task = None # Lazily started
-
-    async def submit(self, model_id: str) -> str:
-        """
-        Submit a request and wait for a server to be acquired.
-        Returns the acquired server_url.
-        """
-        logger.info(f"Dispatcher.submit: model={model_id}")
-
-        # Ensure the dispatcher loop is running
-        if self._dispatcher_task is None or self._dispatcher_task.done():
-            self._dispatcher_task = asyncio.create_task(self._process_queue_loop())
-
-        future = asyncio.Future()
-        task = _InferenceTask(model_id=model_id, future=future)
-
-        self._queue.append(task)
-        self._state_changed.set()
-        
-        try:
-            # Wait for the dispatcher to assign a server
-            return await future
-        except asyncio.CancelledError:
-            # If we were cancelled, but we actually got a server (race condition), we must release it!
-            if future.done() and not future.cancelled():
-                try:
-                    server_url = future.result()
-                    self.pool.release_server(server_url)
-                except Exception:
-                    pass
-            
-            # If not done, cancel the future so dispatcher knows to skip/remove it
-            if not future.done():
-                future.cancel()
-            raise
-
-    async def _process_queue_loop(self) -> None:
-        """Background loop creating matches between Tasks and Servers."""
-        try:
-            while True:
-                # Wait for either a new task or a server release
-                # We clear the events before processing to ensure we catch updates during processing
-                self._state_changed.clear()
-                self.pool.resource_available.clear()
-
-                if not self._queue:
-                    # If nothing in queue, wait for a new task
-                    await self._state_changed.wait()
-                
-                # Processing cycle
-                # We rotate the queue to handle head-of-line blocking if a specific 
-                # model/server combo is unavailable but others are not.
-                rotated_tasks = 0
-                queue_len = len(self._queue)
-                
-                for _ in range(queue_len):
-                    if not self._queue:
-                        break
-                    
-                    task = self._queue[0] # Peek
-
-                    # Cleanup cancelled tasks
-                    if task.future.done():
-                        self._queue.popleft()
-                        continue
-
-                    # Try to acquire any available server with this model
-                    url = self.pool.find_and_acquire(task.model_id)
-
-                    if url:
-                        # Success
-                        self._queue.popleft()
-                        try:
-                            task.future.set_result(url)
-                        except asyncio.InvalidStateError:
-                            # Future was cancelled/completed concurrently. Release server.
-                            self.pool.release_server(url)
-                    else:
-                        # Failed to acquire, move to back to let others try
-                        # (Simple round-robin for availability)
-                        self._queue.rotate(-1)
-                        rotated_tasks += 1
-
-                # If we still have tasks pending, we wait for a resource to free up
-                # OR for a new task to come in.
-                if self._queue:
-                    # We wait for either event
-                    wait_objs = [
-                        asyncio.create_task(self.pool.resource_available.wait()),
-                        asyncio.create_task(self._state_changed.wait())
-                    ]
-                    done, pending = await asyncio.wait(
-                        wait_objs, 
-                        return_when=asyncio.FIRST_COMPLETED
-                    )
-                    for p in pending:
-                        p.cancel()
-        except Exception as e:
-            logger.error(f"Dispatcher loop crashed: {e}", exc_info=True)
-
-
-# ─────────────────────────────────────────────────────────────────────
-# INTERNAL: Utility functions
-# ─────────────────────────────────────────────────────────────────────
 
 def _normalize_tools_for_openai(tools: list[dict]) -> list[dict]:
     """Normalize tool definitions to OpenAI format."""
@@ -274,8 +34,6 @@ def _normalize_tools_for_openai(tools: list[dict]) -> list[dict]:
             normalized.append({"type": "function", "function": tool})
     return normalized
 
-
-from prompt_prix.adapters.schema import InferenceTask
 
 # ─────────────────────────────────────────────────────────────────────
 # PUBLIC: LMStudioAdapter
@@ -296,8 +54,8 @@ class LMStudioAdapter:
         Args:
             server_urls: List of LM Studio server URLs
         """
-        self._pool = _ServerPool(server_urls)
-        self._dispatcher = _ConcurrentDispatcher(self._pool)
+        self._pool = ServerPool(server_urls)
+        self._dispatcher = ConcurrentDispatcher(self._pool)
         self._lock = asyncio.Lock()
         self._manifests_loaded = False
 

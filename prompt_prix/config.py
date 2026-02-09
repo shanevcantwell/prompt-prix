@@ -190,18 +190,8 @@ def get_beyond_compare_path() -> str:
 # DATA MODELS
 # ─────────────────────────────────────────────────────────────────────
 
-class ServerConfig(BaseModel):
-    """Configuration for a single LM Studio server."""
-    url: str
-    available_models: list[str] = []
-    active_requests: int = 0
-    max_concurrent: int = 1  # LM Studio parallel slots (set via UI)
-    current_model: Optional[str] = None  # Model currently being served (prevents JIT swap mid-stream)
-
-    @property
-    def is_busy(self) -> bool:
-        """Backwards-compatible check: busy when all slots are in use."""
-        return self.active_requests >= self.max_concurrent
+# ServerConfig is defined in local-inference-pool; re-exported here for backwards compatibility
+from local_inference_pool import ServerConfig  # noqa: F401
 
 
 class ModelConfig(BaseModel):
