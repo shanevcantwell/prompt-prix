@@ -29,6 +29,7 @@ from tenacity import (
     before_sleep_log,
 )
 
+from prompt_prix.mcp.tools.complete import complete
 from prompt_prix.mcp.tools.judge import judge
 from prompt_prix.react.dispatch import execute_test_case, ReactLoopIncomplete
 from prompt_prix.config import get_retry_attempts, get_retry_min_wait, get_retry_max_wait
@@ -355,119 +356,160 @@ class BatteryRunner:
         # Final yield
         yield self.state
 
+    async def _warmup_model(self, model_id: str) -> None:
+        """
+        Send a throwaway completion to ensure the model is loaded and ready.
+
+        Absorbs JIT model load time (~30-45s) so it doesn't pollute test
+        latency measurements. Also prevents instant-timeout ERRs that occur
+        when a request arrives while LM Studio is still loading.
+        """
+        logger.info(f"Warming up model: {model_id}")
+        try:
+            await complete(
+                model_id,
+                [{"role": "user", "content": "Respond with only 'pong'"}],
+                max_tokens=8,
+                temperature=0.0,
+                timeout_seconds=self.timeout_seconds,
+            )
+            logger.info(f"Warmup complete: {model_id}")
+        except Exception as e:
+            logger.warning(f"Warmup failed for {model_id}: {e}")
+
     async def _execute_inference_phase(self) -> AsyncGenerator[BatteryRun, None]:
         """
         Phase 1: Execute all test inferences.
 
-        All tasks submitted immediately - adapter handles GPU concurrency.
+        Gated per-model: all tests for model A complete before model B starts.
+        Each model batch begins with a warmup ping to absorb JIT load time.
         No judging in this phase.
         """
-        # Build work items: model-first order (depth-first)
-        # All tests for model1, then all tests for model2, etc.
-        # This minimizes VRAM swapping - each model stays loaded for all its tests
-        work_items = [
-            BatteryWorkItem(test=test, model_id=model_id)
-            for model_id in self.models
-            for test in self.tests
-        ]
-
-        active_tasks: set[asyncio.Task] = set()
-
-        # Initial yield
         yield self.state
 
-        # Create tasks for all work items
-        for item in work_items:
+        for model_id in self.models:
             if app_state.should_stop():
                 break
-            task = asyncio.create_task(self._execute_test(item))
-            active_tasks.add(task)
-            task.add_done_callback(active_tasks.discard)
 
-        # Wait for completion, yielding state periodically
-        while active_tasks:
-            done, _ = await asyncio.wait(
-                active_tasks,
-                timeout=0.2,
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            await self._warmup_model(model_id)
 
-            # Process completed tasks (exceptions already caught in _execute_test)
-            for task in done:
-                try:
-                    task.result()
-                except Exception:
-                    pass  # Errors already recorded in state
+            model_items = [
+                BatteryWorkItem(test=test, model_id=model_id)
+                for test in self.tests
+            ]
 
-            yield self.state
+            active_tasks: set[asyncio.Task] = set()
+            for item in model_items:
+                if app_state.should_stop():
+                    break
+                task = asyncio.create_task(self._execute_test(item))
+                active_tasks.add(task)
+                task.add_done_callback(active_tasks.discard)
 
-            # Check for cancellation
-            if app_state.should_stop():
-                for task in active_tasks:
-                    task.cancel()
-                break
+            while active_tasks:
+                done, _ = await asyncio.wait(
+                    active_tasks,
+                    timeout=0.2,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                for task in done:
+                    try:
+                        task.result()
+                    except Exception:
+                        pass  # Errors already recorded in state
+
+                yield self.state
+
+                if app_state.should_stop():
+                    for task in active_tasks:
+                        task.cancel()
+                    break
 
     async def _execute_pipelined(self) -> AsyncGenerator[BatteryRun, None]:
         """
         Pipelined execution: inference + eager judge submission.
 
-        Judge tasks are submitted to the same dispatcher as inference tasks
-        as soon as each inference result completes. The current_model drain
-        guard (#130) naturally routes judge tasks to idle GPUs without
-        displacing active inference models.
-
-        When no GPU idles during inference, judge tasks queue until servers
-        drain — same total time as sequential phases.
+        Gated per-model: all tests for model A are submitted before model B.
+        Each model batch begins with a warmup ping. Judge tasks fire eagerly
+        as inference results complete — the current_model drain guard routes
+        them to idle GPUs without displacing active inference models.
         """
-        # Build work items: model-first order (depth-first)
-        work_items = [
-            BatteryWorkItem(test=test, model_id=model_id)
-            for model_id in self.models
-            for test in self.tests
-        ]
-
-        inference_tasks: set[asyncio.Task] = set()
         judge_tasks: set[asyncio.Task] = set()
 
         yield self.state
 
-        for item in work_items:
+        for model_id in self.models:
             if app_state.should_stop():
                 break
-            task = asyncio.create_task(
-                self._inference_then_judge(item, judge_tasks)
-            )
-            inference_tasks.add(task)
 
-        while inference_tasks or judge_tasks:
-            all_current = frozenset(inference_tasks | judge_tasks)
-            if not all_current:
-                break
+            await self._warmup_model(model_id)
 
-            done, _ = await asyncio.wait(
-                all_current,
-                timeout=0.2,
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            model_items = [
+                BatteryWorkItem(test=test, model_id=model_id)
+                for test in self.tests
+            ]
 
-            for t in done:
-                inference_tasks.discard(t)
-                judge_tasks.discard(t)
-                try:
-                    t.result()
-                except Exception:
-                    pass  # Errors already recorded in state
+            inference_tasks: set[asyncio.Task] = set()
+            for item in model_items:
+                if app_state.should_stop():
+                    break
+                task = asyncio.create_task(
+                    self._inference_then_judge(item, judge_tasks)
+                )
+                inference_tasks.add(task)
 
-            # Phase transition: inference done, judge tasks remain
-            if not inference_tasks and judge_tasks and self.state.phase != "judging":
-                self.state.phase = "judging"
+            # Drain this model's inference before moving to next model.
+            # Judge tasks accumulate across models and drain after all inference.
+            while inference_tasks:
+                all_current = frozenset(inference_tasks | judge_tasks)
+                if not all_current:
+                    break
 
-            yield self.state
+                done, _ = await asyncio.wait(
+                    all_current,
+                    timeout=0.2,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
 
-            if app_state.should_stop():
-                for t in (inference_tasks | judge_tasks):
-                    t.cancel()
-                break
+                for t in done:
+                    inference_tasks.discard(t)
+                    judge_tasks.discard(t)
+                    try:
+                        t.result()
+                    except Exception:
+                        pass
+
+                yield self.state
+
+                if app_state.should_stop():
+                    for t in (inference_tasks | judge_tasks):
+                        t.cancel()
+                    break
+
+        # Drain remaining judge tasks after all inference is done
+        if judge_tasks and not app_state.should_stop():
+            self.state.phase = "judging"
+            while judge_tasks:
+                done, _ = await asyncio.wait(
+                    judge_tasks,
+                    timeout=0.2,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                for t in done:
+                    judge_tasks.discard(t)
+                    try:
+                        t.result()
+                    except Exception:
+                        pass
+
+                yield self.state
+
+                if app_state.should_stop():
+                    for t in judge_tasks:
+                        t.cancel()
+                    break
 
     async def _inference_then_judge(
         self,

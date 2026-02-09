@@ -30,6 +30,7 @@ from prompt_prix.battery import (
     CancelledError,
 )
 from prompt_prix.react.dispatch import execute_test_case, ReactLoopIncomplete
+from prompt_prix.mcp.tools.complete import complete
 from prompt_prix.mcp.tools.judge import judge
 from prompt_prix.semantic_validator import validate_response_semantic
 from prompt_prix import state as app_state
@@ -329,102 +330,159 @@ class ConsistencyRunner:
 
         yield self.state
 
-    async def _execute_inference_phase(self) -> AsyncGenerator[ConsistencyRun, None]:
-        """Execute all inference runs."""
-        # Build work items: (test, model, run_index, seed)
-        work_items = []
-        for model_id in self.models:
-            for test in self.tests:
-                for run_idx, seed in enumerate(self.seeds):
-                    work_items.append((test, model_id, run_idx, seed))
+    async def _warmup_model(self, model_id: str) -> None:
+        """
+        Send a throwaway completion to ensure the model is loaded and ready.
 
-        active_tasks: set[asyncio.Task] = set()
+        Absorbs JIT model load time so it doesn't pollute test latency
+        measurements or cause instant-timeout ERRs during model loading.
+        """
+        logger.info(f"Warming up model: {model_id}")
+        try:
+            await complete(
+                model_id,
+                [{"role": "user", "content": "Respond with only 'pong'"}],
+                max_tokens=8,
+                temperature=0.0,
+                timeout_seconds=self.timeout_seconds,
+            )
+            logger.info(f"Warmup complete: {model_id}")
+        except Exception as e:
+            logger.warning(f"Warmup failed for {model_id}: {e}")
+
+    async def _execute_inference_phase(self) -> AsyncGenerator[ConsistencyRun, None]:
+        """
+        Execute all inference runs.
+
+        Gated per-model: all runs for model A complete before model B starts.
+        Each model batch begins with a warmup ping to absorb JIT load time.
+        """
         yield self.state
 
-        for test, model_id, run_idx, seed in work_items:
+        for model_id in self.models:
             if app_state.should_stop():
                 break
-            task = asyncio.create_task(
-                self._execute_single_run(test, model_id, run_idx, seed)
-            )
-            active_tasks.add(task)
-            task.add_done_callback(active_tasks.discard)
 
-        while active_tasks:
-            done, _ = await asyncio.wait(
-                active_tasks,
-                timeout=0.2,
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            await self._warmup_model(model_id)
 
-            for task in done:
-                try:
-                    task.result()
-                except Exception:
-                    pass
+            model_items = [
+                (test, model_id, run_idx, seed)
+                for test in self.tests
+                for run_idx, seed in enumerate(self.seeds)
+            ]
 
-            yield self.state
+            active_tasks: set[asyncio.Task] = set()
+            for test, mid, run_idx, seed in model_items:
+                if app_state.should_stop():
+                    break
+                task = asyncio.create_task(
+                    self._execute_single_run(test, mid, run_idx, seed)
+                )
+                active_tasks.add(task)
+                task.add_done_callback(active_tasks.discard)
 
-            if app_state.should_stop():
-                for task in active_tasks:
-                    task.cancel()
-                break
+            while active_tasks:
+                done, _ = await asyncio.wait(
+                    active_tasks,
+                    timeout=0.2,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                for task in done:
+                    try:
+                        task.result()
+                    except Exception:
+                        pass
+
+                yield self.state
+
+                if app_state.should_stop():
+                    for task in active_tasks:
+                        task.cancel()
+                    break
 
     async def _execute_pipelined(self) -> AsyncGenerator[ConsistencyRun, None]:
         """
         Pipelined execution: inference + eager judge submission.
 
-        Same pattern as BatteryRunner._execute_pipelined. Judge tasks are
-        submitted as inference results complete; the dispatcher routes them
-        to idle GPUs via current_model drain guard.
+        Gated per-model: all runs for model A complete before model B starts.
+        Each model batch begins with a warmup ping. Judge tasks fire eagerly
+        as inference results complete and drain after all inference finishes.
         """
-        work_items = []
-        for model_id in self.models:
-            for test in self.tests:
-                for run_idx, seed in enumerate(self.seeds):
-                    work_items.append((test, model_id, run_idx, seed))
-
-        inference_tasks: set[asyncio.Task] = set()
         judge_tasks: set[asyncio.Task] = set()
 
         yield self.state
 
-        for test, model_id, run_idx, seed in work_items:
+        for model_id in self.models:
             if app_state.should_stop():
                 break
-            task = asyncio.create_task(
-                self._inference_then_judge(test, model_id, run_idx, seed, judge_tasks)
-            )
-            inference_tasks.add(task)
 
-        while inference_tasks or judge_tasks:
-            all_current = frozenset(inference_tasks | judge_tasks)
-            if not all_current:
-                break
+            await self._warmup_model(model_id)
 
-            done, _ = await asyncio.wait(
-                all_current,
-                timeout=0.2,
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            model_items = [
+                (test, model_id, run_idx, seed)
+                for test in self.tests
+                for run_idx, seed in enumerate(self.seeds)
+            ]
 
-            for t in done:
-                inference_tasks.discard(t)
-                judge_tasks.discard(t)
-                try:
-                    t.result()
-                except Exception:
-                    pass
+            inference_tasks: set[asyncio.Task] = set()
+            for test, mid, run_idx, seed in model_items:
+                if app_state.should_stop():
+                    break
+                task = asyncio.create_task(
+                    self._inference_then_judge(test, mid, run_idx, seed, judge_tasks)
+                )
+                inference_tasks.add(task)
 
-            if not inference_tasks and judge_tasks and self.state.phase != "judging":
-                self.state.phase = "judging"
+            while inference_tasks:
+                all_current = frozenset(inference_tasks | judge_tasks)
+                if not all_current:
+                    break
 
-            yield self.state
+                done, _ = await asyncio.wait(
+                    all_current,
+                    timeout=0.2,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
 
-            if app_state.should_stop():
-                for t in (inference_tasks | judge_tasks):
-                    t.cancel()
-                break
+                for t in done:
+                    inference_tasks.discard(t)
+                    judge_tasks.discard(t)
+                    try:
+                        t.result()
+                    except Exception:
+                        pass
+
+                yield self.state
+
+                if app_state.should_stop():
+                    for t in (inference_tasks | judge_tasks):
+                        t.cancel()
+                    break
+
+        # Drain remaining judge tasks after all inference is done
+        if judge_tasks and not app_state.should_stop():
+            self.state.phase = "judging"
+            while judge_tasks:
+                done, _ = await asyncio.wait(
+                    judge_tasks,
+                    timeout=0.2,
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+
+                for t in done:
+                    judge_tasks.discard(t)
+                    try:
+                        t.result()
+                    except Exception:
+                        pass
+
+                yield self.state
+
+                if app_state.should_stop():
+                    for t in judge_tasks:
+                        t.cancel()
+                    break
 
     async def _inference_then_judge(
         self,
