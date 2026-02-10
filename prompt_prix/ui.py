@@ -93,6 +93,10 @@ def create_app() -> gr.Blocks:
                     info="Fixed at 256 for demo"
                 )
 
+        # Hidden components for handler compatibility (run_handler expects 11 inputs)
+        parallel_slots_hidden = gr.Slider(value=1, visible=False)
+        drift_threshold_hidden = gr.Slider(value=0.0, visible=False)
+
         gr.Markdown("---")
 
         # ─────────────────────────────────────────────────────────────
@@ -179,7 +183,8 @@ def create_app() -> gr.Blocks:
             inputs=[
                 battery.file, models_checkbox, servers_input,
                 timeout_slider, max_tokens_slider, battery.system_prompt,
-                battery.judge_model, battery.runs_slider, battery.display_mode
+                battery.judge_model, battery.runs_slider, battery.display_mode,
+                parallel_slots_hidden, drift_threshold_hidden
             ],
             outputs=[battery.status, battery.grid]
         )
