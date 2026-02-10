@@ -69,20 +69,24 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), every import in the codeba
 
 ## Entry Points
 
-Both entry points bootstrap with `register_default_adapter()` and consume `mcp/tools/*`:
+All entry points bootstrap with `register_default_adapter()` and consume `mcp/tools/*`:
 
 | Command | Module | Audience | Transport |
 |---------|--------|----------|-----------|
 | `prompt-prix` | `main.py` | Humans | Gradio web UI |
+| `prompt-prix-cli` | `cli.py` | Agents / scripts | CLI (structured JSON output) |
 | `prompt-prix-mcp` | `mcp/server.py` | Agents | MCP stdio (JSON-RPC) |
 
-`server.py` registers 9 tools with FastMCP via `add_tool()`. Agents (LAS, Claude Desktop, any MCP client) launch `prompt-prix-mcp` as a subprocess.
+The **CLI** is the primary agent interface for battery-level operations. Agents call it via `run_command` — one invocation runs N tests × M models and produces a results JSON file. Progress streams to stderr.
+
+`server.py` registers 9 tools with FastMCP via `add_tool()` for iteration-level primitives (e.g., `react_step()`). Agents that need per-step control launch `prompt-prix-mcp` as a subprocess.
 
 ## Directory Structure
 
 ```
 prompt_prix/
 ├── main.py              # Gradio UI entry point (prompt-prix command)
+├── cli.py               # CLI entry point (prompt-prix-cli command)
 ├── ui.py                # Gradio UI definition
 ├── handlers.py          # Shared event handlers (fetch, stop)
 ├── state.py             # Global mutable state

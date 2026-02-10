@@ -32,6 +32,7 @@ dev = [
 ]
 [project.scripts]
 prompt-prix = "prompt_prix.main:run"
+prompt-prix-cli = "prompt_prix.cli:main"
 prompt-prix-mcp = "prompt_prix.mcp.server:run"
 
 [tool.setuptools.packages.find]
