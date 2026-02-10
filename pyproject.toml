@@ -12,7 +12,7 @@ license = {text = "MIT"}
 dependencies = [
     "gradio>=4.0.0",
     "httpx>=0.25.0",
-    "local-inference-pool @ git+https://github.com/shanevcantwell/local-inference-pool.git@v0.1.0",
+    "local-inference-pool @ https://github.com/shanevcantwell/local-inference-pool/archive/refs/tags/v0.1.0.tar.gz",
     "huggingface_hub>=0.25.0",
     "lmstudio>=1.0.0",
     "mcp>=1.20.0",

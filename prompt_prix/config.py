@@ -212,11 +212,7 @@ def get_beyond_compare_path() -> str:
 # ─────────────────────────────────────────────────────────────────────
 
 # ServerConfig is defined in local-inference-pool; re-exported here for backwards compatibility
-# Optional: local-inference-pool is not available on HF Spaces (Together/HF adapters only)
-try:
-    from local_inference_pool import ServerConfig  # noqa: F401
-except ImportError:
-    pass
+from local_inference_pool import ServerConfig  # noqa: F401
 
 
 class ModelConfig(BaseModel):
