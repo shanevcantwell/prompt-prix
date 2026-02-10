@@ -5,7 +5,12 @@ Provider-agnostic architecture: Protocol defines WHAT, implementations define HO
 """
 
 from .base import HostAdapter
-from .lmstudio import LMStudioAdapter
 from .huggingface import HuggingFaceAdapter
+
+# LMStudioAdapter requires local-inference-pool (not available on HF Spaces)
+try:
+    from .lmstudio import LMStudioAdapter
+except ImportError:
+    LMStudioAdapter = None  # type: ignore[assignment,misc]
 
 __all__ = ["HostAdapter", "LMStudioAdapter", "HuggingFaceAdapter"]
