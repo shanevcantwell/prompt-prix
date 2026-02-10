@@ -175,9 +175,9 @@ def get_hf_models() -> list[str]:
 # ─────────────────────────────────────────────────────────────────────
 
 TOGETHER_DEFAULT_MODELS: list[str] = [
-    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-    "Qwen/Qwen2.5-72B-Instruct-Turbo",
-    "mistralai/Mistral-Small-24B-Instruct-2501",
+    "moonshotai/Kimi-K2.5",
+    "openai/gpt-oss-120b",
+    "Qwen/Qwen3-Coder-Next-FP8",
 ]
 
 
