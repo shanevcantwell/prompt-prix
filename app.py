@@ -9,4 +9,4 @@ _register_default_adapter()
 demo = create_app()
 
 if __name__ == "__main__":
-    demo.launch(show_api=False)
+    demo.launch()

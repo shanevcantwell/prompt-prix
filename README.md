@@ -4,11 +4,12 @@ emoji: 🏎️
 colorFrom: blue
 colorTo: purple
 sdk: gradio
-sdk_version: 5.12.0
+sdk_version: 6.5.1
 python_version: 3.12
 app_file: app.py
 pinned: false
 license: mit
+short_description: Audit LLM function calling reliability across multiple models
 ---
 
 <img width="1024" height="506" alt="LLM function calling benchmark grid - prompt-prix visual comparison dashboard" src="https://github.com/user-attachments/assets/2b251520-ed77-40e1-8fef-2a48a1156f2a" />
