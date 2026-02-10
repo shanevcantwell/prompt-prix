@@ -181,6 +181,13 @@ TOGETHER_DEFAULT_MODELS: list[str] = [
 ]
 
 
+def is_together_mode() -> bool:
+    """Check if running with Together AI backend."""
+    has_together_key = bool(os.environ.get("TOGETHER_API_KEY"))
+    has_lm_studio = bool(load_servers_from_env())
+    return has_together_key and not has_lm_studio
+
+
 def get_together_api_key() -> str | None:
     """Get Together API key from environment."""
     return os.environ.get("TOGETHER_API_KEY")

@@ -103,14 +103,14 @@ def _ensure_adapter_registered(servers: list[str], parallel_slots: int = 1) -> N
     """
     Ensure an adapter is registered with the given servers.
 
-    In HF mode: No-op (adapter is static, configured at startup)
+    In cloud mode (Together/HF): No-op (adapter is static, configured at startup)
     In LM Studio mode: Re-registers adapter if server list changes
     """
-    from prompt_prix.config import is_huggingface_mode
+    from prompt_prix.config import is_huggingface_mode, is_together_mode
     from prompt_prix.mcp.registry import register_adapter
 
-    if is_huggingface_mode():
-        # HF mode: adapter is static, no re-registration needed
+    if is_huggingface_mode() or is_together_mode():
+        # Cloud mode: adapter is static, no re-registration needed
         return
 
     # LM Studio mode: re-register with current servers from UI

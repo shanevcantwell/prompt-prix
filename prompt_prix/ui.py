@@ -16,6 +16,7 @@ from prompt_prix.config import (
     get_default_servers,
     DEFAULT_TIMEOUT_SECONDS,
     DEFAULT_MAX_TOKENS,
+    TOGETHER_DEFAULT_MODELS,
 )
 from prompt_prix.ui_helpers import (
     CUSTOM_CSS,
@@ -49,43 +50,26 @@ def create_app() -> gr.Blocks:
     with gr.Blocks(**blocks_kwargs) as app:
 
         gr.Markdown("# prompt-prix")
-        gr.Markdown("Find your optimal open-weights model.")
+        gr.Markdown("Audit LLM function calling reliability across multiple models.")
 
         available_models = gr.State([])
 
         # ─────────────────────────────────────────────────────────────
-        # SHARED HEADER: Server config + Model selection (collapsible)
+        # SHARED HEADER: Model selection (HF Spaces mode - simplified)
         # ─────────────────────────────────────────────────────────────
 
-        with gr.Accordion("⚙️ Server & Model Configuration", open=True):
-            with gr.Row():
-                with gr.Column(scale=1):
-                    servers_input = gr.Textbox(
-                        label="LM Studio Servers (one per line)",
-                        value="\n".join(get_default_servers()),
-                        lines=2,
-                        placeholder="http://localhost:1234",
-                        elem_id="servers"
-                    )
-                    with gr.Row():
-                        fetch_btn = gr.Button(
-                            "🔄 Fetch Models",
-                            variant="secondary",
-                            size="sm"
-                        )
-                        only_loaded_checkbox = gr.Checkbox(
-                            label="Only Loaded",
-                            value=False,
-                            info="Filter to models in memory"
-                        )
+        # Hidden servers input for handler compatibility
+        servers_input = gr.Textbox(value="huggingface-inference", visible=False)
 
-                with gr.Column(scale=2):
-                    models_checkbox = gr.CheckboxGroup(
-                        label="Models",
-                        choices=[],
-                        value=[],
-                        elem_id="models"
-                    )
+        with gr.Accordion("⚙️ Model Configuration", open=True):
+            with gr.Row():
+                models_checkbox = gr.CheckboxGroup(
+                    label="Select Models to Compare",
+                    choices=TOGETHER_DEFAULT_MODELS,
+                    value=TOGETHER_DEFAULT_MODELS,  # All selected by default
+                    elem_id="models",
+                    info="Models run via Together AI"
+                )
 
             with gr.Row():
                 timeout_slider = gr.Slider(
@@ -93,25 +77,20 @@ def create_app() -> gr.Blocks:
                     minimum=30,
                     maximum=600,
                     step=30,
-                    value=DEFAULT_TIMEOUT_SECONDS,
-                    scale=1
+                    value=120,
+                    scale=1,
+                    interactive=False,
+                    info="Fixed at 120s for demo"
                 )
                 max_tokens_slider = gr.Slider(
                     label="Max Tokens",
                     minimum=256,
                     maximum=8192,
                     step=256,
-                    value=DEFAULT_MAX_TOKENS,
-                    scale=1
-                )
-                parallel_slots_slider = gr.Slider(
-                    label="Parallel Slots",
-                    minimum=1,
-                    maximum=8,
-                    step=1,
-                    value=1,
+                    value=256,
                     scale=1,
-                    info="Concurrent requests per server (LM Studio parallel slots)"
+                    interactive=False,
+                    info="Fixed at 256 for demo"
                 )
 
         gr.Markdown("---")
@@ -127,41 +106,16 @@ def create_app() -> gr.Blocks:
             compare = compare_ui.render_tab()
 
         # ─────────────────────────────────────────────────────────────
-        # EVENT BINDINGS: Shared Header
+        # HF SPACES MODE: Pre-populate dropdowns with Together models
         # ─────────────────────────────────────────────────────────────
 
-        async def on_fetch_models(servers_text, only_loaded):
-            """Fetch models and update model selectors.
-
-            Applies 'only loaded' filter locally for models_checkbox.
-            Judge dropdown always shows all available models (unfiltered).
-            """
-            result = await fetch_available_models(servers_text)
-            all_models = result["all_models"]
-            loaded_models = result.get("loaded_models") or set()
-
-            # Filter for checkbox if requested
-            if only_loaded and loaded_models:
-                checkbox_models = [m for m in all_models if m in loaded_models]
-            else:
-                checkbox_models = all_models
-
-            return (
-                all_models,
-                gr.update(choices=sorted(checkbox_models), value=[]),  # models_checkbox - filtered
-                gr.update(choices=sorted(all_models)),  # battery.detail_model - unfiltered
-                gr.update(choices=sorted(all_models)),  # battery.judge_model - unfiltered
-            )
-
-        fetch_btn.click(
-            fn=on_fetch_models,
-            inputs=[servers_input, only_loaded_checkbox],
-            outputs=[
-                available_models,
-                models_checkbox,
-                battery.detail_model,
-                battery.judge_model,
-            ]
+        # Initialize battery dropdowns with Together models on load
+        app.load(
+            fn=lambda: (
+                gr.update(choices=TOGETHER_DEFAULT_MODELS),
+                gr.update(choices=TOGETHER_DEFAULT_MODELS),
+            ),
+            outputs=[battery.detail_model, battery.judge_model]
         )
 
         # ─────────────────────────────────────────────────────────────
@@ -201,13 +155,31 @@ def create_app() -> gr.Blocks:
             outputs=[battery.validation, battery.run_btn, battery.detail_test, battery.grid]
         )
 
+        # Load sample tests button
+        import os
+        SAMPLE_FILE = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "examples", "tool_competence_tests.json"
+        )
+
+        def load_sample_tests():
+            """Load the bundled sample test file."""
+            if os.path.exists(SAMPLE_FILE):
+                return SAMPLE_FILE
+            return None
+
+        battery.load_sample_btn.click(
+            fn=load_sample_tests,
+            inputs=[],
+            outputs=[battery.file]
+        )
+
         battery.run_btn.click(
             fn=battery_handlers.run_handler,
             inputs=[
                 battery.file, models_checkbox, servers_input,
                 timeout_slider, max_tokens_slider, battery.system_prompt,
-                battery.judge_model, battery.runs_slider, battery.display_mode,
-                parallel_slots_slider, battery.drift_threshold
+                battery.judge_model, battery.runs_slider, battery.display_mode
             ],
             outputs=[battery.status, battery.grid]
         )
@@ -217,12 +189,6 @@ def create_app() -> gr.Blocks:
         battery.display_mode.change(
             fn=battery_handlers.refresh_grid,
             inputs=[battery.display_mode],
-            outputs=[battery.grid]
-        )
-
-        battery.drift_threshold.change(
-            fn=battery_handlers.recalculate_drift,
-            inputs=[battery.drift_threshold, battery.display_mode],
             outputs=[battery.grid]
         )
 
