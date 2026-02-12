@@ -275,3 +275,97 @@ class TestReactStep:
 
         assert result["completed"] is True
         assert result["final_response"] == "All done."
+
+
+# ─────────────────────────────────────────────────────────────────────
+# TOOL-FORWARDING MODE TESTS (mock_tools=None)
+# ─────────────────────────────────────────────────────────────────────
+
+class TestReactStepForwarding:
+    """Tests for tool-forwarding mode (mock_tools=None)."""
+
+    @pytest.mark.asyncio
+    async def test_forwarding_returns_pending(self):
+        """mock_tools=None + tool calls → pending_tool_calls populated, new_iterations empty."""
+        sentinel = _tool_call_sentinel("calculate_drift", {"text_a": "hello", "text_b": "world"})
+
+        async def mock_stream(**kwargs):
+            yield "I need to calculate drift."
+            yield sentinel
+            yield "__LATENCY_MS__:120"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            result = await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Analyze drift",
+                trace=[],
+                mock_tools=None,
+                tools=[{"type": "function", "function": {"name": "calculate_drift"}}],
+                call_counter=0,
+            )
+
+        assert result["completed"] is False
+        assert result["final_response"] is None
+        assert result["new_iterations"] == []
+        assert len(result["pending_tool_calls"]) == 1
+
+        pending = result["pending_tool_calls"][0]
+        assert pending["id"] == "call_1"
+        assert pending["name"] == "calculate_drift"
+        assert pending["args"] == {"text_a": "hello", "text_b": "world"}
+
+        assert result["call_counter"] == 1
+        assert result["thought"] == "I need to calculate drift."
+        assert result["latency_ms"] == 120.0
+
+    @pytest.mark.asyncio
+    async def test_forwarding_completion(self):
+        """mock_tools=None + text only → completed, pending_tool_calls empty."""
+        async def mock_stream(**kwargs):
+            yield "The drift is 0.28."
+            yield "__LATENCY_MS__:80"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            result = await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Report drift",
+                trace=[],
+                mock_tools=None,
+                tools=[],
+            )
+
+        assert result["completed"] is True
+        assert result["final_response"] == "The drift is 0.28."
+        assert result["pending_tool_calls"] == []
+
+    @pytest.mark.asyncio
+    async def test_forwarding_parse_error(self):
+        """mock_tools=None + garbled args → pending with empty args dict, no crash."""
+        async def mock_stream(**kwargs):
+            yield "Let me try."
+            yield '__TOOL_CALLS__:[{"name":"calculate_drift","arguments":"not valid json"}]'
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            result = await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Analyze",
+                trace=[],
+                mock_tools=None,
+                tools=[{"type": "function", "function": {"name": "calculate_drift"}}],
+            )
+
+        assert result["completed"] is False
+        assert len(result["pending_tool_calls"]) == 1
+        assert result["pending_tool_calls"][0]["name"] == "calculate_drift"
+        assert result["pending_tool_calls"][0]["args"] == {}
+        assert result["new_iterations"] == []

@@ -110,6 +110,8 @@ async for chunk in complete_stream(
 
 Execute one ReAct iteration. Stateless: takes the trace in, returns one step out. The caller manages the loop.
 
+**Mock dispatch mode** (`mock_tools={...}`): tool calls are dispatched against mock responses and returned as `new_iterations`.
+
 ```python
 result = await react_step(
     model_id="qwen2.5-7b",
@@ -119,12 +121,26 @@ result = await react_step(
     mock_tools={"read_file": {"./1.txt": "Animals content"}},
     tools=[{"type": "function", "function": {"name": "read_file", ...}}],
 )
-# {"completed": False, "final_response": None,
-#  "new_iterations": [ReActIteration(...)],
+# {"completed": False, "new_iterations": [ReActIteration(...)],
 #  "call_counter": 1, "latency_ms": 50.0}
 ```
 
-When `completed` is `True`, the model has finished and `final_response` contains its text answer. When `False`, `new_iterations` contains the tool calls made and their mock observations — feed them back into `trace` for the next step.
+**Tool-forwarding mode** (`mock_tools=None`): tool calls are parsed but not dispatched — returned as `pending_tool_calls` for the caller to execute against real services.
+
+```python
+result = await react_step(
+    model_id="qwen2.5-7b",
+    system_prompt="You are a text analyst.",
+    initial_message="Analyze drift between these passages",
+    trace=[],
+    mock_tools=None,  # signals tool-forwarding mode
+    tools=[{"type": "function", "function": {"name": "calculate_drift", ...}}],
+)
+# {"completed": False, "pending_tool_calls": [{"id": "call_1", "name": "calculate_drift", "args": {...}}],
+#  "thought": "I need to calculate drift.", "call_counter": 1, "latency_ms": 80.0}
+```
+
+When `completed` is `True`, the model has finished and `final_response` contains its text answer. In mock dispatch mode, `new_iterations` contains tool calls and their mock observations — feed them back into `trace`. In tool-forwarding mode, `pending_tool_calls` contains parsed calls for the caller to dispatch and build trace entries from.
 
 ### `judge(response, criteria, judge_model, ...)`
 

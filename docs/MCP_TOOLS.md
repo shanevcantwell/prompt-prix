@@ -47,7 +47,7 @@ Multiple adapters compose automatically via `CompositeAdapter` — model IDs rou
 | `list_models` | 30s | HTTP manifest fetch from each server |
 | `complete` | 300s | Full inference, varies by model size and prompt length |
 | `complete_stream` | 300s | Same as complete (streaming doesn't reduce total time) |
-| `react_step` | 300s | One LLM call + mock dispatch (no real tool execution) |
+| `react_step` | 300s | One LLM call + mock dispatch or tool-forwarding (no real tool execution) |
 | `judge` | 60s | Short prompt, short response — judges are fast |
 | `calculate_drift` | 10s | Embedding cosine distance, ~50ms typical |
 | `analyze_variants` | 10s | Pairwise embedding distances |
@@ -155,7 +155,7 @@ This tool originated from LAS's `ReActMixin` (ADR-CORE-055). prompt-prix package
 | `system_prompt` | `str` | *required* | System message |
 | `initial_message` | `str` | *required* | User's goal/task |
 | `trace` | `list[ReActIteration]` | *required* | Previous iterations — the canonical record |
-| `mock_tools` | `dict[str, dict[str, str]]` | *required* | Mock tool responses (see resolution order below) |
+| `mock_tools` | `dict[str, dict[str, str]] \| None` | *required* | Mock tool responses (see resolution order below), or `None` for tool-forwarding mode |
 | `tools` | `list[dict]` | *required* | OpenAI tool definitions |
 | `call_counter` | `int` | `0` | Running counter for unique tool call IDs |
 | `temperature` | `float` | `0.0` | 0.0 for deterministic eval |
@@ -186,11 +186,13 @@ This tool originated from LAS's `ReActMixin` (ADR-CORE-055). prompt-prix package
 |-------|------|-------|
 | `completed` | `bool` | `true` when model responds with text only (no tool calls) |
 | `final_response` | `str \| null` | Text response when `completed=true` |
-| `new_iterations` | `list[ReActIteration]` | Tool calls made and their mock observations |
+| `new_iterations` | `list[ReActIteration]` | Tool calls made and their mock observations (empty in forwarding mode) |
+| `pending_tool_calls` | `list[dict]` | Parsed but undispatched tool calls (forwarding mode only; empty otherwise) |
+| `thought` | `str \| null` | Model's reasoning text before tool calls (forwarding mode only) |
 | `call_counter` | `int` | Pass this back in the next call for unique IDs |
 | `latency_ms` | `float` | Inference time for this step |
 
-**Caller loop pattern:**
+**Caller loop pattern (mock dispatch):**
 ```python
 trace = []
 counter = 0
@@ -210,6 +212,53 @@ while not completed and len(trace) < max_iterations:
 4. Error message — no matching mock found
 
 This makes eval deterministic: same mocks → same observations → differences are purely in model decisions.
+
+**Tool-forwarding mode (`mock_tools=None`):**
+
+When the caller passes `None` instead of a mock dict, `react_step` returns parsed tool calls without dispatching them. The caller executes the tools against real services and feeds observations back via `trace` on the next call.
+
+Return shape when model produces tool calls:
+```json
+{
+  "completed": false,
+  "final_response": null,
+  "new_iterations": [],
+  "pending_tool_calls": [
+    {"id": "call_1", "name": "calculate_drift", "args": {"text_a": "...", "text_b": "..."}}
+  ],
+  "call_counter": 1,
+  "thought": "I need to calculate the drift between these texts.",
+  "latency_ms": 1250.0
+}
+```
+
+Caller loop pattern (tool-forwarding):
+```python
+trace = []
+call_counter = 0
+for _ in range(max_iterations):
+    result = await react_step(
+        model_id, system_prompt, goal, trace,
+        mock_tools=None,  # signals tool-forwarding mode
+        tools=tool_schemas,
+        call_counter=call_counter,
+    )
+    if result["completed"]:
+        final_answer = result["final_response"]
+        break
+    call_counter = result["call_counter"]
+    for pending in result["pending_tool_calls"]:
+        observation = await dispatch_to_real_service(pending["name"], pending["args"])
+        trace.append(ReActIteration(
+            iteration=len(trace),
+            tool_call=ToolCall(**pending),
+            observation=observation,
+            success=not observation.startswith("Error:"),
+            thought=result.get("thought"),
+        ))
+```
+
+This is the gating mechanism for LAS Phase 5 (ReActMixin deprecation). The caller holds MCP connections to real services; prompt-prix doesn't and shouldn't. Garbled tool arguments are returned with `args={}` rather than raising — the caller decides how to handle parse failures.
 
 **Trace schema (shared with LAS):**
 

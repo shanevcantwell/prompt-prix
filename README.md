@@ -52,6 +52,7 @@ If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both 
 | **Semantic Validation** | Detects refusals and missing tool calls (not just HTTP success) |
 | **LLM-as-Judge** | Semantic pass/fail evaluation with pipelined GPU scheduling |
 | **Consistency Testing** | Run tests N times with different seeds to find unreliable models |
+| **Tool-Forwarding Mode** | `react_step(mock_tools=None)` returns parsed tool calls for caller dispatch against real services |
 | **Model-Family Parsing** | Recognizes tool calls from LiquidAI, Hermes, OpenAI formats |
 | **Multi-GPU Dispatch** | Model-drain guard prevents VRAM swap mid-stream across GPUs |
 | **Latency Capture** | Per-test timing on YOUR hardware |

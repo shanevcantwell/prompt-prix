@@ -222,6 +222,10 @@ The react loop:
 4. Completes when the model responds with text only (no tool calls)
 5. Raises `ReactLoopIncomplete` on cycle detection or `max_iterations` exhaustion
 
+`react_step()` supports two dispatch modes:
+- **Mock dispatch** (`mock_tools={...}`): tool calls are resolved against mock responses and returned as `new_iterations`. Used by prompt-prix's internal `_execute_react()` for deterministic evaluation.
+- **Tool-forwarding** (`mock_tools=None`): tool calls are parsed but not dispatched — returned as `pending_tool_calls` for the caller to execute against real services and feed back via `trace`. Used by LAS for driving ReAct loops against real containerized services.
+
 | Outcome | Result |
 |---------|--------|
 | Loop completes (final text answer) | `RunResult(COMPLETED)` |

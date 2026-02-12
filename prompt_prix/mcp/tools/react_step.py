@@ -128,7 +128,7 @@ async def react_step(
     system_prompt: str,
     initial_message: str,
     trace: list[ReActIteration],
-    mock_tools: dict[str, dict[str, str]],
+    mock_tools: dict[str, dict[str, str]] | None,
     tools: list[dict],
     call_counter: int = 0,
     temperature: float = 0.0,
@@ -146,7 +146,8 @@ async def react_step(
         system_prompt: System message
         initial_message: User's goal/task
         trace: Previous iterations (used to rebuild messages)
-        mock_tools: {tool_name: {args_key: response}}
+        mock_tools: {tool_name: {args_key: response}}, or None for
+            tool-forwarding mode (returns pending calls without dispatch)
         tools: OpenAI tool definitions
         call_counter: Running tool call counter (for unique IDs)
         temperature: Model temperature
@@ -183,11 +184,40 @@ async def react_step(
             "completed": True,
             "final_response": text_content,
             "new_iterations": [],
+            "pending_tool_calls": [],
             "call_counter": call_counter,
             "latency_ms": latency_ms,
         }
 
-    # Process tool calls
+    # ── Tool-forwarding mode: return parsed calls for caller dispatch ──
+    if mock_tools is None:
+        pending = []
+        for tc_raw in tool_calls_raw:
+            call_counter += 1
+            tc_name = tc_raw.get("name", "")
+            tc_args_raw = tc_raw.get("arguments", "{}")
+            try:
+                tc_args = json.loads(tc_args_raw) if isinstance(tc_args_raw, str) else tc_args_raw
+                if not isinstance(tc_args, dict):
+                    tc_args = {}
+            except (json.JSONDecodeError, ValueError):
+                tc_args = {}
+            pending.append({
+                "id": f"call_{call_counter}",
+                "name": tc_name,
+                "args": tc_args,
+            })
+        return {
+            "completed": False,
+            "final_response": None,
+            "new_iterations": [],
+            "pending_tool_calls": pending,
+            "call_counter": call_counter,
+            "thought": text_content if text_content else None,
+            "latency_ms": latency_ms,
+        }
+
+    # Process tool calls (mock dispatch mode)
     new_iterations = []
     iteration_num = len(trace) + 1
 
