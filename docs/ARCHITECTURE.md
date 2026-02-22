@@ -1,6 +1,6 @@
 # Architecture
 
-prompt-prix is a visual fan-out MCP service: identical data dispatched across multiple LLMs simultaneously. Both a Gradio UI (for humans) and an MCP protocol server (for agents) consume the same stateless tool layer.
+prompt-prix is an MCP toolkit for multi-model testing and agentic self-improvement. 9 stateless tools dispatched over MCP stdio for completion, judging, semantic drift, ReAct execution, prompt geometry, and trajectory analysis. Both a Gradio UI (for humans) and the MCP protocol server (for agents) consume the same stateless tool layer.
 
 ## Four-Layer Architecture
 
@@ -32,7 +32,7 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), every import in the codeba
                             ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                       MCP PRIMITIVES                            │
-│  complete_stream │ react_step │ judge │ drift │ list_models     │
+│  complete │ react_step │ judge │ drift │ list_models            │
 │  geometry (analyze/generate variants)                           │
 │  trajectory (analyze/compare trajectories)                      │
 │                                                                 │
@@ -46,12 +46,17 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), every import in the codeba
 │                       ADAPTER LAYER                             │
 │                                                                 │
 │  LMStudioAdapter                                                │
-│    INTERNAL: ServerPool, ConcurrentDispatcher, httpx            │
-│    STRATEGY: Multi-GPU parallel dispatch                        │
+│    USES: local-inference-pool (ServerPool, ConcurrentDispatcher)│
+│    TRANSPORT: httpx                                             │
+│                                                                 │
+│  TogetherAdapter                                                │
+│    TRANSPORT: httpx (Together AI cloud API)                     │
 │                                                                 │
 │  HuggingFaceAdapter                                             │
-│    INTERNAL: API client, rate limiter                           │
-│    STRATEGY: Rate-limited cloud calls                           │
+│    TRANSPORT: huggingface_hub                                   │
+│                                                                 │
+│  CompositeAdapter                                               │
+│    Routes model_id → correct child adapter                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -64,8 +69,7 @@ Per [ADR-006](adr/006-adapter-resource-ownership.md), every import in the codeba
 | **MCP Primitives** | `adapters.base.HostAdapter` (protocol), `mcp.registry` | Concrete adapter classes, ServerPool |
 | **Adapters** | httpx, internal utilities | Nothing from orchestration or MCP |
 
-> **THE RULE:** ServerPool and ConcurrentDispatcher are INTERNAL to LMStudioAdapter.
-> No file outside `adapters/lmstudio.py` may import or reference them.
+> **THE RULE:** ServerPool and ConcurrentDispatcher live in the [`local-inference-pool`](https://github.com/shanevcantwell/local-inference-pool) package (v0.1.0). Only `adapters/lmstudio.py` imports them. No file outside the adapter layer may reference them.
 
 ## Entry Points
 
@@ -81,21 +85,36 @@ The **CLI** is the primary agent interface for battery-level operations. Agents 
 
 `server.py` registers 9 tools with FastMCP via `add_tool()` for iteration-level primitives (e.g., `react_step()`). Agents that need per-step control launch `prompt-prix-mcp` as a subprocess.
 
+## Agentic Consumption
+
+[LAS](https://github.com/shanevcantwell/langgraph-agentic-scaffold) launches `prompt-prix-mcp` as a subprocess and calls tools via JSON-RPC:
+
+- **ReAct execution**: LAS calls `react_step(mock_tools=None)` in tool-forwarding mode for every specialist tool call. Parsed tool calls are returned as `pending_tool_calls` — LAS dispatches them against real containerized services, builds trace entries, and feeds them back.
+- **Response evaluation**: `judge()` and `calculate_drift()` evaluate whether specialist responses meet criteria.
+- **Model audition**: `complete()` + `judge()` across multiple models to select the best specialist for a task.
+- **Adapter auto-registration**: The MCP server reads environment variables at startup and registers all configured adapters (LM Studio, Together AI, HuggingFace). When multiple are configured, a CompositeAdapter routes by model_id.
+
+See [MCP_TOOLS.md](MCP_TOOLS.md) for complete tool reference with schemas and timeout guidance.
+
 ## Directory Structure
 
 ```
 prompt_prix/
 ├── main.py              # Gradio UI entry point (prompt-prix command)
 ├── cli.py               # CLI entry point (prompt-prix-cli command)
+├── __main__.py          # python -m prompt_prix support
 ├── ui.py                # Gradio UI definition
+├── ui_helpers.py        # Shared UI utilities
 ├── handlers.py          # Shared event handlers (fetch, stop)
 ├── state.py             # Global mutable state
 ├── core.py              # ComparisonSession (orchestration)
 ├── config.py            # Pydantic models, constants, env loading
 ├── parsers.py           # Input parsing utilities
+├── tool_parsers.py      # Tool call parsing (LiquidAI, Hermes, OpenAI formats)
 ├── export.py            # Report generation
-├── battery.py           # BatteryRunner (orchestration) - calls execute_test_case()
-├── consistency.py       # ConsistencyRunner - multi-run variance testing
+├── battery.py           # BatteryRunner (orchestration) — calls execute_test_case()
+├── consistency.py       # ConsistencyRunner — multi-run variance testing
+├── semantic_validator.py # Response validation (refusals, tool calls, verdicts)
 ├── react/               # ReAct loop execution
 │   ├── dispatch.py      # execute_test_case() — single dispatch (ONLY mode reader)
 │   ├── schemas.py       # ReActIteration, ToolCall data models
@@ -104,7 +123,7 @@ prompt_prix/
 │   ├── server.py        # MCP protocol server (FastMCP over stdio) — agent entry point
 │   ├── registry.py      # Adapter registry + register_default_adapter()
 │   └── tools/
-│       ├── complete.py  # complete, complete_stream, latency sentinel utilities
+│       ├── complete.py  # complete (MCP tool), complete_stream (internal)
 │       ├── react_step.py # Stateless single ReAct iteration primitive
 │       ├── drift.py     # Embedding-based semantic drift calculation
 │       ├── geometry.py  # Prompt variant generation and distance analysis
@@ -114,17 +133,21 @@ prompt_prix/
 │       └── _semantic_chunker.py  # Shared helpers for semantic-chunker tools
 ├── tabs/
 │   ├── battery/
-│   │   └── handlers.py  # Battery-specific handlers
+│   │   ├── handlers.py  # Battery-specific handlers
+│   │   └── ui.py        # Battery tab UI components
 │   └── compare/
-│       └── handlers.py  # Compare-specific handlers
+│       ├── handlers.py  # Compare-specific handlers
+│       └── ui.py        # Compare tab UI components
 ├── adapters/
 │   ├── base.py          # HostAdapter protocol
-│   ├── lmstudio.py      # LMStudioAdapter (OWNS ServerPool, ConcurrentDispatcher)
-│   └── huggingface.py   # HuggingFaceAdapter (rate-limited cloud calls)
-├── semantic_validator.py # Response validation (refusals, tool calls, verdicts)
+│   ├── schema.py        # InferenceTask and shared adapter types
+│   ├── lmstudio.py      # LMStudioAdapter (uses local-inference-pool)
+│   ├── together.py      # TogetherAdapter (Together AI cloud API)
+│   ├── huggingface.py   # HuggingFaceAdapter (HuggingFace Inference API)
+│   └── composite.py     # CompositeAdapter (routes model_id → child adapter)
 └── benchmarks/
     ├── base.py          # BenchmarkCase dataclass
-    ├── custom_json.py   # CustomJSONLoader (JSON/JSONL)
+    ├── custom.py        # CustomJSONLoader (JSON/JSONL)
     └── promptfoo.py     # PromptfooLoader (YAML format)
 ```
 
@@ -138,7 +161,23 @@ class HostAdapter(Protocol):
     async def stream_completion(self, task: InferenceTask) -> AsyncGenerator[str, None]: ...
 ```
 
-ServerPool and ConcurrentDispatcher are LM Studio concepts. Other backends have different resource models. The adapter encapsulates its internals — orchestration never sees these classes.
+| Adapter | Backend | Transport | Resource Model |
+|---------|---------|-----------|----------------|
+| `LMStudioAdapter` | LM Studio / any OpenAI-compatible server | httpx | Multi-GPU dispatch via [local-inference-pool](https://github.com/shanevcantwell/local-inference-pool) (ServerPool, ConcurrentDispatcher) |
+| `TogetherAdapter` | Together AI cloud | httpx | API key, model list |
+| `HuggingFaceAdapter` | HuggingFace Inference API | huggingface_hub | HF token, model list |
+| `CompositeAdapter` | Routes to child adapters | — | Wraps multiple adapters, routes by model_id |
+
+Each adapter encapsulates its internals — orchestration never sees backend-specific classes. The `CompositeAdapter` is created automatically by the registry when multiple adapters are configured.
+
+### local-inference-pool
+
+[`local-inference-pool`](https://github.com/shanevcantwell/local-inference-pool) (v0.1.0) provides multi-GPU dispatch for local inference servers:
+
+- **ServerPool**: Manages server URLs, tracks which model is loaded on each server, enforces the model-drain guard (one model at a time per server to prevent VRAM swap)
+- **ConcurrentDispatcher**: Async queue that submits inference tasks to the pool, acquires/releases server slots, handles cancellation cleanup
+
+Extracted from prompt-prix into a sibling repo to be shared by both prompt-prix and LAS. Pinned at v0.1.0 in `pyproject.toml`. Only `adapters/lmstudio.py` imports it.
 
 ## Timeout Contract
 
@@ -174,7 +213,7 @@ If the MCP client times out or disconnects while a tool call is in-flight:
 - The stdio pipe closes
 - FastMCP's event loop exits
 - Any in-flight `await` (dispatcher queue or httpx stream) raises `CancelledError`
-- `ConcurrentDispatcher.submit()` handles cancellation: if a server was already acquired, it's released back to the pool (lines 184-196 of `lmstudio.py`)
+- `ConcurrentDispatcher.submit()` handles cancellation: if a server was already acquired, it's released back to the pool
 - No orphaned state — the adapter cleans up
 
 ### Setting client-side timeout
@@ -303,4 +342,4 @@ All inference servers must expose OpenAI-compatible endpoints (`GET /v1/models`,
 | [011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation (proposed) |
 | [012](adr/ADR-012-compare-to-battery-export.md) | Compare to Battery export pipeline (proposed) |
 | [013](adr/ADR-013-semantic-chunker-mcp-primitives.md) | Semantic-chunker MCP primitives (geometry, trajectory) |
-| 014 | MCP protocol server — FastMCP over stdio for agent access |
+| [014](adr/ADR-014-mcp-ext-apps-battery-dashboard.md) | MCP protocol server — FastMCP over stdio for agent access |

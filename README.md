@@ -15,15 +15,21 @@ license: mit
 
 # prompt-prix
 
-**Audit local LLM function calling and agentic reliability.**
+**MCP toolkit for multi-model testing and agentic self-improvement.**
 
-You have a 24GB GPU. Should you run `gpt-oss-20b` or `lfm2.5-1.2b-instruct` for tool calling? BFCL gives you leaderboard scores for full-precision models on datacenter hardware. That doesn't answer your question.
+9 stateless tools over MCP stdio for completion, judging, semantic drift, ReAct execution, prompt geometry, and trajectory analysis. Agents call these tools to audition specialist LLMs, measure reliability across quantizations, and drive multi-step tool-use loops against real services.
 
-prompt-prix answers the question that matters: **Which model follows tool-use constraints reliably on YOUR hardware, TODAY?**
+Includes a Gradio UI for human visual comparison.
+
+| Audience | Entry Point | Transport |
+|----------|-------------|-----------|
+| Agents (LAS, Claude Desktop) | `prompt-prix-mcp` | MCP stdio (JSON-RPC) |
+| Scripts / CI | `prompt-prix-cli` | CLI, structured JSON output |
+| Humans | `prompt-prix` | Gradio web UI at localhost:7860 |
 
 ## Why Function Calling Benchmarks Matter
 
-Agentic AI frameworks like LangGraph, AutoGPT, and CrewAI assume models will:
+Agentic frameworks like LangGraph, AutoGPT, and CrewAI assume models will:
 - Call the right tool from a set of options
 - Respect `tool_choice: "none"` when told not to use tools
 - Emit valid JSON schemas, not hallucinated parameters
@@ -31,47 +37,35 @@ Agentic AI frameworks like LangGraph, AutoGPT, and CrewAI assume models will:
 
 **Most benchmarks don't test this.** They measure next-token prediction (perplexity) or multiple-choice accuracy (MMLU). Neither tells you if a model will stay inside the guardrails when you deploy it.
 
-prompt-prix runs **tool-use compliance tests** against your candidate models, on your hardware, and shows you which ones pass.
+prompt-prix provides the MCP tools an agentic system needs to answer this question for itself — testing candidate models on your hardware, against your actual tool-use patterns, and feeding the results back into model selection.
 
 ## Quantization Testing: Is 4-bit Good Enough?
 
-The local LLM community has repeated "Q4 quantization is fine" for years. That claim is based on perplexity scores and vibes—not structured output reliability.
+The local LLM community has repeated "Q4 quantization is fine" for years. That claim is based on perplexity scores and vibes — not structured output reliability.
 
 Is it actually true for function calling? Run the same tests against:
 - `llama-3-8b-instruct` (FP16)
 - `llama-3-8b-instruct-q4_k_m`
 - `llama-3-8b-instruct-iq4_xs`
 
-If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. If they both pass, you've validated the quantization for your use case.
+If FP16 passes 15/15 and Q4 passes 8/15, you have actionable data. An agentic system can use this to select its own specialist models — no human in the loop required.
 
-## Prompt-Prix Core Features
+## Core Features
 
 | Feature | What It Does |
 |---------|--------------|
-| **Fan-Out Dispatch** | Same test → N models in parallel |
+| **9 MCP Tools** | complete, judge, react_step, drift, geometry, trajectory — all stateless, all over stdio |
+| **Fan-Out Dispatch** | Same test dispatched to N models in parallel |
+| **Tool-Forwarding Mode** | `react_step(mock_tools=None)` returns parsed tool calls for caller dispatch against real services |
+| **Multi-Adapter Routing** | LM Studio, Together AI, HuggingFace — CompositeAdapter routes by model_id |
 | **Semantic Validation** | Detects refusals and missing tool calls (not just HTTP success) |
 | **LLM-as-Judge** | Semantic pass/fail evaluation with pipelined GPU scheduling |
 | **Consistency Testing** | Run tests N times with different seeds to find unreliable models |
-| **Tool-Forwarding Mode** | `react_step(mock_tools=None)` returns parsed tool calls for caller dispatch against real services |
-| **Model-Family Parsing** | Recognizes tool calls from LiquidAI, Hermes, OpenAI formats |
-| **Multi-GPU Dispatch** | Model-drain guard prevents VRAM swap mid-stream across GPUs |
+| **Multi-GPU Dispatch** | Model-drain guard prevents VRAM swap mid-stream via [local-inference-pool](https://github.com/shanevcantwell/local-inference-pool) |
 | **Latency Capture** | Per-test timing on YOUR hardware |
-| **Visual Grid** | Model × Test results at a glance |
+| **Visual Grid** | Model x Test results at a glance (Gradio UI) |
 
 <img width="1024" height="506" alt="LLM tool use test results - model comparison grid" src="https://github.com/user-attachments/assets/1bc2b4df-90fb-4212-8789-338b84e77ed4" />
-
-## Tested Models
-
-Works with any model served via OpenAI-compatible API. Tested on:
-
-- **Llama 3 / 3.1 / 3.2** — Instruct variants, various quantizations
-- **Qwen 2.5** — 7B, 14B, 72B instruct
-- **Mistral / Mixtral** — 7B instruct, 8x7B
-- **Phi-3 / Phi-3.5** — Mini, Medium
-- **DeepSeek** — V2, V2.5, Coder
-- **LiquidAI LFM** — 1.2B, 3B tool-use variants
-
-*Using [LM Studio](https://lmstudio.ai/) as the inference backend. Ollama support planned.*
 
 ## Quick Start
 
@@ -94,9 +88,16 @@ Opens at `http://localhost:7860`. Requires [LM Studio](https://lmstudio.ai/) wit
 docker compose up
 ```
 
+**MCP server (for agents):**
+```bash
+prompt-prix-mcp
+```
+
+Launches the MCP stdio server. Agents connect via JSON-RPC and call tools directly.
+
 ## LLM Tool-Use Test Suites
 
-prompt-prix ships with `examples/tool_competence_tests.json`—15 tests covering:
+prompt-prix ships with `examples/tool_competence_tests.json` — 15 tests covering:
 
 | Category | Tests |
 |----------|-------|
@@ -114,22 +115,20 @@ The real power of BFCL-compatible formats: **your production traces become your 
 
 ```
 Agentic system in production
-    ↓
+    |
 Observability captures tool calls (LangSmith, Arize, custom)
-    ↓
+    |
 Export traces as BFCL/JSON test cases
-    ↓
-prompt-prix auditions:
-    • Base models → which handles YOUR patterns?
-    • SFT checkpoints → is fine-tuning improving?
-    • Quantizations → what precision do you need?
-    ↓
-Visual grid + JSON export
-    ↓
-Informed RL/SFT decisions
+    |
+prompt-prix MCP tools audition:
+    - Base models: which handles YOUR patterns?
+    - SFT checkpoints: is fine-tuning improving?
+    - Quantizations: what precision do you need?
+    |
+JSON export -> informed RL/SFT decisions
 ```
 
-This isn't about running someone else's benchmarks. It's about testing models against **your actual usage patterns**—the tool calls your system makes in production—and rapidly iterating on fine-tuning with immediate visual feedback.
+An agentic system can close this loop autonomously — capturing its own tool-call traces, converting them to test cases, and using prompt-prix to evaluate candidate models without human intervention.
 
 ## Semantic Validation
 
@@ -144,15 +143,15 @@ prompt-prix detects:
 - **Missing tool calls**: When `tool_choice: "required"` but response is plain text
 - **Forbidden tool calls**: When `tool_choice: "none"` but model calls anyway
 
-Results show ✓ (pass), ❌ (semantic failure), or ⚠ (error).
+Results show COMPLETED, SEMANTIC_FAILURE, or ERROR.
 
 ## LLM-as-Judge Evaluation
 
 Select a judge model to evaluate whether responses meet semantic criteria defined in your test cases (`pass_criteria` / `fail_criteria`). Judge tasks are **pipelined** with inference — as each inference result completes, its judge task is submitted to the dispatcher. Idle GPUs pick up judge work while busy GPUs continue inference.
 
 ```
-GPU0: inference → inference → judge → judge → judge    (GPU0 finishes inference early, starts judging)
-GPU1: inference → inference → inference → inference     (GPU1 still doing heavy models)
+GPU0: inference -> inference -> judge -> judge -> judge    (GPU0 finishes inference early, starts judging)
+GPU1: inference -> inference -> inference -> inference     (GPU1 still doing heavy models)
 ```
 
 No priority queues, no server affinity — the existing `current_model` drain guard routes judge tasks to whichever GPU is idle.
@@ -163,21 +162,14 @@ Run each (test, model) cell N times with different random seeds to identify mode
 
 | Symbol | Meaning |
 |--------|---------|
-| ✓ | N/N passed (consistent pass) |
-| ❌ | 0/N passed (consistent fail) |
-| 🟣 3/5 | Inconsistent — passed some runs but not all |
-
-## Ecosystem Position
-
-| Tool | Purpose |
-|------|---------|
-| [BFCL](https://github.com/ShishirPatil/gorilla) | Function-calling leaderboard (datacenter benchmarks) |
-| [Inspect AI](https://inspect.ai-safety-institute.org.uk/) | Safety evaluation framework |
-| **prompt-prix** | Visual function-calling audit on YOUR hardware |
+| COMPLETED | N/N passed (consistent pass) |
+| SEMANTIC_FAILURE | 0/N passed (consistent fail) |
+| INCONSISTENT 3/5 | Inconsistent — passed some runs but not all |
 
 ## Related Projects
 
-- **[langgraph-agentic-scaffold](https://github.com/shanevcantwell/langgraph-agentic-scaffold)** — Agentic framework built on the principle that safety comes from structure, not trust. prompt-prix auditions models for deployment in LAS workflows.
+- **[langgraph-agentic-scaffold](https://github.com/shanevcantwell/langgraph-agentic-scaffold)** — Agentic framework built on the principle that safety comes from structure, not trust. LAS uses prompt-prix MCP tools for specialist model audition and ReAct loop execution.
+- **[local-inference-pool](https://github.com/shanevcantwell/local-inference-pool)** — Multi-GPU dispatch with model-drain guards. Extracted from prompt-prix, shared by both prompt-prix and LAS.
 
 ## Status
 
@@ -185,8 +177,9 @@ Alpha release. Core functionality works. Expect rough edges.
 
 ## Documentation
 
-- [docs/README.md](docs/README.md) — Architecture overview
-- [docs/EXTENDING.md](docs/EXTENDING.md) — Adding features
+- [docs/README.md](docs/README.md) — User guide (UI tabs + MCP tools)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — System architecture and layer model
+- [docs/MCP_TOOLS.md](docs/MCP_TOOLS.md) — MCP tool API reference (9 tools)
 - [CLAUDE.md](.claude/CLAUDE.md) — AI assistant context
 
 ## License

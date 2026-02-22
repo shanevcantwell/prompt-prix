@@ -1,8 +1,8 @@
 # prompt-prix
 
-**Visual fan-out for comparing LLM responses side-by-side.**
+**MCP toolkit for multi-model testing and agentic self-improvement.**
 
-Send the same prompt to multiple models simultaneously, then compare responses with semantic validation, LLM-as-judge scoring, and embedding drift detection. Built for model selection workflows where you need to audition models against real benchmark test cases.
+9 stateless tools for completion, judging, semantic drift, ReAct execution, prompt geometry, and trajectory analysis. Agents call these tools to audition specialist LLMs, measure reliability across quantizations, and drive multi-step tool-use loops. Includes a Gradio UI for human visual comparison.
 
 ## UI Tabs
 
@@ -94,17 +94,7 @@ response = await complete(
 # "The answer is 4."
 ```
 
-### `complete_stream(model_id, messages, ...)`
-
-Streaming variant — yields chunks as they arrive.
-
-```python
-async for chunk in complete_stream(
-    model_id="qwen2.5-7b",
-    messages=[{"role": "user", "content": "Explain quantum computing"}],
-):
-    print(chunk, end="")
-```
+> Streaming is available at the code level via `complete_stream()`, but it is not registered as an MCP tool. Agents use `complete()` for single completions.
 
 ### `react_step(model_id, system_prompt, initial_message, trace, mock_tools, tools, ...)`
 
@@ -333,10 +323,12 @@ prompt-prix
 # .env
 LM_STUDIO_SERVER_1=http://localhost:1234
 LM_STUDIO_SERVER_2=http://192.168.137.2:1234
+TOGETHER_API_KEY=...          # Together AI cloud adapter
+HF_TOKEN=...                  # HuggingFace Inference API
 GRADIO_PORT=7860
 ```
 
-Multiple servers enable parallel dispatch across GPUs — the adapter manages server selection, model routing, and busy-state tracking internally.
+Multiple adapters can be active simultaneously (LM Studio, Together AI, HuggingFace). The registry auto-detects which are configured and creates a CompositeAdapter that routes by model_id. For local servers, [local-inference-pool](https://github.com/shanevcantwell/local-inference-pool) manages server selection, model routing, and the model-drain guard across GPUs.
 
 ---
 
@@ -344,7 +336,6 @@ Multiple servers enable parallel dispatch across GPUs — the adapter manages se
 
 | Document | Description |
 |----------|-------------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | System design, module breakdown, and data flow |
-| [EXTENDING.md](EXTENDING.md) | Guide for adding features and understanding patterns |
-| [DESIGN.md](DESIGN.md) | Original design specification |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, layer model, and data flow |
+| [MCP_TOOLS.md](MCP_TOOLS.md) | MCP tool API reference (9 tools, schemas, timeouts) |
 | [adr/](adr/) | Architecture Decision Records |

@@ -1,6 +1,6 @@
 # prompt-prix
 
-**Purpose:** Visual fan-out MCP service for passing identical data across multiple LLMs simultaneously. Contains the ability to utilize another LLM to act as judge for semantic pass/fail.
+**Purpose:** MCP toolkit for multi-model testing and agentic self-improvement. 9 stateless tools over MCP stdio for completion, judging, semantic drift, ReAct execution, prompt geometry, and trajectory analysis. Includes a Gradio UI for human visual comparison.
 
 ---
 
@@ -54,17 +54,21 @@ Output: Side-by-side visual comparison
 | **MCP Primitives** | `adapters.base.HostAdapter` (protocol) | Individual adapter class implementations |
 | **Adapters** | httpx, internal utilities | Nothing from orchestration or MCP |
 
-> ServerPool and ConcurrentDispatcher are exclusively internal to LMStudioAdapter.
-> No file outside `adapters/lmstudio.py` may import or reference them.
+> ServerPool and ConcurrentDispatcher live in the [`local-inference-pool`](https://github.com/shanevcantwell/local-inference-pool) package (v0.1.0).
+> Only `adapters/lmstudio.py` imports them. No file outside the adapter layer may reference them.
 
 ### Key Modules
 
 | Module | Layer | Purpose |
 |--------|-------|---------|
-| `battery.py` | Orchestration | BatteryRunner - calls MCP tools |
+| `battery.py` | Orchestration | BatteryRunner — calls MCP tools |
 | `core.py` | Orchestration | ComparisonSession |
-| `mcp/tools/` | MCP | Primitives (complete, fan_out, judge) |
-| `adapters/lmstudio.py` | One Example of an Adapter | LMStudioAdapter (owns ServerPool) |
+| `mcp/tools/` | MCP | 9 primitives (complete, react_step, judge, drift, geometry, trajectory, list_models) |
+| `adapters/lmstudio.py` | Adapter | LMStudioAdapter (uses local-inference-pool) |
+| `adapters/together.py` | Adapter | TogetherAdapter (Together AI cloud API) |
+| `adapters/huggingface.py` | Adapter | HuggingFaceAdapter (HuggingFace Inference API) |
+| `adapters/composite.py` | Adapter | CompositeAdapter (routes model_id to child adapter) |
+| `adapters/schema.py` | Adapter | InferenceTask and shared adapter types |
 
 ---
 

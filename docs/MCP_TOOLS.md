@@ -46,7 +46,6 @@ Multiple adapters compose automatically via `CompositeAdapter` — model IDs rou
 |------|---------|-----------|
 | `list_models` | 30s | HTTP manifest fetch from each server |
 | `complete` | 300s | Full inference, varies by model size and prompt length |
-| `complete_stream` | 300s | Same as complete (streaming doesn't reduce total time) |
 | `react_step` | 300s | One LLM call + mock dispatch or tool-forwarding (no real tool execution) |
 | `judge` | 60s | Short prompt, short response — judges are fast |
 | `calculate_drift` | 10s | Embedding cosine distance, ~50ms typical |
@@ -123,21 +122,7 @@ await complete(model_id, [{"role": "user", "content": "Respond with only 'pong'"
 
 This is the caller's responsibility — the adapter can't do it without baking in timing assumptions.
 
----
-
-### `complete_stream(model_id, messages, ...)`
-
-Streaming variant — yields chunks as they arrive. Same parameters as `complete()`.
-
-**Yields:** `str` chunks, including two sentinel types:
-- `__LATENCY_MS__:<float>` — total inference time in milliseconds
-- `__TOOL_CALLS__:<json>` — structured tool call data (when `tools` provided)
-
-Use `parse_latency_sentinel(chunk)` from `prompt_prix.mcp.tools.complete` to extract latency. Use `parse_tool_calls_from_stream(chunks)` from `react_step` to separate text, tool calls, and latency.
-
-**When to use streaming vs non-streaming:**
-- `complete()` for batch processing, judging, variant generation — anywhere you just need the final string
-- `complete_stream()` for UI responsiveness or when you need latency/tool-call sentinels
+> **Internal: `complete_stream()`** — A streaming variant exists at the code level (`prompt_prix.mcp.tools.complete.complete_stream`) but is **not registered as an MCP tool**. It is used internally by `react_step()` for latency measurement and tool-call sentinel parsing. Agents use `complete()` for single completions.
 
 ---
 
@@ -184,10 +169,12 @@ This tool originated from LAS's `ReActMixin` (ADR-CORE-055). prompt-prix package
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `completed` | `bool` | `true` when model responds with text only (no tool calls) |
-| `final_response` | `str \| null` | Text response when `completed=true` |
+| `completed` | `bool` | `true` when model responds with text only (no tool calls), or when model calls DONE |
+| `final_response` | `str \| null` | Text response when `completed=true`. For DONE calls: `done_args["response"]` if present, else model text. |
 | `new_iterations` | `list[ReActIteration]` | Tool calls made and their mock observations (empty in forwarding mode) |
 | `pending_tool_calls` | `list[dict]` | Parsed but undispatched tool calls (forwarding mode only; empty otherwise) |
+| `done_args` | `dict \| undefined` | Present only when completed via DONE tool call. The full structured arguments passed to DONE. |
+| `done_trace_entry` | `dict \| undefined` | Present only when completed via DONE. Contains `tool_call` (id, name, args) and `thought` for trace display. |
 | `thought` | `str \| null` | Model's reasoning text before tool calls (forwarding mode only) |
 | `call_counter` | `int` | Pass this back in the next call for unique IDs |
 | `latency_ms` | `float` | Inference time for this step |
@@ -212,6 +199,28 @@ while not completed and len(trace) < max_iterations:
 4. Error message — no matching mock found
 
 This makes eval deterministic: same mocks → same observations → differences are purely in model decisions.
+
+**DONE interception:**
+
+When the model calls a tool named `DONE`, `react_step` intercepts it before forwarding or mock dispatch. The step returns `completed=True` with the DONE call data:
+
+```json
+{
+  "completed": true,
+  "final_response": "All files organized.",
+  "done_args": {"status": "COMPLETED", "response": "All files organized."},
+  "done_trace_entry": {
+    "tool_call": {"id": "call_38", "name": "DONE", "args": {"status": "COMPLETED", "response": "All files organized."}},
+    "thought": "I have finished organizing all files."
+  },
+  "new_iterations": [],
+  "pending_tool_calls": [],
+  "call_counter": 38,
+  "latency_ms": 200.0
+}
+```
+
+`done_trace_entry` provides the tool call shape consumers need to append to their trace for display. `final_response` is extracted from `done_args["response"]` if present, otherwise falls back to the model's text content. If the model calls both regular tools and DONE in one step, DONE takes priority.
 
 **Tool-forwarding mode (`mock_tools=None`):**
 
@@ -532,16 +541,16 @@ Compare trajectory profile of a synthetic (model-generated) text against a golde
 ## Tool Dependencies
 
 ```
-complete ─────────────────── adapter (LMStudio / Together / HuggingFace)
-complete_stream ─────────── adapter
-list_models ─────────────── adapter
-judge ───────────────────── complete()
-generate_variants ───────── complete()
-react_step ──────────────── complete_stream()
-calculate_drift ─────────── semantic-chunker (embedding model)
-analyze_variants ────────── semantic-chunker (embedding model)
-analyze_trajectory ──────── semantic-chunker (embedding model + spaCy)
-compare_trajectories ────── semantic-chunker (embedding model + spaCy)
+MCP tools (registered in server.py):
+  complete ─────────────────── adapter (LMStudio / Together / HuggingFace)
+  list_models ─────────────── adapter
+  judge ───────────────────── complete()
+  generate_variants ───────── complete()
+  react_step ──────────────── complete_stream() (internal, not an MCP tool)
+  calculate_drift ─────────── semantic-chunker (embedding model)
+  analyze_variants ────────── semantic-chunker (embedding model)
+  analyze_trajectory ──────── semantic-chunker (embedding model + spaCy)
+  compare_trajectories ────── semantic-chunker (embedding model + spaCy)
 ```
 
 Tools in the left column work with any registered adapter. Tools in the right column additionally require `semantic-chunker` and a running embedding model. If `semantic-chunker` is unavailable, those tools raise `ImportError` — the remaining tools continue to function.
