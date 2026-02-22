@@ -369,3 +369,124 @@ class TestReactStepForwarding:
         assert result["pending_tool_calls"][0]["name"] == "calculate_drift"
         assert result["pending_tool_calls"][0]["args"] == {}
         assert result["new_iterations"] == []
+
+
+# ─────────────────────────────────────────────────────────────────────
+# DONE INTERCEPTION TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestReactStepDone:
+    """Tests for DONE tool call interception (#151)."""
+
+    @pytest.mark.asyncio
+    async def test_done_returns_completed(self):
+        """DONE tool call → completed=True, done_args populated, done_trace_entry present."""
+        done_args = {"status": "COMPLETED", "response": "All files organized."}
+        sentinel = _tool_call_sentinel("DONE", done_args)
+
+        async def mock_stream(**kwargs):
+            yield "I have finished organizing all files."
+            yield sentinel
+            yield "__LATENCY_MS__:200"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            result = await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Organize files",
+                trace=[],
+                mock_tools={"read_file": {"_default": "content"}},
+                tools=[{"type": "function", "function": {"name": "DONE"}}],
+                call_counter=5,
+            )
+
+        assert result["completed"] is True
+        assert result["done_args"] == done_args
+        assert result["done_trace_entry"]["tool_call"]["name"] == "DONE"
+        assert result["done_trace_entry"]["tool_call"]["args"] == done_args
+        assert result["done_trace_entry"]["tool_call"]["id"] == "call_6"
+        assert result["done_trace_entry"]["thought"] == "I have finished organizing all files."
+        assert result["new_iterations"] == []
+        assert result["pending_tool_calls"] == []
+        assert result["call_counter"] == 6
+        assert result["latency_ms"] == 200.0
+
+    @pytest.mark.asyncio
+    async def test_done_extracts_response_from_args(self):
+        """done_args with 'response' key → final_response uses it."""
+        done_args = {"status": "COMPLETED", "response": "The answer is 42."}
+        sentinel = _tool_call_sentinel("DONE", done_args)
+
+        async def mock_stream(**kwargs):
+            yield "Thinking about the answer."
+            yield sentinel
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            result = await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="What is the answer?",
+                trace=[],
+                mock_tools=None,
+                tools=[],
+            )
+
+        assert result["final_response"] == "The answer is 42."
+
+    @pytest.mark.asyncio
+    async def test_done_fallback_to_text_content(self):
+        """DONE with no 'response' arg → final_response falls back to text content."""
+        done_args = {"status": "PARTIAL"}
+        sentinel = _tool_call_sentinel("DONE", done_args)
+
+        async def mock_stream(**kwargs):
+            yield "Could not complete the task fully."
+            yield sentinel
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            result = await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Do the thing",
+                trace=[],
+                mock_tools=None,
+                tools=[],
+            )
+
+        assert result["completed"] is True
+        assert result["final_response"] == "Could not complete the task fully."
+        assert result["done_args"] == {"status": "PARTIAL"}
+
+    @pytest.mark.asyncio
+    async def test_done_garbled_args(self):
+        """Garbled DONE arguments → done_args={}, no crash."""
+        async def mock_stream(**kwargs):
+            yield "Done now."
+            yield '__TOOL_CALLS__:[{"name":"DONE","arguments":"not valid json!!!"}]'
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            result = await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Finish up",
+                trace=[],
+                mock_tools={"read_file": {"_default": "x"}},
+                tools=[],
+            )
+
+        assert result["completed"] is True
+        assert result["done_args"] == {}
+        assert result["final_response"] == "Done now."
+        assert result["done_trace_entry"]["tool_call"]["name"] == "DONE"
+        assert result["done_trace_entry"]["tool_call"]["args"] == {}

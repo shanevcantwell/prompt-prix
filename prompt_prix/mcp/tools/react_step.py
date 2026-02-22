@@ -189,6 +189,37 @@ async def react_step(
             "latency_ms": latency_ms,
         }
 
+    # ── DONE interception: model signals completion via tool call ──
+    done_raw = next(
+        (tc for tc in tool_calls_raw if tc.get("name", "") == "DONE"), None
+    )
+    if done_raw is not None:
+        call_counter += 1
+        tc_args_raw = done_raw.get("arguments", "{}")
+        try:
+            done_args = json.loads(tc_args_raw) if isinstance(tc_args_raw, str) else tc_args_raw
+            if not isinstance(done_args, dict):
+                done_args = {}
+        except (json.JSONDecodeError, ValueError):
+            done_args = {}
+        return {
+            "completed": True,
+            "final_response": done_args.get("response", text_content or ""),
+            "done_args": done_args,
+            "done_trace_entry": {
+                "tool_call": {
+                    "id": f"call_{call_counter}",
+                    "name": "DONE",
+                    "args": done_args,
+                },
+                "thought": text_content if text_content else None,
+            },
+            "new_iterations": [],
+            "pending_tool_calls": [],
+            "call_counter": call_counter,
+            "latency_ms": latency_ms,
+        }
+
     # ── Tool-forwarding mode: return parsed calls for caller dispatch ──
     if mock_tools is None:
         pending = []
