@@ -104,6 +104,7 @@ Single completion. The adapter handles server selection, slot management, and JI
 | `tools` | `list[dict]` | `None` | OpenAI tool definitions — passed to the model, but `complete()` does NOT parse or dispatch tool calls. Use `react_step()` for tool-use loops. |
 | `seed` | `int` | `None` | Reproducibility seed (model support varies) |
 | `repeat_penalty` | `float` | `None` | Repetition penalty (model support varies) |
+| `response_format` | `dict` | `None` | Structured output schema (e.g., `{"type": "json_schema", "json_schema": {...}}`). Passed through to the adapter — prompt-prix does not interpret it. |
 
 **Returns:** `str` — the complete response text. If the model made tool calls, they are embedded in the stream as `__TOOL_CALLS__:` sentinels — `complete()` does not parse these, it returns only the text content. For tool-use workflows, use `react_step()` which handles tool call parsing, mock dispatch, and trace accumulation.
 
@@ -130,7 +131,7 @@ This is the caller's responsibility — the adapter can't do it without baking i
 
 Execute one ReAct iteration. Stateless: takes the trace in, returns one step out. The caller owns the loop.
 
-This tool originated from LAS's `ReActMixin` (ADR-CORE-055). prompt-prix packaged it as a stateless MCP primitive so both projects can use the same iteration logic — prompt-prix's `ReactRunner` for standalone evaluation, and LAS's Facilitator for orchestrated evaluation (ADR-CORE-064, Mode 2).
+This tool originated from LAS's `ReActMixin` (ADR-CORE-055). prompt-prix packaged it as a stateless MCP primitive so both projects can use the same iteration logic — prompt-prix's `execute_test_case()` for standalone evaluation, and LAS's Facilitator for orchestrated evaluation (ADR-CORE-064, Mode 2).
 
 **Parameters:**
 
@@ -146,6 +147,7 @@ This tool originated from LAS's `ReActMixin` (ADR-CORE-055). prompt-prix package
 | `temperature` | `float` | `0.0` | 0.0 for deterministic eval |
 | `max_tokens` | `int` | `2048` | |
 | `timeout_seconds` | `int` | `300` | |
+| `response_format` | `dict` | `None` | Structured output schema. Passed through to the adapter. |
 
 **Returns:**
 ```json

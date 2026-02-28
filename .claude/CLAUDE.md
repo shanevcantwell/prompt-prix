@@ -50,8 +50,9 @@ Output: Side-by-side visual comparison
 
 | Layer | MAY Import | MUST NOT Import |
 |-------|------------|-----------------|
-| **Orchestration** (BatteryRunner, ComparisonSession) | `mcp.tools.*`, `mcp.registry` | `adapters/*`, ServerPool |
-| **MCP Primitives** | `adapters.base.HostAdapter` (protocol) | Individual adapter class implementations |
+| **Orchestration** (BatteryRunner, ConsistencyRunner, ComparisonSession) | `react.dispatch`, `mcp.tools.*`, `mcp.registry` | `adapters/*`, ServerPool, ConcurrentDispatcher |
+| **Dispatch** (`react/dispatch.py`) | `mcp.tools.*`, `react.schemas`, `react.cycle_detection` | `adapters/*`, orchestration |
+| **MCP Primitives** | `adapters.base.HostAdapter` (protocol), `mcp.registry` | Concrete adapter classes, ServerPool |
 | **Adapters** | httpx, internal utilities | Nothing from orchestration or MCP |
 
 > ServerPool and ConcurrentDispatcher live in the [`local-inference-pool`](https://github.com/shanevcantwell/local-inference-pool) package (v0.1.0).
@@ -78,7 +79,7 @@ Output: Side-by-side visual comparison
 
 **Required fields:** `id`, `user`
 
-**Optional fields:** `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `expected`, `pass_criteria`, `fail_criteria`, `expected_response`
+**Optional fields:** `name`, `category`, `severity`, `system`, `messages`, `tools`, `tool_choice`, `response_format`, `expected`, `pass_criteria`, `fail_criteria`, `expected_response`
 
 **Formats supported:** JSON (with `prompts` array), JSONL (one per line), Promptfoo YAML (with `prompts` + `tests`)
 
@@ -102,7 +103,7 @@ Battery tests validate responses beyond HTTP success:
 
 ## Testing
 
-> **Full details:** See `docs/ARCHITECTURE.md` "Testing" section
+> Testing guidance lives here in CLAUDE.md. See `docs/ARCHITECTURE.md` for system architecture.
 
 ```bash
 .venv/                              # virtual environment (REQUIRED for pytest)
@@ -125,6 +126,8 @@ Battery tests validate responses beyond HTTP success:
 # .env file
 LM_STUDIO_SERVER_1=http://127.0.0.1:1234
 LM_STUDIO_SERVER_2=http://192.168.137.2:1234
+TOGETHER_API_KEY=...          # Together AI cloud adapter
+HF_TOKEN=...                  # HuggingFace Inference API
 GRADIO_PORT=7860
 ```
 
@@ -166,7 +169,7 @@ git clean -fdx  # without explicit confirmation
 ### Adding a New Adapter
 
 1. Create `prompt_prix/adapters/new_adapter.py`
-2. Implement `HostAdapter` protocol: `get_available_models()`, `stream_completion()`
+2. Implement `HostAdapter` protocol: `get_available_models()`, `get_models_by_server()`, `get_unreachable_servers()`, `stream_completion()`
 3. Encapsulate backend internals (pools, sessions, rate limiters) INSIDE the adapter
 4. Add integration tests marked with `@pytest.mark.integration`
 

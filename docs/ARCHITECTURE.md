@@ -4,7 +4,7 @@ prompt-prix is an MCP toolkit for multi-model testing and agentic self-improveme
 
 ## Four-Layer Architecture
 
-Per [ADR-006](adr/006-adapter-resource-ownership.md), every import in the codebase follows this strict layer model:
+Per [ADR-006](adr/ADR-006-adapter-resource-ownership.md), every import in the codebase follows this strict layer model:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -158,6 +158,8 @@ All adapters implement the `HostAdapter` protocol:
 ```python
 class HostAdapter(Protocol):
     async def get_available_models(self) -> list[str]: ...
+    def get_models_by_server(self) -> dict[str, list[str]]: ...
+    def get_unreachable_servers(self) -> list[str]: ...
     async def stream_completion(self, task: InferenceTask) -> AsyncGenerator[str, None]: ...
 ```
 
@@ -307,7 +309,7 @@ Checks run in order (first failure wins). Verdict matching enables judge compete
 
 **Required fields:** `id`, `user`
 
-**Optional fields:** `name`, `category`, `severity`, `system`, `tools`, `tool_choice`, `mode`, `mock_tools`, `max_iterations`, `expected`, `pass_criteria`, `fail_criteria`, `expected_response`
+**Optional fields:** `name`, `category`, `severity`, `system`, `messages`, `tools`, `tool_choice`, `response_format`, `mode`, `mock_tools`, `max_iterations`, `expected`, `pass_criteria`, `fail_criteria`, `expected_response`
 
 **Formats:** JSON (with `prompts` array), JSONL (one per line), Promptfoo YAML (with `prompts` + `tests`).
 
@@ -334,7 +336,7 @@ All inference servers must expose OpenAI-compatible endpoints (`GET /v1/models`,
 | [001](adr/001-use-existing-benchmarks.md) | Use existing benchmarks (BFCL, Inspect AI) instead of custom eval schema |
 | [002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
 | [003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |
-| [006](adr/006-adapter-resource-ownership.md) | Adapters own their resource management (ServerPool internal to LMStudioAdapter) |
+| [006](adr/ADR-006-adapter-resource-ownership.md) | Adapters own their resource management (ServerPool internal to LMStudioAdapter) |
 | [007](adr/ADR-007-cli-interface-layer.md) | CLI interface layer above orchestration |
 | [008](adr/ADR-008-judge-scheduling.md) | Pipelined judge scheduling for multi-GPU efficiency |
 | [009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |

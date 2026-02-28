@@ -61,7 +61,7 @@ Test files can be JSON, JSONL, or Promptfoo YAML:
 }
 ```
 
-Key fields: `id` and `user` are required. Optional: `system`, `tools`, `tool_choice`, `mode` (`"react"` for multi-step), `mock_tools`, `max_iterations`, `expected_response` (drift exemplar), `pass_criteria` / `fail_criteria` (judge input).
+Key fields: `id` and `user` are required. Optional: `system`, `messages` (pre-defined multi-turn history), `tools`, `tool_choice`, `response_format` (structured output schema), `mode` (`"react"` for multi-step), `mock_tools`, `max_iterations`, `expected_response` (drift exemplar), `pass_criteria` / `fail_criteria` (judge input).
 
 ---
 
