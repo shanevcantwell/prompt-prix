@@ -117,6 +117,7 @@ class LMStudioAdapter:
                 tools=task.tools,
                 seed=task.seed,
                 repeat_penalty=task.repeat_penalty,
+                response_format=task.response_format,
             ):
                 yield chunk
 
@@ -140,6 +141,7 @@ async def stream_completion(
     tools: Optional[list[dict]] = None,
     seed: Optional[int] = None,
     repeat_penalty: Optional[float] = None,
+    response_format: Optional[dict] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Stream completion from a specific LM Studio server.
@@ -166,6 +168,8 @@ async def stream_completion(
         payload["seed"] = int(seed)
     if repeat_penalty is not None and repeat_penalty != 1.0:
         payload["repeat_penalty"] = float(repeat_penalty)
+    if response_format is not None:
+        payload["response_format"] = response_format
 
     start_time = time.time()
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:

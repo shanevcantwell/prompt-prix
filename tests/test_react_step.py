@@ -278,6 +278,64 @@ class TestReactStep:
 
 
 # ─────────────────────────────────────────────────────────────────────
+# RESPONSE_FORMAT PASSTHROUGH TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestReactStepResponseFormat:
+    """Tests for response_format passthrough to complete_stream."""
+
+    @pytest.mark.asyncio
+    async def test_response_format_passed_to_complete_stream(self):
+        """response_format parameter flows through to complete_stream."""
+        captured = {}
+        rf = {"type": "json_schema", "json_schema": {"name": "test", "strict": True, "schema": {}}}
+
+        async def mock_stream(**kwargs):
+            captured.update(kwargs)
+            yield "Done."
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Do it",
+                trace=[],
+                mock_tools={},
+                tools=[],
+                response_format=rf,
+            )
+
+        assert captured["response_format"] == rf
+
+    @pytest.mark.asyncio
+    async def test_no_response_format_passes_none(self):
+        """Omitted response_format passes None to complete_stream."""
+        captured = {}
+
+        async def mock_stream(**kwargs):
+            captured.update(kwargs)
+            yield "Done."
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Do it",
+                trace=[],
+                mock_tools={},
+                tools=[],
+            )
+
+        assert captured["response_format"] is None
+
+
+# ─────────────────────────────────────────────────────────────────────
 # TOOL-FORWARDING MODE TESTS (mock_tools=None)
 # ─────────────────────────────────────────────────────────────────────
 

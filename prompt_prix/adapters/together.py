@@ -85,6 +85,8 @@ class TogetherAdapter:
             payload["tools"] = _normalize_tools_for_openai(task.tools)
         if task.seed is not None:
             payload["seed"] = int(task.seed)
+        if task.response_format is not None:
+            payload["response_format"] = task.response_format
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",

@@ -102,6 +102,7 @@ async def _execute_single_shot(
         max_tokens=max_tokens,
         timeout_seconds=timeout_seconds,
         tools=test.tools,
+        response_format=test.response_format,
     )
     if seed is not None:
         kwargs["seed"] = seed
@@ -150,6 +151,7 @@ async def _execute_react(
             temperature=temperature,
             max_tokens=max_tokens,
             timeout_seconds=timeout_seconds,
+            response_format=test.response_format,
         )
 
         call_counter = step["call_counter"]

@@ -27,6 +27,7 @@ class BenchmarkCase(BaseModel):
     user: str
     tools: Optional[list[dict]] = None
     tool_choice: Optional[str] = None  # "required", "auto", "none"
+    response_format: Optional[dict] = None  # Structured output schema (e.g., json_schema)
     expected: Optional[dict] = None  # For future grading
     pass_criteria: Optional[str] = None
     fail_criteria: Optional[str] = None

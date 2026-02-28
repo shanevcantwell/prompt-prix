@@ -45,6 +45,7 @@ async def complete(
     tools: Optional[list[dict]] = None,
     seed: Optional[int] = None,
     repeat_penalty: Optional[float] = None,
+    response_format: Optional[dict] = None,
 ) -> str:
     """
     Get a completion from an LLM.
@@ -63,6 +64,7 @@ async def complete(
         tools=tools,
         seed=seed,
         repeat_penalty=repeat_penalty,
+        response_format=response_format,
     )
 
     # Collect streaming response into final string, filtering out latency sentinel
@@ -83,6 +85,7 @@ async def complete_stream(
     tools: Optional[list[dict]] = None,
     seed: Optional[int] = None,
     repeat_penalty: Optional[float] = None,
+    response_format: Optional[dict] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Stream a completion from an LLM.
@@ -101,6 +104,7 @@ async def complete_stream(
         tools=tools,
         seed=seed,
         repeat_penalty=repeat_penalty,
+        response_format=response_format,
     )
 
     async for chunk in adapter.stream_completion(task):

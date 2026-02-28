@@ -134,6 +134,7 @@ async def react_step(
     temperature: float = 0.0,
     max_tokens: int = 2048,
     timeout_seconds: int = 300,
+    response_format: dict | None = None,
 ) -> dict:
     """Execute one ReAct iteration against a model.
 
@@ -173,6 +174,7 @@ async def react_step(
         max_tokens=max_tokens,
         timeout_seconds=timeout_seconds,
         tools=tools if tools else None,
+        response_format=response_format,
     ):
         chunks.append(chunk)
 

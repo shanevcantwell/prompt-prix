@@ -149,6 +149,38 @@ class TestSingleShotDispatch:
         assert "seed" not in captured_kwargs
 
     @pytest.mark.asyncio
+    async def test_passes_response_format(self):
+        """response_format from BenchmarkCase flows to complete_stream."""
+        rf = {"type": "json_schema", "json_schema": {"name": "test", "strict": True, "schema": {}}}
+        test = BenchmarkCase(id="rf_test", user="Do it", response_format=rf)
+        captured = {}
+
+        async def mock_stream(**kwargs):
+            captured.update(kwargs)
+            yield "done"
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_stream):
+            await execute_test_case(test=test, model_id="model_a")
+
+        assert captured["response_format"] == rf
+
+    @pytest.mark.asyncio
+    async def test_no_response_format_passes_none(self, single_shot_test):
+        """BenchmarkCase without response_format passes None."""
+        captured = {}
+
+        async def mock_stream(**kwargs):
+            captured.update(kwargs)
+            yield "done"
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.react.dispatch.complete_stream", side_effect=mock_stream):
+            await execute_test_case(test=single_shot_test, model_id="model_a")
+
+        assert captured["response_format"] is None
+
+    @pytest.mark.asyncio
     async def test_error_propagates(self, single_shot_test):
         """Infrastructure errors propagate to caller."""
         async def mock_stream(**kwargs):

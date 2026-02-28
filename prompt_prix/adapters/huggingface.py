@@ -138,6 +138,9 @@ class HuggingFaceAdapter:
             if task.seed is not None:
                 kwargs["seed"] = task.seed
 
+            if task.response_format is not None:
+                kwargs["response_format"] = task.response_format
+
             # Note: tools support deferred to Phase 4
             # if task.tools:
             #     kwargs["tools"] = task.tools

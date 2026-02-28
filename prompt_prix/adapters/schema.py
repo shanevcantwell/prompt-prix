@@ -15,6 +15,7 @@ class InferenceTask(BaseModel):
     tools: Optional[List[Dict[str, Any]]] = None
     seed: Optional[int] = None
     repeat_penalty: Optional[float] = None
+    response_format: Optional[Dict[str, Any]] = None
 
 
 class InferenceResult(BaseModel):
