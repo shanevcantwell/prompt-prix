@@ -105,6 +105,7 @@ Single completion. The adapter handles server selection, slot management, and JI
 | `seed` | `int` | `None` | Reproducibility seed (model support varies) |
 | `repeat_penalty` | `float` | `None` | Repetition penalty (model support varies) |
 | `response_format` | `dict` | `None` | Structured output schema (e.g., `{"type": "json_schema", "json_schema": {...}}`). Passed through to the adapter — prompt-prix does not interpret it. |
+| `api_key` | `str` | `None` | Per-request auth token. Overrides adapter-level credential (env var or constructor). |
 
 **Returns:** `str` — the complete response text. If the model made tool calls, they are embedded in the stream as `__TOOL_CALLS__:` sentinels — `complete()` does not parse these, it returns only the text content. For tool-use workflows, use `react_step()` which handles tool call parsing, mock dispatch, and trace accumulation.
 
@@ -148,6 +149,7 @@ This tool originated from LAS's `ReActMixin` (ADR-CORE-055). prompt-prix package
 | `max_tokens` | `int` | `2048` | |
 | `timeout_seconds` | `int` | `300` | |
 | `response_format` | `dict` | `None` | Structured output schema. Passed through to the adapter. |
+| `api_key` | `str` | `None` | Per-request auth token. Overrides adapter-level credential. |
 
 **Returns:**
 ```json

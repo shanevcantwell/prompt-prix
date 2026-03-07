@@ -46,6 +46,7 @@ async def complete(
     seed: Optional[int] = None,
     repeat_penalty: Optional[float] = None,
     response_format: Optional[dict] = None,
+    api_key: Optional[str] = None,
 ) -> str:
     """
     Get a completion from an LLM.
@@ -65,6 +66,7 @@ async def complete(
         seed=seed,
         repeat_penalty=repeat_penalty,
         response_format=response_format,
+        api_key=api_key,
     )
 
     # Collect streaming response into final string, filtering out latency sentinel
@@ -86,6 +88,7 @@ async def complete_stream(
     seed: Optional[int] = None,
     repeat_penalty: Optional[float] = None,
     response_format: Optional[dict] = None,
+    api_key: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Stream a completion from an LLM.
@@ -105,6 +108,7 @@ async def complete_stream(
         seed=seed,
         repeat_penalty=repeat_penalty,
         response_format=response_format,
+        api_key=api_key,
     )
 
     async for chunk in adapter.stream_completion(task):

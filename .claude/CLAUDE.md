@@ -126,6 +126,7 @@ Battery tests validate responses beyond HTTP success:
 # .env file
 LM_STUDIO_SERVER_1=http://127.0.0.1:1234
 LM_STUDIO_SERVER_2=http://192.168.137.2:1234
+LMSTUDIO_API_KEY=...          # LM Studio adapter auth (optional, fallback when no per-request api_key)
 TOGETHER_API_KEY=...          # Together AI cloud adapter
 HF_TOKEN=...                  # HuggingFace Inference API
 GRADIO_PORT=7860

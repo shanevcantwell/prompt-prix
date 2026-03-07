@@ -135,6 +135,7 @@ async def react_step(
     max_tokens: int = 2048,
     timeout_seconds: int = 300,
     response_format: dict | None = None,
+    api_key: str | None = None,
 ) -> dict:
     """Execute one ReAct iteration against a model.
 
@@ -175,6 +176,7 @@ async def react_step(
         timeout_seconds=timeout_seconds,
         tools=tools if tools else None,
         response_format=response_format,
+        api_key=api_key,
     ):
         chunks.append(chunk)
 

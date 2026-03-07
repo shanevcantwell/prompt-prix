@@ -10,9 +10,12 @@ Key differences from LMStudioAdapter:
 - Cloud API: Always "reachable" - errors occur at call time
 """
 
+import logging
 import os
 import time
 from typing import AsyncGenerator, Optional
+
+logger = logging.getLogger(__name__)
 
 from huggingface_hub import AsyncInferenceClient
 from huggingface_hub.errors import InferenceTimeoutError, HfHubHTTPError
@@ -120,6 +123,14 @@ class HuggingFaceAdapter:
         """
         start_time = time.time()
         has_content = False
+
+        # TODO: Per-request api_key override not supported — AsyncInferenceClient
+        # binds token at init. Would require creating a new client per call.
+        if task.api_key and task.api_key != self._token:
+            logger.warning(
+                "HuggingFace adapter does not support per-request api_key override. "
+                "Using token from adapter initialization."
+            )
 
         try:
             # Build kwargs for chat_completion

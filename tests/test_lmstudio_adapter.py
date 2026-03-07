@@ -76,8 +76,10 @@ class TestGetAvailableModels:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_both_servers_unreachable_returns_empty(self, two_server_urls):
-        """Both servers unreachable → returns empty list."""
+    async def test_both_servers_unreachable_raises(self, two_server_urls):
+        """Both servers unreachable → raises LMStudioError (empty manifest fast-fail)."""
+        from prompt_prix.adapters.lmstudio import LMStudioError
+
         respx.get("http://server0:1234/v1/models").mock(
             side_effect=httpx.ConnectError("Connection refused")
         )
@@ -86,9 +88,8 @@ class TestGetAvailableModels:
         )
 
         adapter = LMStudioAdapter(two_server_urls)
-        models = await adapter.get_available_models()
-
-        assert models == []
+        with pytest.raises(LMStudioError, match="No models available"):
+            await adapter.get_available_models()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -634,3 +635,125 @@ class TestToolCallSentinel:
 
         tool_sentinels = [c for c in chunks if c.startswith("__TOOL_CALLS__:")]
         assert len(tool_sentinels) == 0
+
+
+# ─────────────────────────────────────────────────────────────────────
+# API KEY / AUTH TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestApiKeyAuth:
+    """Tests for per-request API key passthrough and fallback chain."""
+
+    def test_api_key_from_constructor(self):
+        """Explicit api_key stored on adapter."""
+        adapter = LMStudioAdapter(["http://server0:1234"], api_key="explicit-key")
+        assert adapter._api_key == "explicit-key"
+
+    def test_api_key_fallback_to_env(self, monkeypatch):
+        """No explicit key → falls back to LMSTUDIO_API_KEY env var."""
+        monkeypatch.setenv("LMSTUDIO_API_KEY", "env-key")
+        adapter = LMStudioAdapter(["http://server0:1234"])
+        assert adapter._api_key == "env-key"
+
+    def test_api_key_fallback_to_none(self, monkeypatch):
+        """No explicit key, no env var → api_key is None."""
+        monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
+        adapter = LMStudioAdapter(["http://server0:1234"])
+        assert adapter._api_key is None
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_api_key_in_request_headers(self):
+        """Bearer header sent when api_key is present on task."""
+        server_url = "http://server0:1234"
+        respx.get(f"{server_url}/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+
+        captured_headers = {}
+
+        async def capture_request(request):
+            captured_headers.update(dict(request.headers))
+            return httpx.Response(200, content=sse_stream("ok"))
+
+        respx.post(f"{server_url}/v1/chat/completions").mock(side_effect=capture_request)
+
+        adapter = LMStudioAdapter([server_url])
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Hi"}],
+            api_key="per-request-key",
+        )
+
+        async for _ in adapter.stream_completion(task):
+            pass
+
+        assert captured_headers.get("authorization") == "Bearer per-request-key"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_no_auth_header_when_no_key(self, monkeypatch):
+        """No Bearer header when no api_key anywhere."""
+        monkeypatch.delenv("LMSTUDIO_API_KEY", raising=False)
+        server_url = "http://server0:1234"
+        respx.get(f"{server_url}/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+
+        captured_headers = {}
+
+        async def capture_request(request):
+            captured_headers.update(dict(request.headers))
+            return httpx.Response(200, content=sse_stream("ok"))
+
+        respx.post(f"{server_url}/v1/chat/completions").mock(side_effect=capture_request)
+
+        adapter = LMStudioAdapter([server_url])
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        async for _ in adapter.stream_completion(task):
+            pass
+
+        assert "authorization" not in captured_headers
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_empty_manifest_raises(self):
+        """All servers return empty manifests → raises LMStudioError immediately."""
+        from prompt_prix.adapters.lmstudio import LMStudioError
+
+        server_url = "http://server0:1234"
+        respx.get(f"{server_url}/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response([]))
+        )
+
+        adapter = LMStudioAdapter([server_url])
+        with pytest.raises(LMStudioError, match="No models available"):
+            await adapter.get_available_models()
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_401_raises_auth_error_message(self):
+        """401 response → LMStudioError with actionable auth message."""
+        from prompt_prix.adapters.lmstudio import LMStudioError
+
+        server_url = "http://server0:1234"
+        respx.get(f"{server_url}/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.post(f"{server_url}/v1/chat/completions").mock(
+            return_value=httpx.Response(401, json={"error": "unauthorized"})
+        )
+
+        adapter = LMStudioAdapter([server_url])
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        with pytest.raises(LMStudioError, match="Authentication failed"):
+            async for _ in adapter.stream_completion(task):
+                pass

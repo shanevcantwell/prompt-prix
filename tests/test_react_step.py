@@ -335,6 +335,58 @@ class TestReactStepResponseFormat:
         assert captured["response_format"] is None
 
 
+class TestReactStepApiKey:
+    """Tests for api_key passthrough to complete_stream."""
+
+    @pytest.mark.asyncio
+    async def test_api_key_passed_to_complete_stream(self):
+        """api_key parameter flows through to complete_stream."""
+        captured = {}
+
+        async def mock_stream(**kwargs):
+            captured.update(kwargs)
+            yield "Done."
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Do it",
+                trace=[],
+                mock_tools={},
+                tools=[],
+                api_key="my-secret-key",
+            )
+
+        assert captured["api_key"] == "my-secret-key"
+
+    @pytest.mark.asyncio
+    async def test_no_api_key_passes_none(self):
+        """Omitted api_key passes None to complete_stream."""
+        captured = {}
+
+        async def mock_stream(**kwargs):
+            captured.update(kwargs)
+            yield "Done."
+            yield "__LATENCY_MS__:50"
+
+        with patch("prompt_prix.mcp.tools.react_step.complete_stream", side_effect=mock_stream):
+            from prompt_prix.mcp.tools.react_step import react_step
+
+            await react_step(
+                model_id="test-model",
+                system_prompt="sys",
+                initial_message="Do it",
+                trace=[],
+                mock_tools={},
+                tools=[],
+            )
+
+        assert captured["api_key"] is None
+
 # ─────────────────────────────────────────────────────────────────────
 # TOOL-FORWARDING MODE TESTS (mock_tools=None)
 # ─────────────────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ class InferenceTask(BaseModel):
     seed: Optional[int] = None
     repeat_penalty: Optional[float] = None
     response_format: Optional[Dict[str, Any]] = None
+    api_key: Optional[str] = None  # Per-request auth token (caller override)
 
 
 class InferenceResult(BaseModel):

@@ -89,7 +89,7 @@ class TogetherAdapter:
             payload["response_format"] = task.response_format
 
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {task.api_key or self._api_key}",
             "Content-Type": "application/json",
         }
 
@@ -104,6 +104,11 @@ class TogetherAdapter:
                     json=payload,
                     headers=headers,
                 ) as response:
+                    if response.status_code in (401, 403):
+                        raise TogetherError(
+                            f"Authentication failed for {task.model_id} "
+                            f"— check api_key parameter or TOGETHER_API_KEY env var"
+                        )
                     if response.status_code >= 400:
                         error_body = await response.aread()
                         try:

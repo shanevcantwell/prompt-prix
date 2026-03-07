@@ -9,6 +9,7 @@ Orchestration and MCP layers only see the HostAdapter protocol interface.
 import asyncio
 import json
 import logging
+import os
 import httpx
 from typing import AsyncGenerator, Optional
 
@@ -47,17 +48,26 @@ class LMStudioAdapter:
     Orchestration layers should not know about the internal pooling.
     """
 
-    def __init__(self, server_urls: list[str]):
+    def __init__(self, server_urls: list[str], api_key: Optional[str] = None):
         """
         Initialize adapter with server URLs.
 
         Args:
             server_urls: List of LM Studio server URLs
+            api_key: Auth token. Fallback: LMSTUDIO_API_KEY env var.
         """
         self._pool = ServerPool(server_urls)
         self._dispatcher = ConcurrentDispatcher(self._pool)
         self._lock = asyncio.Lock()
         self._manifests_loaded = False
+        self._api_key = api_key or os.environ.get("LMSTUDIO_API_KEY")
+
+    def _auth_headers(self, api_key: Optional[str] = None) -> Optional[dict]:
+        """Build Bearer auth headers from per-request key or adapter default."""
+        key = api_key or self._api_key
+        if key:
+            return {"Authorization": f"Bearer {key}"}
+        return None
 
     def set_parallel_slots(self, slots: int) -> None:
         """Set max concurrent requests per server."""
@@ -66,9 +76,15 @@ class LMStudioAdapter:
     async def get_available_models(self) -> list[str]:
         """Return list of all models available across all servers."""
         async with self._lock:
-            await self._pool.refresh_all_manifests()
+            await self._pool.refresh_all_manifests(headers=self._auth_headers())
             self._manifests_loaded = True
-            return list(self._pool.get_all_available_models())
+            models = list(self._pool.get_all_available_models())
+            if not models:
+                raise LMStudioError(
+                    "No models available — all servers returned empty manifests. "
+                    "Check server status and authentication."
+                )
+            return models
 
     def get_models_by_server(self) -> dict[str, list[str]]:
         """Return models grouped by server URL."""
@@ -93,17 +109,22 @@ class LMStudioAdapter:
         if not self._manifests_loaded:
             async with self._lock:
                 if not self._manifests_loaded:  # Double-check after acquiring lock
-                    await self._pool.refresh_all_manifests()
+                    await self._pool.refresh_all_manifests(
+                        headers=self._auth_headers(task.api_key)
+                    )
                     self._manifests_loaded = True
                     # Log server state for debugging
                     for idx, (url, server) in enumerate(self._pool.servers.items()):
                         logger.info(f"Server[{idx}] {url}: models={server.available_models}")
+                    if not self._pool.get_all_available_models():
+                        raise LMStudioError(
+                            "No models available — all servers returned empty manifests. "
+                            "Check server status and authentication."
+                        )
 
         server_url = None
         try:
-            # 1. Acquire via Dispatcher (Queue-based, no timeout)
-            # Queue wait time is excluded from timeout, matching how latency is measured.
-            # Only the actual HTTP call (in stream_completion) has a timeout.
+            # 1. Acquire via Dispatcher
             server_url = await self._dispatcher.submit(task.model_id)
 
             # 2. Stream (timeout applies here via httpx)
@@ -118,6 +139,7 @@ class LMStudioAdapter:
                 seed=task.seed,
                 repeat_penalty=task.repeat_penalty,
                 response_format=task.response_format,
+                api_key=task.api_key or self._api_key,
             ):
                 yield chunk
 
@@ -142,6 +164,7 @@ async def stream_completion(
     seed: Optional[int] = None,
     repeat_penalty: Optional[float] = None,
     response_format: Optional[dict] = None,
+    api_key: Optional[str] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Stream completion from a specific LM Studio server.
@@ -171,13 +194,21 @@ async def stream_completion(
     if response_format is not None:
         payload["response_format"] = response_format
 
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+
     start_time = time.time()
     async with httpx.AsyncClient(timeout=timeout_seconds) as client:
         async with client.stream(
             "POST",
             f"{server_url}/v1/chat/completions",
-            json=payload
+            json=payload,
+            headers=headers,
         ) as response:
+            if response.status_code in (401, 403):
+                raise LMStudioError(
+                    f"Authentication failed for {model_id} at {server_url} "
+                    f"— check api_key parameter or LMSTUDIO_API_KEY env var"
+                )
             if response.status_code >= 400:
                 error_body = await response.aread()
                 try:
