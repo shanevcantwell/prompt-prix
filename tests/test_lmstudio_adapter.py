@@ -757,3 +757,98 @@ class TestApiKeyAuth:
         with pytest.raises(LMStudioError, match="Authentication failed"):
             async for _ in adapter.stream_completion(task):
                 pass
+
+
+# ─────────────────────────────────────────────────────────────────────
+# DISPATCHER EXCEPTION WRAPPING TESTS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestDispatcherExceptionWrapping:
+    """Tests that l-i-p dispatcher exceptions are wrapped as LMStudioError."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_dispatcher_timeout_raises_lmstudio_error(self, two_server_urls):
+        """DispatcherTimeoutError from submit() → LMStudioError."""
+        from prompt_prix.adapters.lmstudio import LMStudioError
+        from local_inference_pool.dispatcher import DispatcherTimeoutError
+        from unittest.mock import AsyncMock
+
+        respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.get("http://server1:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+
+        adapter = LMStudioAdapter(two_server_urls)
+        adapter._dispatcher.submit = AsyncMock(
+            side_effect=DispatcherTimeoutError("modelA", 60.0)
+        )
+
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        with pytest.raises(LMStudioError, match="Timed out"):
+            async for _ in adapter.stream_completion(task):
+                pass
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_no_models_available_raises_lmstudio_error(self, two_server_urls):
+        """NoModelsAvailableError from submit() → LMStudioError."""
+        from prompt_prix.adapters.lmstudio import LMStudioError
+        from local_inference_pool.dispatcher import NoModelsAvailableError
+        from unittest.mock import AsyncMock
+
+        respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.get("http://server1:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+
+        adapter = LMStudioAdapter(two_server_urls)
+        adapter._dispatcher.submit = AsyncMock(
+            side_effect=NoModelsAvailableError("unknown")
+        )
+
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        with pytest.raises(LMStudioError, match="No models available"):
+            async for _ in adapter.stream_completion(task):
+                pass
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_model_not_available_raises_lmstudio_error(self, two_server_urls):
+        """ModelNotAvailableError from submit() → LMStudioError."""
+        from prompt_prix.adapters.lmstudio import LMStudioError
+        from local_inference_pool.dispatcher import ModelNotAvailableError
+        from unittest.mock import AsyncMock
+
+        respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.get("http://server1:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+
+        adapter = LMStudioAdapter(two_server_urls)
+        adapter._dispatcher.submit = AsyncMock(
+            side_effect=ModelNotAvailableError("nonexistent-model", ["modelA"])
+        )
+
+        task = InferenceTask(
+            model_id="nonexistent-model",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        with pytest.raises(LMStudioError, match="not available on any server"):
+            async for _ in adapter.stream_completion(task):
+                pass

@@ -14,6 +14,11 @@ import httpx
 from typing import AsyncGenerator, Optional
 
 from local_inference_pool import ServerPool, ConcurrentDispatcher
+from local_inference_pool.dispatcher import (
+    DispatcherTimeoutError,
+    NoModelsAvailableError,
+    ModelNotAvailableError,
+)
 
 from prompt_prix.adapters.schema import InferenceTask
 
@@ -124,8 +129,22 @@ class LMStudioAdapter:
 
         server_url = None
         try:
-            # 1. Acquire via Dispatcher
-            server_url = await self._dispatcher.submit(task.model_id)
+            # 1. Acquire via Dispatcher (fail-fast + 60s timeout)
+            try:
+                server_url = await self._dispatcher.submit(task.model_id)
+            except NoModelsAvailableError as e:
+                raise LMStudioError(
+                    f"No models available from any server — {e}"
+                ) from e
+            except ModelNotAvailableError as e:
+                raise LMStudioError(
+                    f"Model '{task.model_id}' not available on any server"
+                ) from e
+            except DispatcherTimeoutError as e:
+                raise LMStudioError(
+                    f"Timed out waiting for server slot for {task.model_id} "
+                    f"— all servers may be busy or JIT-swap-blocked"
+                ) from e
 
             # 2. Stream (timeout applies here via httpx)
             async for chunk in stream_completion(
