@@ -78,32 +78,33 @@ def get_retry_max_wait() -> int:
 # ENVIRONMENT LOADING
 # ─────────────────────────────────────────────────────────────────────
 
-def load_servers_from_env() -> list[str]:
+def load_servers_from_env() -> list[dict[str, str | None]]:
     """
-    Load LM Studio server URLs from environment variables.
+    Load LM Studio server configs from environment variables.
 
-    Looks for variables matching pattern: LM_STUDIO_SERVER_1, LM_STUDIO_SERVER_2, etc.
-    Returns list of non-empty server URLs.
+    Reads LM_STUDIO_SERVER_N for URLs and LM_STUDIO_SERVER_N_KEY for per-server auth.
+    Returns list of {"url": ..., "api_key": ...} dicts.
     """
     servers = []
     i = 1
     while True:
-        key = f"LM_STUDIO_SERVER_{i}"
-        value = os.environ.get(key)
-        if value is None:
+        url_key = f"LM_STUDIO_SERVER_{i}"
+        url = os.environ.get(url_key)
+        if url is None:
             # No more servers defined
             break
-        if value.strip():
-            servers.append(value.strip())
+        if url.strip():
+            api_key = os.environ.get(f"LM_STUDIO_SERVER_{i}_KEY", "").strip() or None
+            servers.append({"url": url.strip(), "api_key": api_key})
         i += 1
     return servers
 
 
-def get_default_servers() -> list[str]:
+def get_default_servers() -> list[dict[str, str | None]]:
     """
     Get default server list from environment or fallback.
 
-    Returns servers from environment variables if set,
+    Returns server configs from environment variables if set,
     otherwise returns placeholder defaults.
     """
     servers = load_servers_from_env()
@@ -111,8 +112,8 @@ def get_default_servers() -> list[str]:
         return servers
     # Fallback to placeholder defaults
     return [
-        "http://192.168.1.10:1234",
-        "http://192.168.1.11:1234",
+        {"url": "http://192.168.1.10:1234", "api_key": None},
+        {"url": "http://192.168.1.11:1234", "api_key": None},
     ]
 
 

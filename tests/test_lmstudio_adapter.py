@@ -736,6 +736,32 @@ class TestApiKeyAuth:
 
     @pytest.mark.asyncio
     @respx.mock
+    async def test_per_server_key_in_manifest_headers(self):
+        """Per-server api_key sent as Bearer header during manifest refresh."""
+        captured = {"server0": {}, "server1": {}}
+
+        async def capture_server0(request):
+            captured["server0"] = dict(request.headers)
+            return httpx.Response(200, json=models_response(["modelA"]))
+
+        async def capture_server1(request):
+            captured["server1"] = dict(request.headers)
+            return httpx.Response(200, json=models_response(["modelB"]))
+
+        respx.get("http://server0:1234/v1/models").mock(side_effect=capture_server0)
+        respx.get("http://server1:1234/v1/models").mock(side_effect=capture_server1)
+
+        adapter = LMStudioAdapter([
+            {"url": "http://server0:1234", "api_key": "key-for-server0"},
+            {"url": "http://server1:1234", "api_key": None},
+        ])
+        await adapter.get_available_models()
+
+        assert captured["server0"].get("authorization") == "Bearer key-for-server0"
+        assert "authorization" not in captured["server1"]
+
+    @pytest.mark.asyncio
+    @respx.mock
     async def test_401_raises_auth_error_message(self):
         """401 response → LMStudioError with actionable auth message."""
         from prompt_prix.adapters.lmstudio import LMStudioError

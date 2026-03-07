@@ -62,7 +62,7 @@ def create_app() -> gr.Blocks:
                 with gr.Column(scale=1):
                     servers_input = gr.Textbox(
                         label="LM Studio Servers (one per line)",
-                        value="\n".join(get_default_servers()),
+                        value="\n".join(s["url"] for s in get_default_servers()),
                         lines=2,
                         placeholder="http://localhost:1234",
                         elem_id="servers"

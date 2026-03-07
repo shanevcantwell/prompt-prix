@@ -55,21 +55,26 @@ class LMStudioAdapter:
     Orchestration layers should not know about the internal pooling.
     """
 
-    def __init__(self, server_urls: list[str], api_key: Optional[str] = None):
+    def __init__(self, server_urls: list[str | dict], api_key: Optional[str] = None):
         """
         Initialize adapter with server URLs.
 
         Args:
-            server_urls: List of LM Studio server URLs
-            api_key: Auth token. Fallback: LMSTUDIO_API_KEY env var.
-                     Applied to all servers via ServerConfig.api_key.
+            server_urls: List of server URLs (str) or config dicts
+                         with {"url": ..., "api_key": ...}.
+            api_key: Global auth token fallback. Fallback: LMSTUDIO_API_KEY env var.
+                     Used when a server has no per-server key.
         """
         self._api_key = api_key or os.environ.get("LMSTUDIO_API_KEY")
-        configs = [
-            ServerConfig(url=url, api_key=self._api_key)
-            if self._api_key else url
-            for url in server_urls
-        ]
+        configs = []
+        for entry in server_urls:
+            if isinstance(entry, dict):
+                url = entry["url"]
+                key = entry.get("api_key") or self._api_key
+            else:
+                url = entry
+                key = self._api_key
+            configs.append(ServerConfig(url=url, api_key=key) if key else url)
         self._pool = ServerPool(configs)
         self._dispatcher = ConcurrentDispatcher(self._pool)
         self._lock = asyncio.Lock()

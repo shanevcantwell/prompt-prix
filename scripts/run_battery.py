@@ -50,7 +50,7 @@ async def main():
         print("❌ No servers configured. Set LM_STUDIO_SERVER_1, LM_STUDIO_SERVER_2, etc. in .env")
         sys.exit(1)
 
-    print(f"📡 Servers: {', '.join(servers)}")
+    print(f"📡 Servers: {', '.join(s['url'] for s in servers)}")
 
     # Create adapter and register
     adapter = LMStudioAdapter(server_urls=servers)

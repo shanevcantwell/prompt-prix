@@ -448,7 +448,7 @@ class TestLoadServersFromEnv:
     """Tests for load_servers_from_env function."""
 
     def test_load_servers_from_env_with_servers(self):
-        """Test loading servers from environment variables."""
+        """Test loading servers returns dicts with url and api_key."""
         from prompt_prix.config import load_servers_from_env
 
         with patch.dict(os.environ, {
@@ -457,8 +457,11 @@ class TestLoadServersFromEnv:
         }, clear=False):
             servers = load_servers_from_env()
 
-        assert "http://server1:1234" in servers
-        assert "http://server2:1234" in servers
+        urls = [s["url"] for s in servers]
+        assert "http://server1:1234" in urls
+        assert "http://server2:1234" in urls
+        # No keys set → api_key is None
+        assert all(s["api_key"] is None for s in servers)
 
     def test_load_servers_from_env_empty(self):
         """Test loading servers when no env vars set."""
@@ -481,8 +484,35 @@ class TestLoadServersFromEnv:
         }, clear=False):
             servers = load_servers_from_env()
 
-        assert "http://server1:1234" in servers
-        assert "" not in servers
+        urls = [s["url"] for s in servers]
+        assert "http://server1:1234" in urls
+        assert len(servers) == 1
+
+    def test_load_servers_with_per_server_keys(self):
+        """Server 1 has key, server 2 doesn't → mixed api_key values."""
+        from prompt_prix.config import load_servers_from_env
+
+        with patch.dict(os.environ, {
+            "LM_STUDIO_SERVER_1": "http://server1:1234",
+            "LM_STUDIO_SERVER_1_KEY": "secret-key-1",
+            "LM_STUDIO_SERVER_2": "http://server2:1234",
+        }, clear=False):
+            servers = load_servers_from_env()
+
+        assert servers[0] == {"url": "http://server1:1234", "api_key": "secret-key-1"}
+        assert servers[1] == {"url": "http://server2:1234", "api_key": None}
+
+    def test_load_servers_empty_key_becomes_none(self):
+        """Empty _KEY value → api_key is None, not empty string."""
+        from prompt_prix.config import load_servers_from_env
+
+        with patch.dict(os.environ, {
+            "LM_STUDIO_SERVER_1": "http://server1:1234",
+            "LM_STUDIO_SERVER_1_KEY": "",
+        }, clear=False):
+            servers = load_servers_from_env()
+
+        assert servers[0]["api_key"] is None
 
 
 class TestConstants:

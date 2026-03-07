@@ -633,7 +633,7 @@ async def test_handler_fans_out_same_model(live_adapter):
         json.dump(benchmark, f)
         benchmark_file = f.name
 
-    servers_text = "\n".join(load_servers_from_env())
+    servers_text = "\n".join(s["url"] for s in load_servers_from_env())
 
     start = time.time()
     final_status = None
