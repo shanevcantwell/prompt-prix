@@ -13,8 +13,10 @@ import os
 import httpx
 from typing import AsyncGenerator, Optional
 
-from local_inference_pool import ServerPool, ConcurrentDispatcher
-from local_inference_pool.dispatcher import (
+from local_inference_pool import (
+    ServerPool,
+    ServerConfig,
+    ConcurrentDispatcher,
     DispatcherTimeoutError,
     NoModelsAvailableError,
     ModelNotAvailableError,
@@ -60,19 +62,18 @@ class LMStudioAdapter:
         Args:
             server_urls: List of LM Studio server URLs
             api_key: Auth token. Fallback: LMSTUDIO_API_KEY env var.
+                     Applied to all servers via ServerConfig.api_key.
         """
-        self._pool = ServerPool(server_urls)
+        self._api_key = api_key or os.environ.get("LMSTUDIO_API_KEY")
+        configs = [
+            ServerConfig(url=url, api_key=self._api_key)
+            if self._api_key else url
+            for url in server_urls
+        ]
+        self._pool = ServerPool(configs)
         self._dispatcher = ConcurrentDispatcher(self._pool)
         self._lock = asyncio.Lock()
         self._manifests_loaded = False
-        self._api_key = api_key or os.environ.get("LMSTUDIO_API_KEY")
-
-    def _auth_headers(self, api_key: Optional[str] = None) -> Optional[dict]:
-        """Build Bearer auth headers from per-request key or adapter default."""
-        key = api_key or self._api_key
-        if key:
-            return {"Authorization": f"Bearer {key}"}
-        return None
 
     def set_parallel_slots(self, slots: int) -> None:
         """Set max concurrent requests per server."""
@@ -81,7 +82,7 @@ class LMStudioAdapter:
     async def get_available_models(self) -> list[str]:
         """Return list of all models available across all servers."""
         async with self._lock:
-            await self._pool.refresh_all_manifests(headers=self._auth_headers())
+            await self._pool.refresh_all_manifests()
             self._manifests_loaded = True
             models = list(self._pool.get_all_available_models())
             if not models:
@@ -114,9 +115,7 @@ class LMStudioAdapter:
         if not self._manifests_loaded:
             async with self._lock:
                 if not self._manifests_loaded:  # Double-check after acquiring lock
-                    await self._pool.refresh_all_manifests(
-                        headers=self._auth_headers(task.api_key)
-                    )
+                    await self._pool.refresh_all_manifests()
                     self._manifests_loaded = True
                     # Log server state for debugging
                     for idx, (url, server) in enumerate(self._pool.servers.items()):
@@ -158,7 +157,7 @@ class LMStudioAdapter:
                 seed=task.seed,
                 repeat_penalty=task.repeat_penalty,
                 response_format=task.response_format,
-                api_key=task.api_key or self._api_key,
+                api_key=task.api_key or self._pool.servers[server_url].api_key,
             ):
                 yield chunk
 

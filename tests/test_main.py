@@ -237,19 +237,22 @@ class TestInitializeSession:
     @pytest.mark.asyncio
     async def test_initialize_session_model_not_found(self, mock_adapter):
         """Test initialization warns when model not on any server."""
+        from unittest.mock import patch
         from prompt_prix.tabs.compare.handlers import initialize_session
 
         # Mock adapter returns empty model list
         mock_adapter.get_available_models = AsyncMock(return_value=[])
 
-        result = await initialize_session(
-            servers_text=MOCK_SERVER_1,
-            models_selected=["nonexistent-model"],
-            system_prompt_text="",
-            temperature=0.7,
-            timeout=300,
-            max_tokens=2048
-        )
+        # Prevent handler from replacing mock with real adapter
+        with patch("prompt_prix.tabs.compare.handlers._ensure_adapter_registered"):
+            result = await initialize_session(
+                servers_text=MOCK_SERVER_1,
+                models_selected=["nonexistent-model"],
+                system_prompt_text="",
+                temperature=0.7,
+                timeout=300,
+                max_tokens=2048
+            )
 
         assert "not found" in result[0].lower() or "⚠️" in result[0]
 
