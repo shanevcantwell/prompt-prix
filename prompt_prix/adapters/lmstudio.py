@@ -136,9 +136,7 @@ class LMStudioAdapter:
                     f"No models available from any server — {e}"
                 ) from e
             except ModelNotAvailableError as e:
-                raise LMStudioError(
-                    f"Model '{task.model_id}' not available on any server"
-                ) from e
+                raise LMStudioError(str(e)) from e
             except DispatcherTimeoutError as e:
                 raise LMStudioError(
                     f"Timed out waiting for server slot for {task.model_id} "
@@ -146,20 +144,26 @@ class LMStudioAdapter:
                 ) from e
 
             # 2. Stream (timeout applies here via httpx)
-            async for chunk in stream_completion(
-                server_url=server_url,
-                model_id=task.model_id,
-                messages=task.messages,
-                temperature=task.temperature,
-                max_tokens=task.max_tokens,
-                timeout_seconds=int(task.timeout_seconds),
-                tools=task.tools,
-                seed=task.seed,
-                repeat_penalty=task.repeat_penalty,
-                response_format=task.response_format,
-                api_key=task.api_key or self._pool.servers[server_url].api_key,
-            ):
-                yield chunk
+            try:
+                async for chunk in stream_completion(
+                    server_url=server_url,
+                    model_id=task.model_id,
+                    messages=task.messages,
+                    temperature=task.temperature,
+                    max_tokens=task.max_tokens,
+                    timeout_seconds=int(task.timeout_seconds),
+                    tools=task.tools,
+                    seed=task.seed,
+                    repeat_penalty=task.repeat_penalty,
+                    response_format=task.response_format,
+                    api_key=task.api_key or self._pool.servers[server_url].api_key,
+                ):
+                    yield chunk
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                self._pool.report_server_error(server_url, str(e))
+                raise LMStudioError(
+                    f"Server {server_url} failed during streaming: {e}"
+                ) from e
 
         finally:
             if server_url:

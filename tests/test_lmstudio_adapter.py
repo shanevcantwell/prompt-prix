@@ -841,7 +841,10 @@ class TestDispatcherExceptionWrapping:
 
         adapter = LMStudioAdapter(two_server_urls)
         adapter._dispatcher.submit = AsyncMock(
-            side_effect=ModelNotAvailableError("nonexistent-model", ["modelA"])
+            side_effect=ModelNotAvailableError(
+                "Model 'nonexistent-model' not available on any server; "
+                "available: ['modelA']"
+            )
         )
 
         task = InferenceTask(
@@ -852,3 +855,68 @@ class TestDispatcherExceptionWrapping:
         with pytest.raises(LMStudioError, match="not available on any server"):
             async for _ in adapter.stream_completion(task):
                 pass
+
+
+# ─────────────────────────────────────────────────────────────────────
+# HEALTH FEEDBACK TESTS (report_server_error)
+# ─────────────────────────────────────────────────────────────────────
+
+class TestHealthFeedback:
+    """Tests that transport failures mark servers dead via report_server_error."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_connect_error_reports_server_dead(self):
+        """ConnectError during streaming → server marked dead (models cleared)."""
+        from prompt_prix.adapters.lmstudio import LMStudioError
+
+        server_url = "http://server0:1234"
+        respx.get(f"{server_url}/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.post(f"{server_url}/v1/chat/completions").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+
+        adapter = LMStudioAdapter([server_url])
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        with pytest.raises(LMStudioError, match="failed during streaming"):
+            async for _ in adapter.stream_completion(task):
+                pass
+
+        # Server should be marked dead
+        server = adapter._pool.servers[server_url]
+        assert server.available_models == []
+        assert server.last_refresh_error is not None
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_timeout_reports_server_dead(self):
+        """TimeoutException during streaming → server marked dead."""
+        from prompt_prix.adapters.lmstudio import LMStudioError
+
+        server_url = "http://server0:1234"
+        respx.get(f"{server_url}/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        respx.post(f"{server_url}/v1/chat/completions").mock(
+            side_effect=httpx.ReadTimeout("Read timed out")
+        )
+
+        adapter = LMStudioAdapter([server_url])
+        task = InferenceTask(
+            model_id="modelA",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        with pytest.raises(LMStudioError, match="failed during streaming"):
+            async for _ in adapter.stream_completion(task):
+                pass
+
+        server = adapter._pool.servers[server_url]
+        assert server.available_models == []
+        assert server.last_refresh_error is not None
