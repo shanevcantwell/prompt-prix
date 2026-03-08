@@ -113,9 +113,9 @@ def _ensure_adapter_registered(servers: list[str], parallel_slots: int = 1) -> N
         # HF mode: adapter is static, no re-registration needed
         return
 
-    # LM Studio mode: re-register with current servers from UI
-    from prompt_prix.adapters.lmstudio import LMStudioAdapter
-    adapter = LMStudioAdapter(server_urls=servers)
+    # Local inference mode: re-register with current servers from UI
+    from prompt_prix.adapters.pooled_local import PooledLocalInferenceAdapter
+    adapter = PooledLocalInferenceAdapter(server_urls=servers)
     adapter.set_parallel_slots(parallel_slots)
     register_adapter(adapter, name="lmstudio")
 

@@ -6,7 +6,7 @@ Usage:
     python scripts/run_battery.py examples/tool_competence_tests.json --random 2
     python scripts/run_battery.py examples/tool_competence_tests.json --random 2 --export results.json
 
-Loads servers from environment (LM_STUDIO_SERVER_1, LM_STUDIO_SERVER_2, etc.)
+Loads servers from environment (LOCAL_INFERENCE_SERVER_N or LM_STUDIO_SERVER_N)
 """
 
 import argparse
@@ -23,7 +23,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from prompt_prix.config import load_servers_from_env, DEFAULT_MAX_TOKENS, DEFAULT_TIMEOUT_SECONDS
-from prompt_prix.adapters.lmstudio import LMStudioAdapter
+from prompt_prix.adapters.pooled_local import PooledLocalInferenceAdapter
 from prompt_prix.mcp.registry import register_adapter
 from prompt_prix.benchmarks import CustomJSONLoader
 from prompt_prix.battery import BatteryRunner, RunStatus
@@ -47,13 +47,13 @@ async def main():
     # Load servers from environment
     servers = load_servers_from_env()
     if not servers:
-        print("❌ No servers configured. Set LM_STUDIO_SERVER_1, LM_STUDIO_SERVER_2, etc. in .env")
+        print("❌ No servers configured. Set LOCAL_INFERENCE_SERVER_N or LM_STUDIO_SERVER_N in .env")
         sys.exit(1)
 
     print(f"📡 Servers: {', '.join(s['url'] for s in servers)}")
 
     # Create adapter and register
-    adapter = LMStudioAdapter(server_urls=servers)
+    adapter = PooledLocalInferenceAdapter(server_urls=servers)
     register_adapter(adapter)
 
     # Fetch models per server

@@ -1,7 +1,7 @@
 """
 Core logic: comparison session management.
 
-Per ADR-006, server pool management is INTERNAL to LMStudioAdapter.
+Per ADR-006, server pool management is INTERNAL to adapters.
 This module contains orchestration-layer code only.
 """
 
@@ -9,11 +9,10 @@ import asyncio
 from typing import Optional, Callable
 
 from prompt_prix.config import ModelContext, SessionState
+from prompt_prix.adapters.pooled_local import LocalInferenceError
 
-
-class LMStudioError(Exception):
-    """Human-readable error from LM Studio API."""
-    pass
+# Backwards-compatible alias — existing code imports LMStudioError from here
+LMStudioError = LocalInferenceError
 
 
 # ─────────────────────────────────────────────────────────────────────

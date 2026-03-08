@@ -467,8 +467,9 @@ class TestLoadServersFromEnv:
         """Test loading servers when no env vars set."""
         from prompt_prix.config import load_servers_from_env
 
-        # Clear any existing LM_STUDIO_SERVER vars
-        env_copy = {k: v for k, v in os.environ.items() if not k.startswith("LM_STUDIO_SERVER")}
+        # Clear any existing server vars (both prefixes)
+        env_copy = {k: v for k, v in os.environ.items()
+                    if not k.startswith("LM_STUDIO_SERVER") and not k.startswith("LOCAL_INFERENCE_SERVER")}
         with patch.dict(os.environ, env_copy, clear=True):
             servers = load_servers_from_env()
 
@@ -513,6 +514,48 @@ class TestLoadServersFromEnv:
             servers = load_servers_from_env()
 
         assert servers[0]["api_key"] is None
+
+    def test_generic_env_vars_take_precedence(self):
+        """LOCAL_INFERENCE_SERVER_N takes precedence over LM_STUDIO_SERVER_N."""
+        from prompt_prix.config import load_servers_from_env
+
+        with patch.dict(os.environ, {
+            "LOCAL_INFERENCE_SERVER_1": "http://generic:1234",
+            "LM_STUDIO_SERVER_1": "http://lmstudio:1234",
+        }, clear=False):
+            servers = load_servers_from_env()
+
+        assert len(servers) == 1
+        assert servers[0]["url"] == "http://generic:1234"
+
+    def test_generic_env_vars_with_keys(self):
+        """LOCAL_INFERENCE_SERVER_N_KEY works for per-server auth."""
+        from prompt_prix.config import load_servers_from_env
+
+        with patch.dict(os.environ, {
+            "LOCAL_INFERENCE_SERVER_1": "http://server1:1234",
+            "LOCAL_INFERENCE_SERVER_1_KEY": "my-key",
+            "LOCAL_INFERENCE_SERVER_2": "http://server2:1234",
+        }, clear=False):
+            servers = load_servers_from_env()
+
+        assert servers[0] == {"url": "http://server1:1234", "api_key": "my-key"}
+        assert servers[1] == {"url": "http://server2:1234", "api_key": None}
+
+    def test_fallback_to_lmstudio_vars(self):
+        """Falls back to LM_STUDIO_SERVER_N when no LOCAL_INFERENCE_SERVER_N set."""
+        from prompt_prix.config import load_servers_from_env
+
+        # Clear both prefixes, then set only LM Studio
+        env_copy = {k: v for k, v in os.environ.items()
+                    if not k.startswith("LOCAL_INFERENCE_SERVER")
+                    and not k.startswith("LM_STUDIO_SERVER")}
+        env_copy["LM_STUDIO_SERVER_1"] = "http://lmstudio:1234"
+        with patch.dict(os.environ, env_copy, clear=True):
+            servers = load_servers_from_env()
+
+        assert len(servers) == 1
+        assert servers[0]["url"] == "http://lmstudio:1234"
 
 
 class TestConstants:

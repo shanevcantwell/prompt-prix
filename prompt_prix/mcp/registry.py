@@ -82,11 +82,11 @@ def register_default_adapter() -> None:
     from prompt_prix.config import is_huggingface_mode, get_hf_models, get_hf_token
     from prompt_prix.config import get_together_api_key, get_together_models
 
-    # LM Studio — register if servers configured
+    # Local inference — register if servers configured
     servers = load_servers_from_env()
     if servers:
-        from prompt_prix.adapters.lmstudio import LMStudioAdapter
-        register_adapter(LMStudioAdapter(server_urls=servers), name="lmstudio")
+        from prompt_prix.adapters.pooled_local import PooledLocalInferenceAdapter
+        register_adapter(PooledLocalInferenceAdapter(server_urls=servers), name="lmstudio")
 
     # Together — register if API key present
     together_key = get_together_api_key()
@@ -111,7 +111,7 @@ def register_default_adapter() -> None:
     if not _adapters:
         default_servers = get_default_servers()
         if default_servers:
-            from prompt_prix.adapters.lmstudio import LMStudioAdapter
+            from prompt_prix.adapters.pooled_local import PooledLocalInferenceAdapter
             register_adapter(
-                LMStudioAdapter(server_urls=default_servers), name="lmstudio"
+                PooledLocalInferenceAdapter(server_urls=default_servers), name="lmstudio"
             )

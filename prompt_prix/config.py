@@ -78,26 +78,38 @@ def get_retry_max_wait() -> int:
 # ENVIRONMENT LOADING
 # ─────────────────────────────────────────────────────────────────────
 
-def load_servers_from_env() -> list[dict[str, str | None]]:
+def _load_numbered_servers(prefix: str) -> list[dict[str, str | None]]:
     """
-    Load LM Studio server configs from environment variables.
+    Load numbered server configs from environment variables.
 
-    Reads LM_STUDIO_SERVER_N for URLs and LM_STUDIO_SERVER_N_KEY for per-server auth.
+    Reads {prefix}_N for URLs and {prefix}_N_KEY for per-server auth.
     Returns list of {"url": ..., "api_key": ...} dicts.
     """
     servers = []
     i = 1
     while True:
-        url_key = f"LM_STUDIO_SERVER_{i}"
-        url = os.environ.get(url_key)
+        url = os.environ.get(f"{prefix}_{i}")
         if url is None:
-            # No more servers defined
             break
         if url.strip():
-            api_key = os.environ.get(f"LM_STUDIO_SERVER_{i}_KEY", "").strip() or None
+            api_key = os.environ.get(f"{prefix}_{i}_KEY", "").strip() or None
             servers.append({"url": url.strip(), "api_key": api_key})
         i += 1
     return servers
+
+
+def load_servers_from_env() -> list[dict[str, str | None]]:
+    """
+    Load inference server configs from environment variables.
+
+    Tries LOCAL_INFERENCE_SERVER_N first, falls back to LM_STUDIO_SERVER_N.
+    Reads _KEY suffix for per-server auth tokens.
+    Returns list of {"url": ..., "api_key": ...} dicts.
+    """
+    servers = _load_numbered_servers("LOCAL_INFERENCE_SERVER")
+    if servers:
+        return servers
+    return _load_numbered_servers("LM_STUDIO_SERVER")
 
 
 def get_default_servers() -> list[dict[str, str | None]]:

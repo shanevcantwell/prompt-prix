@@ -115,3 +115,23 @@ class TestServerPoolEncapsulation:
                 f"ServerPool imported outside adapters/ - violates ADR-006:\n"
                 + "\n".join(violations)
             )
+
+    def test_pooled_adapter_not_imported_outside_adapters_and_startup(self):
+        """PooledLocalInferenceAdapter should only be imported in adapters/, registry, handlers, scripts."""
+        allowed_dirs = {"adapters/", "mcp/registry", "handlers", "scripts/"}
+
+        source_dir = Path("prompt_prix")
+        violations = []
+        for py_file in source_dir.rglob("*.py"):
+            rel = str(py_file)
+            if any(d in rel for d in allowed_dirs):
+                continue
+            content = py_file.read_text()
+            if "PooledLocalInferenceAdapter" in content:
+                violations.append(rel)
+
+        if violations:
+            pytest.fail(
+                f"PooledLocalInferenceAdapter imported outside allowed locations:\n"
+                + "\n".join(violations)
+            )
