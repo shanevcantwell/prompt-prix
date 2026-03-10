@@ -154,8 +154,19 @@ class PooledLocalInferenceAdapter:
                 raise LocalInferenceError(
                     f"No models available from any server — {e}"
                 ) from e
-            except ModelNotAvailableError as e:
-                raise LocalInferenceError(str(e)) from e
+            except ModelNotAvailableError:
+                # Model not in any manifest — re-refresh once in case a server
+                # was still loading when we did the initial manifest fetch.
+                logger.info(
+                    f"Model '{task.model_id}' not found, re-refreshing manifests"
+                )
+                await self._pool.refresh_all_manifests()
+                for url, server in self._pool.servers.items():
+                    logger.info(f"  {url}: models={server.available_models}")
+                try:
+                    server_url = await self._dispatcher.submit(task.model_id)
+                except (ModelNotAvailableError, NoModelsAvailableError) as e2:
+                    raise LocalInferenceError(str(e2)) from e2
             except DispatcherTimeoutError as e:
                 raise LocalInferenceError(
                     f"Timed out waiting for server slot for {task.model_id} "

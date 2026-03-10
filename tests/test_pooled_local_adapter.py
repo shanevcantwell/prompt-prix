@@ -852,8 +852,8 @@ class TestDispatcherExceptionWrapping:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_model_not_available_raises_lmstudio_error(self, two_server_urls):
-        """ModelNotAvailableError from submit() → LocalInferenceError."""
+    async def test_model_not_available_raises_after_re_refresh(self, two_server_urls):
+        """ModelNotAvailableError persists after manifest re-refresh → LocalInferenceError."""
         from prompt_prix.adapters.pooled_local import LocalInferenceError
         from local_inference_pool.dispatcher import ModelNotAvailableError
         from unittest.mock import AsyncMock
@@ -866,6 +866,7 @@ class TestDispatcherExceptionWrapping:
         )
 
         adapter = PooledLocalInferenceAdapter(two_server_urls)
+        # Both submit calls fail — model genuinely doesn't exist
         adapter._dispatcher.submit = AsyncMock(
             side_effect=ModelNotAvailableError(
                 "Model 'nonexistent-model' not available on any server; "
@@ -881,6 +882,60 @@ class TestDispatcherExceptionWrapping:
         with pytest.raises(LocalInferenceError, match="not available on any server"):
             async for _ in adapter.stream_completion(task):
                 pass
+
+
+# ─────────────────────────────────────────────────────────────────────
+# MANIFEST RE-REFRESH ON MODEL MISS
+# ─────────────────────────────────────────────────────────────────────
+
+class TestManifestReRefresh:
+    """Tests that ModelNotAvailableError triggers a manifest re-refresh."""
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_late_server_discovered_on_re_refresh(self, two_server_urls):
+        """Server 2 returns empty on first refresh, has models on re-refresh.
+
+        Reproduces the bug where a slow-starting server (e.g., llama-server
+        loading a 35B model) returns empty manifest at startup but is ready
+        by the time the first request arrives.
+        """
+        # First manifest refresh: server0 has models, server1 is empty
+        s0_manifest = respx.get("http://server0:1234/v1/models").mock(
+            return_value=httpx.Response(200, json=models_response(["modelA"]))
+        )
+        s1_manifest = respx.get("http://server1:1234/v1/models").mock(
+            side_effect=[
+                # First call: server still loading → empty
+                httpx.Response(200, json=models_response([])),
+                # Second call (re-refresh): server ready → has modelB
+                httpx.Response(200, json=models_response(["modelB"])),
+            ]
+        )
+
+        # Completion endpoint for modelB on server1
+        respx.post("http://server1:1234/v1/chat/completions").mock(
+            return_value=httpx.Response(
+                200,
+                content=sse_stream("hello from server1"),
+                headers={"content-type": "text/event-stream"},
+            )
+        )
+
+        adapter = PooledLocalInferenceAdapter(two_server_urls)
+        task = InferenceTask(
+            model_id="modelB",
+            messages=[{"role": "user", "content": "Hi"}],
+        )
+
+        chunks = []
+        async for chunk in adapter.stream_completion(task):
+            if not chunk.startswith("__"):
+                chunks.append(chunk)
+
+        assert "".join(chunks) == "hello from server1"
+        # server1 manifest was called twice (initial + re-refresh)
+        assert s1_manifest.call_count == 2
 
 
 # ─────────────────────────────────────────────────────────────────────
