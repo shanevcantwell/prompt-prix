@@ -58,3 +58,8 @@ data/
 docs/archive
 docs/plans
 examples/*results_*
+
+.continue/
+.github/
+.graphs/
+docs/scratchpad/
