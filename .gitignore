@@ -59,6 +59,7 @@ docs/archive
 docs/plans
 examples/*results_*
 
+.claude/
 .continue/
 .github/
 .graphs/
