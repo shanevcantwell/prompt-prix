@@ -75,7 +75,7 @@ Output: Side-by-side visual comparison
 
 ## Battery File Formats
 
-> **Full details:** See `docs/ARCHITECTURE.md` or `benchmarks/base.py`
+> **Full details:** See `docs/ARCHITECTURE.md` or `prompt_prix/benchmarks/base.py`
 
 **Required fields:** `id`, `user`
 
