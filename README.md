@@ -4,7 +4,7 @@
 
 **MCP toolkit for multi-model testing and agentic self-improvement.**
 
-9 stateless tools over MCP stdio for completion, judging, semantic drift, ReAct execution, prompt geometry, and trajectory analysis. Agents call these tools to audition specialist LLMs, measure reliability across quantizations, and drive multi-step tool-use loops against real services.
+9 stateless tools over MCP stdio for completion, judging, semantic drift, ReAct execution, prompt geometry, and trajectory analysis. Agents call these tools to audition specialist LLMs, measure reliability across quantizations, and drive multi-step tool-use loops against real services. Instrument maturity varies by tool — see [Status](#status) before treating any measurement as authoritative.
 
 Includes a Gradio UI for human visual comparison.
 
@@ -143,6 +143,8 @@ GPU1: inference -> inference -> inference -> inference     (GPU1 still doing hea
 
 No priority queues, no server affinity — the existing `current_model` drain guard routes judge tasks to whichever GPU is idle.
 
+A judge verdict is only as good as the judge. No judge model ships pre-qualified: use verdict-matching test cases (`pass_criteria` against known answers) to test a candidate judge's competence before relying on its scores.
+
 ## Consistency Testing
 
 Run each (test, model) cell N times with different random seeds to identify models that produce inconsistent results:
@@ -161,6 +163,14 @@ Run each (test, model) cell N times with different random seeds to identify mode
 ## Status
 
 Alpha release. Core functionality works. Expect rough edges.
+
+Instrument maturity varies by tool — stated plainly so results are weighed accordingly:
+
+| Tier | Tools | Grounding |
+|------|-------|-----------|
+| **Mechanical** | `complete`, `react_step`, `list_models`, semantic validation (refusal / tool-call checks), consistency testing | Deterministic checks. No model-in-the-loop judgment; results carry authority as-is. |
+| **LLM-judged** | `judge` | An LLM scoring LLM output. Verdict-matching test cases let you qualify a judge model against known answers — do that before trusting its verdicts on unknowns. |
+| **Embedding-based (experimental)** | `calculate_drift`, `analyze_variants` / `generate_variants`, `analyze_trajectory` / `compare_trajectories` | Backed by [ADR-011](docs/adr/ADR-011-embedding-based-validation.md) (**proposed**, not accepted). Distance thresholds are uncalibrated ([#140](https://github.com/shanevcantwell/prompt-prix/issues/140)). Treat outputs as exploratory signal, not pass/fail authority. |
 
 ## Documentation
 
