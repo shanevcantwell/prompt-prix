@@ -1,4 +1,4 @@
-# ADR-001: Use Existing Benchmarks Instead of Custom Eval Schema
+# ADR-PPX-001: Use Existing Benchmarks Instead of Custom Eval Schema
 
 **Status**: Accepted
 **Date**: 2025-11-28

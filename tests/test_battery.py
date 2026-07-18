@@ -1,6 +1,6 @@
 """Tests for battery feature (benchmark test suite execution).
 
-Per ADR-006: BatteryRunner is orchestration layer. Tests mock MCP tools, not HTTP.
+Per ADR-PPX-006: BatteryRunner is orchestration layer. Tests mock MCP tools, not HTTP.
 """
 
 import asyncio
@@ -434,7 +434,7 @@ class TestBatteryRun:
 class TestBatteryRunner:
     """Tests for BatteryRunner orchestrator.
 
-    Per ADR-006: BatteryRunner is orchestration layer - it calls MCP tools,
+    Per ADR-PPX-006: BatteryRunner is orchestration layer - it calls MCP tools,
     doesn't know about servers or adapters. Tests mock the MCP layer.
     """
 

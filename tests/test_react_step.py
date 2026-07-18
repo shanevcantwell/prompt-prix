@@ -1,6 +1,6 @@
 """Tests for react_step() MCP tool — single ReAct iteration primitive.
 
-Per ADR-006: MCP tool tests mock the adapter layer.
+Per ADR-PPX-006: MCP tool tests mock the adapter layer.
 react_step() calls complete_stream(), so we mock that.
 """
 

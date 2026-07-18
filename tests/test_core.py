@@ -1,6 +1,6 @@
 """Tests for prompt_prix.core module.
 
-Per ADR-006: Orchestration tests mock MCP tools.
+Per ADR-PPX-006: Orchestration tests mock MCP tools.
 ServerPool and stream_completion tests are deleted - those are now internal to adapters.
 """
 
@@ -32,7 +32,7 @@ def mock_adapter():
 class TestComparisonSession:
     """Tests for ComparisonSession class.
 
-    Per ADR-006, ComparisonSession is orchestration layer:
+    Per ADR-PPX-006, ComparisonSession is orchestration layer:
     - Calls MCP primitives (complete_stream)
     - Does NOT know about ServerPool
     """

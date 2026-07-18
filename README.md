@@ -170,7 +170,7 @@ Instrument maturity varies by tool — stated plainly so results are weighed acc
 |------|-------|-----------|
 | **Mechanical** | `complete`, `react_step`, `list_models`, semantic validation (refusal / tool-call checks), consistency testing | Deterministic checks. No model-in-the-loop judgment; results carry authority as-is. |
 | **LLM-judged** | `judge` | An LLM scoring LLM output. Verdict-matching test cases let you qualify a judge model against known answers — do that before trusting its verdicts on unknowns. |
-| **Embedding-based (experimental)** | `calculate_drift`, `analyze_variants` / `generate_variants`, `analyze_trajectory` / `compare_trajectories` | Backed by [ADR-011](docs/adr/ADR-011-embedding-based-validation.md) (**proposed**, not accepted). Distance thresholds are uncalibrated ([#140](https://github.com/shanevcantwell/prompt-prix/issues/140)). Treat outputs as exploratory signal, not pass/fail authority. |
+| **Embedding-based (experimental)** | `calculate_drift`, `analyze_variants` / `generate_variants`, `analyze_trajectory` / `compare_trajectories` | Backed by [ADR-PPX-011](docs/adr/ADR-PPX-011-embedding-based-validation.md) (**proposed**, not accepted). Distance thresholds are uncalibrated ([#140](https://github.com/shanevcantwell/prompt-prix/issues/140)). Treat outputs as exploratory signal, not pass/fail authority. |
 
 ## Documentation
 

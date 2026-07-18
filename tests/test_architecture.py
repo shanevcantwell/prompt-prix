@@ -2,9 +2,9 @@
 Architecture enforcement tests.
 
 These tests verify the Orchestration -> Adapter -> Provider layering is respected.
-Per ADR-006, adapters own their resource management (ServerPool is internal to LMStudioAdapter).
+Per ADR-PPX-006, adapters own their resource management (ServerPool is internal to LMStudioAdapter).
 
-See: docs/adr/006-adapter-resource-ownership.md
+See: docs/adr/ADR-PPX-006-adapter-resource-ownership.md
 """
 import ast
 from pathlib import Path
@@ -69,7 +69,7 @@ class TestLayerBoundaries:
 
 
 class TestServerPoolEncapsulation:
-    """Verify ServerPool is encapsulated inside adapters per ADR-006."""
+    """Verify ServerPool is encapsulated inside adapters per ADR-PPX-006."""
 
     def test_mcp_complete_does_not_accept_pool_parameter(self):
         """MCP complete must NOT accept pool - adapter owns resource management."""
@@ -79,7 +79,7 @@ class TestServerPoolEncapsulation:
 
         params = list(inspect.signature(complete).parameters.keys())
         assert "pool" not in params, (
-            f"complete accepts 'pool' parameter - violates ADR-006. "
+            f"complete accepts 'pool' parameter - violates ADR-PPX-006. "
             f"Adapter should own ServerPool internally. Current params: {params}"
         )
 
@@ -91,7 +91,7 @@ class TestServerPoolEncapsulation:
 
         params = list(inspect.signature(complete_stream).parameters.keys())
         assert "pool" not in params, (
-            f"complete_stream accepts 'pool' parameter - violates ADR-006. "
+            f"complete_stream accepts 'pool' parameter - violates ADR-PPX-006. "
             f"Adapter should own ServerPool internally. Current params: {params}"
         )
 
@@ -112,7 +112,7 @@ class TestServerPoolEncapsulation:
 
         if violations:
             pytest.fail(
-                f"ServerPool imported outside adapters/ - violates ADR-006:\n"
+                f"ServerPool imported outside adapters/ - violates ADR-PPX-006:\n"
                 + "\n".join(violations)
             )
 
