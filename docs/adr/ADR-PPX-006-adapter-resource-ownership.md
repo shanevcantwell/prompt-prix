@@ -1,8 +1,8 @@
-# ADR-006: Adapter Resource Ownership
+# ADR-PPX-006: Adapter Resource Ownership
 
 **Status**: Accepted
 **Date**: 2025-01-22
-**Supersedes**: ADR-002 (partial - resource management implications)
+**Supersedes**: ADR-PPX-002 (partial - resource management implications)
 
 ## Context
 
@@ -14,7 +14,7 @@ prompt-prix supports multiple inference backends with fundamentally different re
 | HF Inference | Rate-limited cloud API |
 | surf-mcp | Single browser session |
 
-Previous architecture placed `ServerPool` in the MCP/orchestration layer (see ADR-002's "Architecture Implications"), coupling generic orchestration to LM Studio's specific multi-server model. This blocked adding other backends.
+Previous architecture placed `ServerPool` in the MCP/orchestration layer (see ADR-PPX-002's "Architecture Implications"), coupling generic orchestration to LM Studio's specific multi-server model. This blocked adding other backends.
 
 **The core insight** (via Gemini 3.0 architectural review):
 
@@ -158,5 +158,5 @@ class BatteryRunner:
 
 - Gemini 3.0 architectural analysis (2025-01-22)
 - Previous planning docs: `harmonic-hatching-shamir.md`, `curried-painting-backus.md`
-- Implementation: #95 (Implement ADR-006 adapter resource ownership)
+- Implementation: #95 (Implement ADR-PPX-006 adapter resource ownership)
 - Related issues: #56 (HuggingFace adapter), #92 (connection error handling)

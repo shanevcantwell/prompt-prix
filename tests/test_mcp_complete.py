@@ -1,6 +1,6 @@
 """Tests for prompt_prix.mcp.tools.complete module.
 
-Per ADR-006: Mock at layer boundaries - MCP tests mock the adapter interface.
+Per ADR-PPX-006: Mock at layer boundaries - MCP tests mock the adapter interface.
 """
 
 import pytest

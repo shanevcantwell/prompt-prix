@@ -1,4 +1,4 @@
-# ADR-009: Interactive Battery Grid (Cell Selection)
+# ADR-PPX-009: Interactive Battery Grid (Cell Selection)
 
 **Status:** Accepted
 **Date:** 2026-01-24

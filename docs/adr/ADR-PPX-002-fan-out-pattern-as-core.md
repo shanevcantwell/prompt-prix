@@ -1,4 +1,4 @@
-# ADR-002: Fan-Out Pattern as Core Architecture
+# ADR-PPX-002: Fan-Out Pattern as Core Architecture
 
 **Status**: Accepted
 **Date**: 2025-11-28

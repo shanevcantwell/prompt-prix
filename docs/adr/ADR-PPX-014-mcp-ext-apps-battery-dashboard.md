@@ -1,10 +1,10 @@
-# ADR-014: MCP ext-apps for Battery Dashboard
+# ADR-PPX-014: MCP ext-apps for Battery Dashboard
 
 **Status**: Deferred
 **Date**: 2026-02-09
 **Related**:
-- ADR-006 (Adapter Resource Ownership)
-- ADR-007 (CLI Interface Layer)
+- ADR-PPX-006 (Adapter Resource Ownership)
+- ADR-PPX-007 (CLI Interface Layer)
 - SEP-1865 (MCP Apps Extension)
 
 ---
@@ -110,7 +110,7 @@ iframe → Host → Server: tools/call "get_battery_status" { job_id }  (polling
 ### Near-Term Impact
 
 - None — this is a research capture, not an implementation decision
-- CLI (ADR-007) remains the primary agent interface for battery execution
+- CLI (ADR-PPX-007) remains the primary agent interface for battery execution
 - MCP server remains stateless with fine-grained tools
 - Gradio UI remains the primary human interface
 

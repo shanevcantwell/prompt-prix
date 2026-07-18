@@ -4,7 +4,7 @@ prompt-prix is an MCP toolkit for multi-model testing and agentic self-improveme
 
 ## Four-Layer Architecture
 
-Per [ADR-006](adr/ADR-006-adapter-resource-ownership.md), every import in the codebase follows this strict layer model:
+Per [ADR-PPX-006](adr/ADR-PPX-006-adapter-resource-ownership.md), every import in the codebase follows this strict layer model:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -237,7 +237,7 @@ For LAS or other MCP clients, recommended `timeout_ms`:
 When a judge model is selected, BatteryRunner uses **pipelined execution** — judge tasks are submitted eagerly as inference results complete, rather than waiting for all inference to finish first:
 
 ```
-Without pipelining (original two-phase, ADR-008):
+Without pipelining (original two-phase, ADR-PPX-008):
   Phase 1: [inference][inference][inference][inference]
   Phase 2:                                              [judge][judge][judge][judge]
 
@@ -248,7 +248,7 @@ With pipelining:
 
 The `current_model` drain guard on `ServerPool` is the enabler — judge tasks queue in the dispatcher until a server drains its inference model. When no judge model is set, `_execute_inference_phase()` runs directly with no pipelining overhead.
 
-See [ADR-008](adr/ADR-008-judge-scheduling.md) for the evolution from two-phase to pipelined scheduling.
+See [ADR-PPX-008](adr/ADR-PPX-008-judge-scheduling.md) for the evolution from two-phase to pipelined scheduling.
 
 ## ReAct Loop Execution
 
@@ -283,7 +283,7 @@ The react loop:
 | `CONSISTENT_FAIL` | ❌ | 0/N runs passed |
 | `INCONSISTENT` | 🟣 3/5 | Some runs passed, some failed |
 
-See [ADR-010](adr/ADR-010-consistency-runner.md) for rationale.
+See [ADR-PPX-010](adr/ADR-PPX-010-consistency-runner.md) for rationale.
 
 ## Semantic Validation
 
@@ -327,21 +327,21 @@ Promptfoo `assert` blocks are logged but **not evaluated** (warning emitted).
 
 ## Integration Points
 
-All inference servers must expose OpenAI-compatible endpoints (`GET /v1/models`, `POST /v1/chat/completions`). Supported: LM Studio, Ollama, vLLM, llama.cpp server, any OpenAI-compatible proxy. See [ADR-003](adr/003-openai-compatible-api.md).
+All inference servers must expose OpenAI-compatible endpoints (`GET /v1/models`, `POST /v1/chat/completions`). Supported: LM Studio, Ollama, vLLM, llama.cpp server, any OpenAI-compatible proxy. See [ADR-PPX-003](adr/ADR-PPX-003-openai-compatible-api.md).
 
 ## Architecture Decision Records
 
 | ADR | Decision |
 |-----|----------|
-| [001](adr/001-use-existing-benchmarks.md) | Use existing benchmarks (BFCL, Inspect AI) instead of custom eval schema |
-| [002](adr/002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
-| [003](adr/003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |
-| [006](adr/ADR-006-adapter-resource-ownership.md) | Adapters own their resource management (ServerPool internal to LMStudioAdapter) |
-| [007](adr/ADR-007-cli-interface-layer.md) | CLI interface layer above orchestration |
-| [008](adr/ADR-008-judge-scheduling.md) | Pipelined judge scheduling for multi-GPU efficiency |
-| [009](adr/ADR-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
-| [010](adr/ADR-010-consistency-runner.md) | Multi-run consistency analysis (proposed) |
-| [011](adr/ADR-011-embedding-based-validation.md) | Embedding-based semantic validation (proposed) |
-| [012](adr/ADR-012-compare-to-battery-export.md) | Compare to Battery export pipeline (proposed) |
-| [013](adr/ADR-013-semantic-chunker-mcp-primitives.md) | Semantic-chunker MCP primitives (geometry, trajectory) |
-| [014](adr/ADR-014-mcp-ext-apps-battery-dashboard.md) | MCP protocol server — FastMCP over stdio for agent access |
+| [ADR-PPX-001](adr/ADR-PPX-001-use-existing-benchmarks.md) | Use existing benchmarks (BFCL, Inspect AI) instead of custom eval schema |
+| [ADR-PPX-002](adr/ADR-PPX-002-fan-out-pattern-as-core.md) | Fan-out pattern as core architectural abstraction |
+| [ADR-PPX-003](adr/ADR-PPX-003-openai-compatible-api.md) | OpenAI-compatible API as sole integration layer |
+| [ADR-PPX-006](adr/ADR-PPX-006-adapter-resource-ownership.md) | Adapters own their resource management (ServerPool internal to LMStudioAdapter) |
+| [ADR-PPX-007](adr/ADR-PPX-007-cli-interface-layer.md) | CLI interface layer above orchestration |
+| [ADR-PPX-008](adr/ADR-PPX-008-judge-scheduling.md) | Pipelined judge scheduling for multi-GPU efficiency |
+| [ADR-PPX-009](adr/ADR-PPX-009-interactive-battery-grid.md) | Dismissible dialog for battery grid cell detail |
+| [ADR-PPX-010](adr/ADR-PPX-010-consistency-runner.md) | Multi-run consistency analysis (proposed) |
+| [ADR-PPX-011](adr/ADR-PPX-011-embedding-based-validation.md) | Embedding-based semantic validation (proposed) |
+| [ADR-PPX-012](adr/ADR-PPX-012-compare-to-battery-export.md) | Compare to Battery export pipeline (proposed) |
+| [ADR-PPX-013](adr/ADR-PPX-013-semantic-chunker-mcp-primitives.md) | Semantic-chunker MCP primitives (geometry, trajectory) |
+| [ADR-PPX-014](adr/ADR-PPX-014-mcp-ext-apps-battery-dashboard.md) | MCP protocol server — FastMCP over stdio for agent access |

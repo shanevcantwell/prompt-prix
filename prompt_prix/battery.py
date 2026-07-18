@@ -1,7 +1,7 @@
 """
 Battery Engine - orchestrates benchmark test suite execution.
 
-Per ADR-006, BatteryRunner is in the ORCHESTRATION layer:
+Per ADR-PPX-006, BatteryRunner is in the ORCHESTRATION layer:
 - Defines WHAT to run (test matrix across models)
 - Controls concurrency via asyncio.Semaphore
 - Calls MCP primitives ONLY — never adapters directly
@@ -194,7 +194,7 @@ class BatteryRun(BaseModel):
     models: list[str]  # Model IDs (column labels)
     results: dict[str, RunResult] = {}  # key = f"{test_id}:{model_id}"
 
-    # Two-phase execution tracking (ADR-008)
+    # Two-phase execution tracking (ADR-PPX-008)
     phase: str = "inference"  # "inference" or "judging"
     judge_total: int = 0      # How many results need judging
     judge_completed: int = 0  # How many have been judged
@@ -288,7 +288,7 @@ class BatteryRunner:
     """
     Orchestrates battery execution.
 
-    Per ADR-006 (Orchestration Layer):
+    Per ADR-PPX-006 (Orchestration Layer):
     - Defines WHAT to run (test matrix across models)
     - Calls MCP primitives ONLY (complete_stream) — never adapters directly
     - DOES NOT know about servers, ServerPool, or ConcurrentDispatcher

@@ -113,7 +113,7 @@ Battery tests validate responses beyond HTTP success:
 
 **A failure is a failure.** Do not dismiss test failures due to missing dependencies or import errors. The `.venv` contains all required test dependencies including `respx`. Always use the venv.
 
-**Unit test mocking strategy (ADR-006):**
+**Unit test mocking strategy (ADR-PPX-006):**
 - MCP tool tests → mock adapter via registry
 - Orchestration tests → mock MCP tools
 - Adapter tests → mock httpx (via `respx`)

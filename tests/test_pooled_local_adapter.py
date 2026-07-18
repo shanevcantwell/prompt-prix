@@ -1,6 +1,6 @@
 """Tests for PooledLocalInferenceAdapter boundary conditions.
 
-Per ADR-006: ServerPool is INTERNAL to the adapter. Tests mock at httpx boundary.
+Per ADR-PPX-006: ServerPool is INTERNAL to the adapter. Tests mock at httpx boundary.
 """
 
 import asyncio

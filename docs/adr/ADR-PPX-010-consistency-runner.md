@@ -1,4 +1,4 @@
-# ADR-010: Consistency Runner for Multi-Run Statistical Analysis
+# ADR-PPX-010: Consistency Runner for Multi-Run Statistical Analysis
 
 ## Status
 Proposed
