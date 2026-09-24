@@ -4,6 +4,9 @@
 
 9 stateless tools for completion, judging, semantic drift, ReAct execution, prompt geometry, and trajectory analysis. Agents call these tools to audition specialist LLMs, measure reliability across quantizations, and drive multi-step tool-use loops. Includes a Gradio UI for human visual comparison.
 
+<img width="1024" height="572" alt="image" src="https://github.com/user-attachments/assets/01090035-2580-49c7-b1c5-640be9e6a627" />
+
+
 ## UI Tabs
 
 ### Compare Tab
