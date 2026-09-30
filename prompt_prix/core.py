@@ -1,7 +1,7 @@
 """
 Core logic: comparison session management.
 
-Per ADR-006, server pool management is INTERNAL to adapters.
+Per ADR-PPX-006, server pool management is INTERNAL to adapters.
 This module contains orchestration-layer code only.
 """
 
@@ -23,7 +23,7 @@ class ComparisonSession:
     """
     Manages a multi-model comparison session.
 
-    Per ADR-006 (Orchestration Layer):
+    Per ADR-PPX-006 (Orchestration Layer):
     - Tracks conversation context per model
     - Calls MCP primitives ONLY — never adapters directly
     - DOES NOT know about servers, ServerPool, or ConcurrentDispatcher

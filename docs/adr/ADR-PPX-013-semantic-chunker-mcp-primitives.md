@@ -1,10 +1,10 @@
-# ADR-013: Semantic-Chunker MCP Primitives
+# ADR-PPX-013: Semantic-Chunker MCP Primitives
 
 **Status**: Accepted
 **Date**: 2026-02-08
 **Related**:
-- ADR-006 (Adapter Resource Ownership)
-- ADR-011 (Embedding-Based Semantic Validation)
+- ADR-PPX-006 (Adapter Resource Ownership)
+- ADR-PPX-011 (Embedding-Based Semantic Validation)
 - LAS ADR-CORE-066 (Sleeptime Autonomous Orchestration)
 - LAS ADR-CORE-067 (Adapter Convergence — Shared Pool Architecture)
 - #148 (implementation)
@@ -30,7 +30,7 @@ prompt-prix's MCP tool surface is the evaluation contract for the broader ecosys
 
 - **LAS ADR-CORE-066** has LAS autonomously driving prompt-prix via MCP for background model evaluation, consistency batteries, and drift measurement. These tools are the programmatic surface LAS orchestrates against.
 - **LAS ADR-CORE-067** ports prompt-prix's `_ServerPool` + `_ConcurrentDispatcher` into LAS. The pool infrastructure is validated and adopted wholesale.
-- **ADR-011** envisions a `TrajectoryValidator` using `heller_score` to detect circular reasoning in model responses. Wrapping `analyze_trajectory` as an MCP primitive is the prerequisite.
+- **ADR-PPX-011** envisions a `TrajectoryValidator` using `heller_score` to detect circular reasoning in model responses. Wrapping `analyze_trajectory` as an MCP primitive is the prerequisite.
 
 These wrappers serve both internal pipelines and external agents.
 
@@ -53,7 +53,7 @@ Extract lazy-init helpers from `drift.py` into `mcp/tools/_semantic_chunker.py`.
 
 ### `generate_variants` re-implementation
 
-The semantic-chunker version hardcodes `openai.OpenAI(base_url="http://localhost:1234/v1")` with `model="local-model"`. This violates ADR-006 (adapter agnosticism) and LAS's model-at-call-time pattern (ADR-CORE-067 Phase 2).
+The semantic-chunker version hardcodes `openai.OpenAI(base_url="http://localhost:1234/v1")` with `model="local-model"`. This violates ADR-PPX-006 (adapter agnosticism) and LAS's model-at-call-time pattern (ADR-CORE-067 Phase 2).
 
 Re-implement using prompt-prix's `complete()` — same pattern as `judge.py`. Takes explicit `model_id` parameter. The `DIMENSION_PROMPTS` dict and prompt template are lifted from semantic-chunker.
 
@@ -73,7 +73,7 @@ Re-implement using prompt-prix's `complete()` — same pattern as `judge.py`. Ta
 - LAS can orchestrate all five embedding-based tools through a uniform MCP interface
 - `generate_variants` is adapter-agnostic — works with any backend prompt-prix supports
 - Single StateManager singleton eliminates redundant embedding model initialization
-- Foundation for ADR-011 validators (TrajectoryValidator, RefusalClusterValidator)
+- Foundation for ADR-PPX-011 validators (TrajectoryValidator, RefusalClusterValidator)
 
 ### Negative
 

@@ -5,7 +5,7 @@ Uses local-inference-pool for multi-server slot management, manifest refresh,
 and health feedback. Works with any OpenAI-compatible backend (LM Studio,
 llama-server, vLLM, Ollama, etc.).
 
-Per ADR-006, this adapter OWNS its pool and dispatcher infrastructure.
+Per ADR-PPX-006, this adapter OWNS its pool and dispatcher infrastructure.
 Pool classes are imported from local-inference-pool (extracted per ADR-068).
 Orchestration and MCP layers only see the HostAdapter protocol interface.
 """

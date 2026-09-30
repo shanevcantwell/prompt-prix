@@ -1,9 +1,9 @@
-# ADR-011: Embedding-Based Semantic Validation
+# ADR-PPX-011: Embedding-Based Semantic Validation
 
 **Status**: Phase 1 Accepted (Drift Threshold Validator — #132)
 **Date**: 2026-01-31
 **Related**:
-- ADR-010 (ConsistencyRunner)
+- ADR-PPX-010 (ConsistencyRunner)
 - semantic-chunker MCP integration
 - ADR-CORE-056 (Sleeptime Model Tournament)
 - #132 (implementation)

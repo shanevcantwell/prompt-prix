@@ -1,4 +1,4 @@
-# ADR-004: Compare to Battery Export Workflow
+# ADR-PPX-004: Compare to Battery Export Workflow
 
 ## Status
 
@@ -185,5 +185,5 @@ Add "Export with Context" option that:
 
 ## Related
 
-- ADR-001: Use existing benchmarks (BFCL format)
-- ADR-002: Fan-out pattern as core abstraction
+- ADR-PPX-001: Use existing benchmarks (BFCL format)
+- ADR-PPX-002: Fan-out pattern as core abstraction

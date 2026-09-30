@@ -1,7 +1,7 @@
 """Tests for drift-based validation in battery and consistency runners.
 
 Tests mock the drift calculation (no embedding server needed for unit tests).
-Per ADR-006: orchestration tests mock MCP tools.
+Per ADR-PPX-006: orchestration tests mock MCP tools.
 """
 
 import asyncio

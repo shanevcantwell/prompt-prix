@@ -733,7 +733,7 @@ def export_grid_image():
 def handle_cell_select(evt: gr.SelectData) -> tuple:
     """Handle grid cell selection, return (dialog_visible, detail_content).
 
-    ADR-009: Click a cell to see response detail in dismissible dialog.
+    ADR-PPX-009: Click a cell to see response detail in dismissible dialog.
     """
     import logging
     logger = logging.getLogger(__name__)

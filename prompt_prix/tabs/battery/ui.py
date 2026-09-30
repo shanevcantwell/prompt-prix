@@ -126,7 +126,7 @@ Each test needs: `id`, `user` (the prompt). Optional: `tools`, `system`, `pass_c
             elem_id="battery-grid"
         )
 
-        # Dismissible detail dialog (hidden by default, ADR-009)
+        # Dismissible detail dialog (hidden by default, ADR-PPX-009)
         with gr.Column(visible=False) as detail_dialog:
             gr.Markdown("### Response Detail")
             detail_markdown = gr.Markdown()
@@ -173,7 +173,7 @@ Each test needs: `id`, `user` (the prompt). Optional: `tools`, `system`, `pass_c
         status=battery_status,
         display_mode=battery_display_mode,
         grid=battery_grid,
-        # ADR-009: Dismissible detail dialog
+        # ADR-PPX-009: Dismissible detail dialog
         detail_dialog=detail_dialog,
         detail_markdown=detail_markdown,
         detail_close_btn=detail_close_btn,

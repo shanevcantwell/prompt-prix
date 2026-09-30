@@ -48,4 +48,4 @@ For rigorous evaluation, consider these established benchmarks:
 | [BFCL](https://github.com/ShishirPatil/gorilla) | Function calling | `pip install bfcl-eval` |
 | [Inspect AI](https://inspect.ai-safety-institute.org.uk/) | Safety evaluation | `pip install inspect-ai` |
 
-See [ADR-001](../docs/adr/001-use-existing-benchmarks.md) for rationale on using existing benchmarks rather than custom formats.
+See [ADR-PPX-001](../docs/adr/ADR-PPX-001-use-existing-benchmarks.md) for rationale on using existing benchmarks rather than custom formats.

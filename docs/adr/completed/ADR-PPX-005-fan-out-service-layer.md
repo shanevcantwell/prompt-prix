@@ -1,4 +1,4 @@
-# ADR-005: prompt-prix as Fan-Out Service Layer
+# ADR-PPX-005: prompt-prix as Fan-Out Service Layer
 
 **Status:** Exploratory (Living Document)
 **Date:** 2026-01-20

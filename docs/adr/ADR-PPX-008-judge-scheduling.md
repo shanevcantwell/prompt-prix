@@ -1,4 +1,4 @@
-# ADR-008: Judge Scheduling Strategy for Multi-GPU Battery Runs
+# ADR-PPX-008: Judge Scheduling Strategy for Multi-GPU Battery Runs
 
 **Status:** Accepted (evolved to pipelined — see Addendum)
 **Related:** #111, #107, #130
@@ -147,7 +147,7 @@ Keep current architecture but add retry logic for judge timeouts.
 
 ### Why NOT Option B (Dedicated GPU)
 
-Option B would force `LMStudioAdapter` to become "Role-Aware" (test GPU vs judge GPU), leaking infrastructure configuration into the orchestration layer. This violates the layer separation established in ADR-006 and would undo the work from #110.
+Option B would force `LMStudioAdapter` to become "Role-Aware" (test GPU vs judge GPU), leaking infrastructure configuration into the orchestration layer. This violates the layer separation established in ADR-PPX-006 and would undo the work from #110.
 
 ## Implementation
 

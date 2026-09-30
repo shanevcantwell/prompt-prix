@@ -1,4 +1,4 @@
-# ADR-003: OpenAI-Compatible API as Integration Layer
+# ADR-PPX-003: OpenAI-Compatible API as Integration Layer
 
 **Status**: Accepted
 **Date**: 2025-11-28

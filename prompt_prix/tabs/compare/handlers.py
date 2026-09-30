@@ -3,7 +3,7 @@ Compare tab event handlers.
 
 Handles interactive multi-turn model comparison.
 
-Per ADR-006, this is ORCHESTRATION layer code:
+Per ADR-PPX-006, this is ORCHESTRATION layer code:
 - Calls MCP primitives ONLY — never adapters directly
 - DOES NOT know about servers, ServerPool, or ConcurrentDispatcher
 """
@@ -90,7 +90,7 @@ def clear_session() -> tuple:
 async def send_single_prompt(prompt: str, tools_json: str = "", image_path: str = None, seed: int = None, repeat_penalty: float = None):
     """Send a single prompt to all models with streaming output.
 
-    Per ADR-006 (Orchestration Layer):
+    Per ADR-PPX-006 (Orchestration Layer):
     - Calls MCP primitives ONLY (complete_stream)
     - Uses semaphore for concurrency control
     - Adapter handles server selection internally

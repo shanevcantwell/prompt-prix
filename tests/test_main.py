@@ -1,6 +1,6 @@
 """Tests for prompt_prix.main module.
 
-Per ADR-006: Orchestration tests mock MCP tools, not adapters or ServerPool.
+Per ADR-PPX-006: Orchestration tests mock MCP tools, not adapters or ServerPool.
 """
 
 import pytest

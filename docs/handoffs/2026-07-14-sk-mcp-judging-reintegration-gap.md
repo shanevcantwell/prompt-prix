@@ -12,21 +12,21 @@ that "nv-embed-v2 anisotropy nullification is finally proven out."
 prompt-prix's embedding-judging seam is **inert, obsolete, and uncorrected** — it predates
 sk-mcp's rename *and* its control/data-plane redesign. This is a **re-integration project**,
 not a threshold tweak. Recorded as three cross-linked bugs; remediation deferred to an ADR
-(superseding ADR-011). No code changed this session by design (session just opened).
+(superseding ADR-PPX-011). No code changed this session by design (session just opened).
 
 ## The three gaps (durable: GitHub issues)
 
 - **#159** `bug` — **inert seam.** `prompt_prix/mcp/tools/drift.py:26` imports the retired
   `semantic_chunker` package (sk-mcp is now `semantic_kinematics`, v0.3.0a0). `ensure_importable()`
   → False → `calculate_drift` raises `ImportError` → runners silently skip drift on every run
-  (per #138). All ADR-011 validators are dead code since the rename.
+  (per #138). All ADR-PPX-011 validators are dead code since the rename.
 - **#160** `bug,refactor` — **obsolete mechanism.** Even with the name fixed, `drift.py` /
   `_semantic_chunker.py` directly import `mcp.commands.*` + drive a `StateManager` singleton —
   the pattern sk-mcp's current contract **forbids** (`ONE-DOOR`). sk-mcp now splits control-plane
   (9 MCP JSON-RPC tools) from data-plane (`BulkEmbedder`, `embed_corpus(items)->{id: np.ndarray}`).
-  **ADR-011 documents a vanished mechanism** (`SemanticChunkerMCP` / `sys.path.insert` +
+  **ADR-PPX-011 documents a vanished mechanism** (`SemanticChunkerMCP` / `sys.path.insert` +
   `StateManager`) → must be superseded, not patched.
-- **#161** `bug,enhancement` — **uncorrected measurement.** ADR-011 fixed thresholds
+- **#161** `bug,enhancement` — **uncorrected measurement.** ADR-PPX-011 fixed thresholds
   (0.3/0.25/0.35) and the #140 slider assume a stable cosine distribution. Raw
   `calculate_drift`/`embed_text` return **in-cone** vectors; nv-embed-v2 *preserves* the
   anisotropy cone (‖μ‖²≈0.31) that embeddinggemma's isotropy regularizer *suppresses*, so a
@@ -57,7 +57,7 @@ contrastive / z-scored track the record supports.
 ## Pointers
 
 - Consumer side: `prompt_prix/mcp/tools/drift.py`, `_semantic_chunker.py`;
-  `docs/adr/ADR-011-embedding-based-validation.md` (Phase 1 Accepted — now obsolete mechanism).
+  `docs/adr/ADR-PPX-011-embedding-based-validation.md` (Phase 1 Accepted — now obsolete mechanism).
 - Provider side: `/srv/dev/shanevcantwell/semantic-kinematics-mcp` — `docs/ARCHITECTURE.md`
   (control/data-plane split), `semantic_kinematics/embeddings/bulk.py` (`BulkEmbedder`), MCP
   tool server (`analyze_axis_alignment`, `calculate_drift`, `embed_text`).

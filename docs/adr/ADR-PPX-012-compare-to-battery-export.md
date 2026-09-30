@@ -1,9 +1,9 @@
-# ADR-012: Compare to Battery Export Pipeline
+# ADR-PPX-012: Compare to Battery Export Pipeline
 
 **Status**: Proposed
 **Date**: 2026-02-01
 **Related**:
-- ADR-009 (Interactive Battery Grid)
+- ADR-PPX-009 (Interactive Battery Grid)
 - A1111 WebUI inter-tab workflow patterns
 
 ---

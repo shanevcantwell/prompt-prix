@@ -1,8 +1,8 @@
-# ADR-007: CLI Interface Layer
+# ADR-PPX-007: CLI Interface Layer
 
 **Status**: Accepted
 **Date**: 2025-01-23
-**Extends**: ADR-006 (adds interface layer above orchestration)
+**Extends**: ADR-PPX-006 (adds interface layer above orchestration)
 
 ## Context
 
@@ -13,7 +13,7 @@ prompt-prix started as a Gradio UI for visual model comparison. However, manual 
 - **Scripting** — Batch runs across different benchmark files
 - **Integration** — Other tools want to invoke battery runs programmatically
 
-The existing architecture (ADR-006) cleanly separates orchestration from adapters:
+The existing architecture (ADR-PPX-006) cleanly separates orchestration from adapters:
 
 ```
 ORCHESTRATION (BatteryRunner, ComparisonSession)
@@ -50,7 +50,7 @@ prompt-prix has multiple interface options that share the same orchestration and
 └─────────────────────────────────────────────────────────────────┘
                                 │
                                 ↓
-                    [MCP → Adapter per ADR-006]
+                    [MCP → Adapter per ADR-PPX-006]
 ```
 
 ### Interface Implementations
@@ -145,6 +145,6 @@ This mirrors common patterns:
 
 ## References
 
-- ADR-006: Adapter Resource Ownership (the layer below interfaces)
+- ADR-PPX-006: Adapter Resource Ownership (the layer below interfaces)
 - Issue #99: Per-server queues for parallelism (affects both interfaces)
 - Script: `scripts/run_battery.py`

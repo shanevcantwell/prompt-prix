@@ -59,16 +59,16 @@ Adapter routes to correct server based on prefix
 
 ---
 
-## 2026-01-21: ADR-006 Architecture Alignment
+## 2026-01-21: ADR-PPX-006 Architecture Alignment
 
 ### Commits
-- `6010b71` - test: ADR-006 test suite alignment
-- `e2c4a26` - refactor: Compare tab ADR-006 alignment
-- `b79ff2c` - refactor: ADR-006 Battery tab - MCP registry pattern
+- `6010b71` - test: ADR-PPX-006 test suite alignment
+- `e2c4a26` - refactor: Compare tab ADR-PPX-006 alignment
+- `b79ff2c` - refactor: ADR-PPX-006 Battery tab - MCP registry pattern
 
 ### Architecture Changes
 
-Implemented three-layer architecture per ADR-006:
+Implemented three-layer architecture per ADR-PPX-006:
 
 ```
 ORCHESTRATION (BatteryRunner, ComparisonSession)
