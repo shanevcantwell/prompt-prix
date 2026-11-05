@@ -36,7 +36,13 @@
     "canonicalization": "utf8-lf-no-unicode-normalization-rfc8785-v1",
     "assembled_prompt_sha256": "557d7b0531009d46d2292c288e55fc7eeb11e8ca5f07946da1bdb18088795747",
     "task_payload_sha256": "07ca12788692689281e8e21b7ba477ba41616d0961e1f333e045509852186dce",
-    "response_sha256": null,
+    "normalized_response": {
+      "kind": "none",
+      "media_type": null,
+      "sha256": null,
+      "text": null,
+      "artifact_uri": null
+    },
     "modules": [
       {
         "logical_name": "synthetic-micro-doctrine",
@@ -101,14 +107,27 @@
       "NOT_RUN"
     ]
   },
+  "human_adjudication": {
+    "status": "not_required",
+    "adjudicator": null,
+    "procedure": null,
+    "blinded": null,
+    "verdict": null,
+    "evidence_spans": [],
+    "expectations_match": null,
+    "adjudicated_at": null
+  },
   "judge": {
     "enabled": false,
     "sole_gate_authority": false,
-    "model_identity": null,
-    "prompt_sha256": null,
-    "settings": {},
+    "model": null,
+    "provider": null,
+    "prompt": null,
+    "seed": null,
+    "sampling": null,
     "latency_ms": null,
     "error": null,
+    "output_sha256": null,
     "output": null
   },
   "attempts": [],

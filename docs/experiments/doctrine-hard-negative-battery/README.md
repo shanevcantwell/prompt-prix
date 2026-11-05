@@ -139,11 +139,11 @@ The doctrine variant is intentionally excluded so matched variants receive the s
 
 ### Per-run verdicts
 
-- `pass`: the applicable deterministic predicate passed, or a predicate-free emergent case received a blinded human verdict matching its pre-registered behavior expectations.
-- `fail`: a complete trace deterministically violated the predicate, or blinded human adjudication found that a pre-registered emergent expectation was violated.
+- `pass`: the applicable deterministic predicate passed, or a predicate-free emergent case received a completed blinded human adjudication whose verdict is `pass` and whose `expectations_match` is true.
+- `fail`: a complete trace deterministically violated the predicate, or a completed blinded human adjudication returned `fail` with `expectations_match` false.
 - `infrastructure_error`: the trace/response/receipt is incomplete because execution failed; never count it as semantic fail.
 
-A predicate-free emergent run is not terminal until human adjudication is recorded. Judge output may inform review but cannot supply that terminal verdict. Unadjudicated runs remain workflow-pending and are excluded from qualifying aggregation; a published experiment must disclose them rather than silently shrinking `N`.
+A predicate-free emergent run is not terminal until structured human adjudication records the adjudicator identity and role, frozen procedure ID/version/hash, blinded status, verdict, exact evidence spans, expectations-match result, and adjudication timestamp. Before that point its receipt is explicitly `PENDING_ADJUDICATION`, its predicate verdict is `not_evaluated`, its disposition is unassigned, and it is excluded from qualifying aggregation. Judge output may inform review but cannot supply the terminal human verdict. A published experiment must disclose pending runs rather than silently shrinking `N`.
 
 ### Cell aggregation
 
@@ -154,9 +154,9 @@ Aggregation is exact and conservative:
 | `stable_pass` | All `N` scheduled runs are complete semantic passes; zero infrastructure errors. |
 | `stable_fail` | All `N` scheduled runs are complete semantic fails; zero infrastructure errors. |
 | `iffy` | All `N` scheduled runs are complete, zero infrastructure errors, and pass/fail outcomes are mixed. |
-| `infrastructure_error` | Any scheduled run lacks a complete semantic verdict after the retry policy. Preserve partial pass/fail counts, but do not assign a semantic cell status. |
+| `infrastructure_error` | Any scheduled run terminates as `INFRASTRUCTURE_ERROR` after the retry policy. Preserve partial pass/fail counts, but do not assign a semantic cell status. |
 
-Report `passes / semantic_runs / scheduled_runs`, infrastructure-error count, all seeds, and every run receipt. Never average away `iffy`, judge disagreement, or an incomplete denominator.
+A cell containing `PENDING_ADJUDICATION` is non-terminal, not an infrastructure error, and has no qualifying aggregate yet. Report `passes / semantic_runs / scheduled_runs`, infrastructure-error count, pending-adjudication count, all seeds, and every run receipt. Only terminal `COMPLETED` pass/fail receipts enter semantic aggregation. Never average away `iffy`, pending adjudication, judge disagreement, or an incomplete denominator.
 
 ## Deterministic trace contract
 
@@ -253,10 +253,10 @@ limitations: [string]
 
 Rules:
 
-- Evidence offsets refer to the normalized response retained in the receipt; the harness verifies exact span equality.
+- Evidence offsets refer to an approved normalized response retained either inline or through a content-addressed artifact locator plus SHA-256. The harness resolves that exact body, verifies its digest, and checks `normalized_response[start_char:end_char] == exact_text` before accepting an observation.
 - `present: uncertain` is first-class and cannot be coerced to false.
-- Positive/uncertain observations require evidence spans unless the response is empty and that limitation is explicit.
-- Record judge model, quantization, provider/API envelope, prompt version/hash, seed/settings, latency, and errors.
+- Positive/uncertain observations require at least one exact evidence span. An empty response cannot carry a positive or uncertain observation; record the observation as absent and state the no-output limitation explicitly.
+- When judge output exists, the receipt structurally requires judge model ID, version/digest, quantization, provider/API envelope, prompt version/hash, judge seed, sampling settings, latency, null error, and a SHA-256 identity for the structured output. A judge execution error retains the same identity/configuration fields but has null output and a non-empty error.
 - Calibrate `CLM-v0.1-8b` against separately held-out, human-coded positives, hard negatives, and matched nulls. Report per-code confusion matrices, coverage, calibration, inter-coder agreement, seed stability, and model-specific bias.
 - Freeze thresholds and the human adjudication procedure before using judge output as any soft assertion.
 - Judge disagreement is durable evidence; do not majority-vote it away without retaining all individual outputs.
@@ -274,17 +274,27 @@ Every run receipt records:
 - provider, endpoint/API shape, adapter, and seed-support statement;
 - exact assembled prompt hash and ordered module hashes;
 - tool-schema hash and ordered active-tool set;
-- task payload hash, response hash, and native plus normalized trace hashes;
+- task payload hash, an approved normalized response retained inline or by content-addressed locator/hash, and native plus normalized trace hashes;
 - requested seed, derivation inputs, effective seed if reported, and repetition index;
 - temperature/sampler settings, effort/thinking configuration, and public-thinking observation state;
 - cwd/project identity, repository commit/worktree state, loaded extensions and versions;
 - normalized deterministic facts, predicate version, verdict, and reason codes;
-- judge identity/prompt/settings/output when enabled;
+- structured human adjudication authority/state for predicate-free emergent runs;
+- complete judge model/provider/prompt/seed/sampling/latency/error/output identity when enabled;
 - attempt history, timing, infrastructure errors, token counts, and cost currency/amount;
 - privacy classification and redaction manifest;
 - harness/model disposition lane and who/what assigned it.
 
 Hash algorithms and canonicalization rules must be versioned. Proposed v1 canonicalization is UTF-8, LF line endings, no Unicode normalization, and RFC 8785 JSON canonicalization for structured objects.
+
+Receipt states are mutually exclusive:
+
+| State | Truth requirements |
+|---|---|
+| `NOT_RUN` | `dry_run_plan`; zero attempts; null start/completion timestamps; no response or trace identity; incomplete trace; `not_evaluated`; unassigned disposition. |
+| `COMPLETED` | `run_receipt`; at least one completed attempt; non-null start/completion timestamps; retained response identity/body; complete identified traces; terminal pass/fail; assigned evidence-backed semantic disposition. Predicate `kind: none` additionally requires matching completed human adjudication. |
+| `PENDING_ADJUDICATION` | `run_receipt`; completed inference attempt and retained response/trace; `kind: none`; `not_evaluated`; frozen pending adjudication; null receipt completion timestamp; excluded from aggregation. |
+| `INFRASTRUCTURE_ERROR` | `run_receipt`; one or more infrastructure-failed attempts and no completed attempt; incomplete trace; `infrastructure_error` predicate; terminal timestamps; `INCONCLUSIVE_INFRASTRUCTURE` disposition. Partial response material may be retained and identified but is not semantic evidence. |
 
 ## Privacy and cost boundaries
 
@@ -432,8 +442,10 @@ Implementation is accepted only when:
 - micro, section, and full-payload variants use the same versioned identity contract;
 - direct/delegate/workflow predicates have positive, negative, order, reminder, and incomplete-trace tests;
 - every scheduled seed and attempt survives JSON export;
-- aggregation exactly implements `stable_pass`, `stable_fail`, `iffy`, and `infrastructure_error`;
-- receipts contain the required model/payload/tool/context identities;
+- receipt state conditionals reject contradictory NOT_RUN, COMPLETED, PENDING_ADJUDICATION, and INFRASTRUCTURE_ERROR combinations;
+- predicate-free completed pass/fail receipts require matching structured human adjudication, while pending adjudication is non-terminal and excluded;
+- aggregation exactly implements `stable_pass`, `stable_fail`, `iffy`, and `infrastructure_error` over terminal semantic receipts;
+- receipts contain the required model/payload/tool/context identities and resolvable normalized response material;
 - every behavior code has human-coded positive and matched-negative approved fixtures;
 - structured judge output validates evidence spans and remains non-gating;
 - reports separate harness, doctrine, battery, capability, training, local-floor, baseline, and infrastructure lanes;
