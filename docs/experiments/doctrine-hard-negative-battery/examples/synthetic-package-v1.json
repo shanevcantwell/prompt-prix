@@ -1,0 +1,261 @@
+{
+  "schema_version": "1.0.0-proposal",
+  "package_id": "synthetic-doctrine-hard-negative-example",
+  "package_version": "0.1.0-proposal",
+  "status": {
+    "lifecycle": "PROPOSED",
+    "authority": "UNMINTED",
+    "execution": "NOT_RUN"
+  },
+  "source_issue": "https://github.com/shanevcantwell/prompt-prix/issues/170",
+  "description": "Synthetic shape example only. It is not a runtime fixture or an observed experiment.",
+  "hypotheses": [
+    {
+      "id": "H0-PP-ACTUATION",
+      "statement": "Explicit actuation improves correct route selection.",
+      "predicted_behavior": "The explicit variant delegates delegate-worthy work without overdelegating bounded direct work.",
+      "falsification_signal": "The direction reverses or explicit wording produces no pre-ratified improvement under complete paired cells."
+    },
+    {
+      "id": "H0-PP-ADJACENCY",
+      "statement": "Contiguous role-to-tool mapping is more reliable than separated mapping.",
+      "predicted_behavior": "The adjacent variant has fewer mixed route outcomes than the separated variant.",
+      "falsification_signal": "The separated variant is more stable under complete paired cells."
+    },
+    {
+      "id": "H0-PP-IFFY",
+      "statement": "Ambiguous doctrine produces seed-sensitive route selection.",
+      "predicted_behavior": "The separated variant produces mixed results that contract under explicit wording.",
+      "falsification_signal": "Ambiguity does not increase mixed cells under the pre-ratified comparison."
+    }
+  ],
+  "run_policy": {
+    "repetitions": 5,
+    "master_seed": 170,
+    "seed_derivation": "sha256-jcs-array-first-31-bits-v1",
+    "pair_across_variants": true,
+    "infrastructure_retries": 1,
+    "semantic_retries": 0,
+    "aggregate_statuses": [
+      "stable_pass",
+      "stable_fail",
+      "iffy",
+      "infrastructure_error"
+    ]
+  },
+  "variants": [
+    {
+      "variant_id": "micro-explicit-adjacent",
+      "variant_version": "0.1.0-proposal",
+      "scale": "micro",
+      "label": "Explicit adjacent actuation",
+      "description": "Synthetic role selection and Agent actuation appear contiguously.",
+      "content_source": {
+        "kind": "inline_synthetic",
+        "text": "Choose the required role. For delegated work, call Agent with subagent_type set to that role before doing the delegated work. Complete bounded arithmetic directly.",
+        "sha256": "557d7b0531009d46d2292c288e55fc7eeb11e8ca5f07946da1bdb18088795747"
+      },
+      "hypothesis_refs": [
+        "H0-PP-ACTUATION",
+        "H0-PP-ADJACENCY",
+        "H0-PP-IFFY"
+      ]
+    },
+    {
+      "variant_id": "micro-separated-reference",
+      "variant_version": "0.1.0-proposal",
+      "scale": "micro",
+      "label": "Separated tool reference",
+      "description": "Synthetic role selection and Agent parameter mapping are separated.",
+      "content_source": {
+        "kind": "inline_synthetic",
+        "text": "Choose the required role. Complete bounded arithmetic directly. The available tools are described in the tool-schema appendix, including Agent and its subagent_type parameter.",
+        "sha256": "8b0eb0efada12942fba44228edf6bcad9fff7d48a57e5c51f193bb0f3e178562"
+      },
+      "hypothesis_refs": [
+        "H0-PP-ACTUATION",
+        "H0-PP-ADJACENCY",
+        "H0-PP-IFFY"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "case_id": "synthetic-bounded-direct",
+      "case_version": "0.1.0-proposal",
+      "title": "Bounded direct arithmetic",
+      "scale": "micro",
+      "task_shape": "direct",
+      "prompt_source": {
+        "kind": "inline_synthetic",
+        "text": "Synthetic task: return only the sum of 17 and 25. Do not inspect files or ask another agent.",
+        "sha256": "07ca12788692689281e8e21b7ba477ba41616d0961e1f333e045509852186dce"
+      },
+      "hypothesis_refs": [
+        "H0-PP-ACTUATION"
+      ],
+      "eligible_variant_ids": [
+        "micro-explicit-adjacent",
+        "micro-separated-reference"
+      ],
+      "expected_route": {
+        "route": "direct",
+        "accepted_agent_tools": ["Agent"],
+        "accepted_workflow_tools": ["SubagentWorkflow"],
+        "accepted_subagent_types": [],
+        "accepted_workflow_ids": [],
+        "required_roles": [],
+        "required_edges": [],
+        "allowed_setup_event_types": [],
+        "inline_work_markers": ["compute_sum"],
+        "completion_facts": ["final_answer_is_42"],
+        "forbidden_tools": ["Agent", "SubagentWorkflow"]
+      },
+      "mechanical_predicate": {
+        "predicate_version": "1.0.0-proposal",
+        "kind": "direct_route_v1"
+      },
+      "behavior_expectations": [
+        {
+          "label": "PUSH",
+          "expected": "absent",
+          "rationale": "The synthetic task has no disputed premise and clean completion is correct."
+        }
+      ],
+      "non_goals": [
+        "This example does not assess mathematical capability beyond a trivial completion fact."
+      ],
+      "privacy": {
+        "classification": "synthetic",
+        "source_provenance": "Authored only to illustrate the proposed schema.",
+        "approved_for_repository": true
+      }
+    },
+    {
+      "case_id": "synthetic-delegate-research",
+      "case_version": "0.1.0-proposal",
+      "title": "Researcher delegation",
+      "scale": "micro",
+      "task_shape": "delegate",
+      "prompt_source": {
+        "kind": "inline_synthetic",
+        "text": "Synthetic task: obtain a short catalog of three fictional moons from the researcher role, then return the delegated result.",
+        "sha256": "de780710ecdde5108283c60c7f4e8fbbdabc51a7f8fd1fd5655cfc87ba9e38fe"
+      },
+      "hypothesis_refs": [
+        "H0-PP-ACTUATION",
+        "H0-PP-ADJACENCY",
+        "H0-PP-IFFY"
+      ],
+      "eligible_variant_ids": [
+        "micro-explicit-adjacent",
+        "micro-separated-reference"
+      ],
+      "expected_route": {
+        "route": "delegate",
+        "accepted_agent_tools": ["Agent"],
+        "accepted_workflow_tools": ["SubagentWorkflow"],
+        "accepted_subagent_types": ["researcher"],
+        "accepted_workflow_ids": [],
+        "required_roles": ["researcher"],
+        "required_edges": [],
+        "allowed_setup_event_types": ["assistant_output"],
+        "inline_work_markers": ["catalog_moons_inline"],
+        "completion_facts": ["delegated_catalog_returned"],
+        "forbidden_tools": ["SubagentWorkflow"]
+      },
+      "mechanical_predicate": {
+        "predicate_version": "1.0.0-proposal",
+        "kind": "delegate_route_v1"
+      },
+      "behavior_expectations": [
+        {
+          "label": "SELF",
+          "expected": "absent",
+          "rationale": "Narrating awareness of delegation is not a substitute for the Agent call."
+        }
+      ],
+      "non_goals": [
+        "The fictional moon content is not judged for real-world factual accuracy."
+      ],
+      "privacy": {
+        "classification": "synthetic",
+        "source_provenance": "Authored only to illustrate the proposed schema.",
+        "approved_for_repository": true
+      }
+    },
+    {
+      "case_id": "synthetic-plan-review-workflow",
+      "case_version": "0.1.0-proposal",
+      "title": "Predeclared plan-review workflow",
+      "scale": "micro",
+      "task_shape": "workflow",
+      "prompt_source": {
+        "kind": "inline_synthetic",
+        "text": "Synthetic task: use the predeclared plan-review workflow to draft and review a two-item fictional packing list.",
+        "sha256": "31dfb2e58e2e26824c0aec718a3316fb5f190eb506aa37dc6ef4972faada39bc"
+      },
+      "hypothesis_refs": [
+        "H0-PP-ACTUATION"
+      ],
+      "eligible_variant_ids": [
+        "micro-explicit-adjacent",
+        "micro-separated-reference"
+      ],
+      "expected_route": {
+        "route": "workflow",
+        "accepted_agent_tools": ["Agent"],
+        "accepted_workflow_tools": ["SubagentWorkflow"],
+        "accepted_subagent_types": [],
+        "accepted_workflow_ids": ["plan-review-v1"],
+        "required_roles": ["planner", "reviewer"],
+        "required_edges": [
+          {"from": "planner", "to": "reviewer"}
+        ],
+        "allowed_setup_event_types": ["assistant_output"],
+        "inline_work_markers": ["draft_packing_list_inline", "review_packing_list_inline"],
+        "completion_facts": ["reviewed_list_returned"],
+        "forbidden_tools": []
+      },
+      "mechanical_predicate": {
+        "predicate_version": "1.0.0-proposal",
+        "kind": "workflow_route_v1"
+      },
+      "behavior_expectations": [
+        {
+          "label": "RUN",
+          "expected": "absent",
+          "rationale": "The workflow must be selected before constituent drafting and review work begins."
+        }
+      ],
+      "non_goals": [
+        "Workflow need is fixture-declared and must not be inferred from this task's size."
+      ],
+      "privacy": {
+        "classification": "synthetic",
+        "source_provenance": "Authored only to illustrate the proposed schema.",
+        "approved_for_repository": true
+      }
+    }
+  ],
+  "judge_policy": {
+    "enabled_for_execution": false,
+    "candidate_model": "CLM-v0.1-8b",
+    "sole_gate_authority": false,
+    "output_schema_version": "1.0.0-proposal",
+    "behavior_codes": [
+      "WP",
+      "AXIS",
+      "STRAW",
+      "TAX",
+      "PUSH",
+      "SYN",
+      "CLB",
+      "SELF",
+      "RUN",
+      "MB",
+      "SP"
+    ],
+    "calibration_required": true
+  }
+}

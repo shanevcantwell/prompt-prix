@@ -1,0 +1,389 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/shanevcantwell/prompt-prix/docs/experiments/doctrine-hard-negative-battery/schemas/battery-package-v1.schema.json",
+  "title": "Doctrine hard-negative battery package v1 (proposal)",
+  "description": "Proposal-only fixture contract. Validation does not authorize execution or confer doctrine authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "package_id",
+    "package_version",
+    "status",
+    "source_issue",
+    "hypotheses",
+    "run_policy",
+    "variants",
+    "cases",
+    "judge_policy"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0.0-proposal"
+    },
+    "package_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._-]+$"
+    },
+    "package_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lifecycle", "authority", "execution"],
+      "properties": {
+        "lifecycle": {"const": "PROPOSED"},
+        "authority": {"const": "UNMINTED"},
+        "execution": {"const": "NOT_RUN"}
+      }
+    },
+    "source_issue": {
+      "const": "https://github.com/shanevcantwell/prompt-prix/issues/170"
+    },
+    "description": {"type": "string", "minLength": 1},
+    "hypotheses": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/hypothesis"}
+    },
+    "run_policy": {"$ref": "#/$defs/run_policy"},
+    "variants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/variant"}
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/case"}
+    },
+    "judge_policy": {"$ref": "#/$defs/judge_policy"}
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"
+    },
+    "hypothesis_id": {
+      "type": "string",
+      "pattern": "^H0-PP-[A-Z0-9-]+$"
+    },
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "statement", "predicted_behavior", "falsification_signal"],
+      "properties": {
+        "id": {"$ref": "#/$defs/hypothesis_id"},
+        "statement": {"type": "string", "minLength": 1},
+        "predicted_behavior": {"type": "string", "minLength": 1},
+        "falsification_signal": {"type": "string", "minLength": 1}
+      }
+    },
+    "run_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "repetitions",
+        "master_seed",
+        "seed_derivation",
+        "pair_across_variants",
+        "infrastructure_retries",
+        "aggregate_statuses"
+      ],
+      "properties": {
+        "repetitions": {"type": "integer", "minimum": 3},
+        "master_seed": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "seed_derivation": {
+          "const": "sha256-jcs-array-first-31-bits-v1"
+        },
+        "pair_across_variants": {"const": true},
+        "infrastructure_retries": {"type": "integer", "minimum": 0, "maximum": 3},
+        "semantic_retries": {"const": 0},
+        "aggregate_statuses": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "stable_pass"},
+            {"const": "stable_fail"},
+            {"const": "iffy"},
+            {"const": "infrastructure_error"}
+          ],
+          "items": false
+        }
+      }
+    },
+    "module": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logical_name", "path", "version", "sha256", "order"],
+      "properties": {
+        "logical_name": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "version": {"$ref": "#/$defs/version"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "order": {"type": "integer", "minimum": 0}
+      }
+    },
+    "content_source": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "text", "sha256"],
+          "properties": {
+            "kind": {"const": "inline_synthetic"},
+            "text": {"type": "string", "minLength": 1},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path", "sha256"],
+          "properties": {
+            "kind": {"const": "approved_file"},
+            "path": {"type": "string", "minLength": 1},
+            "sha256": {"$ref": "#/$defs/sha256"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "modules", "assembled_sha256"],
+          "properties": {
+            "kind": {"const": "assembled_manifest"},
+            "modules": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/module"}
+            },
+            "assembled_sha256": {"$ref": "#/$defs/sha256"}
+          }
+        }
+      ]
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "variant_id",
+        "variant_version",
+        "scale",
+        "label",
+        "description",
+        "content_source",
+        "hypothesis_refs"
+      ],
+      "properties": {
+        "variant_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]+$"
+        },
+        "variant_version": {"$ref": "#/$defs/version"},
+        "scale": {"enum": ["micro", "section", "full_payload"]},
+        "label": {"type": "string", "minLength": 1},
+        "description": {"type": "string", "minLength": 1},
+        "content_source": {"$ref": "#/$defs/content_source"},
+        "hypothesis_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/hypothesis_id"}
+        }
+      }
+    },
+    "behavior_code": {
+      "enum": ["WP", "AXIS", "STRAW", "TAX", "PUSH", "SYN", "CLB", "SELF", "RUN", "MB", "SP"]
+    },
+    "behavior_expectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "expected", "rationale"],
+      "properties": {
+        "label": {"$ref": "#/$defs/behavior_code"},
+        "expected": {"enum": ["present", "absent", "uncertain", "allowed"]},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": {"type": "string", "minLength": 1},
+        "to": {"type": "string", "minLength": 1}
+      }
+    },
+    "route_expectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "route",
+        "accepted_agent_tools",
+        "accepted_workflow_tools",
+        "accepted_subagent_types",
+        "accepted_workflow_ids",
+        "required_roles",
+        "required_edges",
+        "allowed_setup_event_types",
+        "inline_work_markers",
+        "completion_facts",
+        "forbidden_tools"
+      ],
+      "properties": {
+        "route": {"enum": ["direct", "delegate", "workflow", "none"]},
+        "accepted_agent_tools": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "accepted_workflow_tools": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "accepted_subagent_types": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "accepted_workflow_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "required_roles": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "required_edges": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/edge"}
+        },
+        "allowed_setup_event_types": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "inline_work_markers": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "completion_facts": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "forbidden_tools": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "mechanical_predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["predicate_version", "kind"],
+      "properties": {
+        "predicate_version": {"const": "1.0.0-proposal"},
+        "kind": {"enum": ["direct_route_v1", "delegate_route_v1", "workflow_route_v1", "none"]}
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["classification", "source_provenance", "approved_for_repository"],
+      "properties": {
+        "classification": {"enum": ["synthetic", "public", "approved_private_reference"]},
+        "source_provenance": {"type": "string", "minLength": 1},
+        "approved_for_repository": {"type": "boolean"}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "case_id",
+        "case_version",
+        "title",
+        "scale",
+        "task_shape",
+        "prompt_source",
+        "hypothesis_refs",
+        "eligible_variant_ids",
+        "expected_route",
+        "mechanical_predicate",
+        "behavior_expectations",
+        "non_goals",
+        "privacy"
+      ],
+      "properties": {
+        "case_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9._-]+$"
+        },
+        "case_version": {"$ref": "#/$defs/version"},
+        "title": {"type": "string", "minLength": 1},
+        "scale": {"enum": ["micro", "section", "full_payload"]},
+        "task_shape": {"enum": ["direct", "delegate", "workflow", "emergent"]},
+        "prompt_source": {"$ref": "#/$defs/content_source"},
+        "hypothesis_refs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/hypothesis_id"}
+        },
+        "eligible_variant_ids": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "expected_route": {"$ref": "#/$defs/route_expectation"},
+        "mechanical_predicate": {"$ref": "#/$defs/mechanical_predicate"},
+        "behavior_expectations": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/behavior_expectation"}
+        },
+        "non_goals": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "privacy": {"$ref": "#/$defs/privacy"}
+      }
+    },
+    "judge_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled_for_execution",
+        "candidate_model",
+        "sole_gate_authority",
+        "output_schema_version",
+        "behavior_codes",
+        "calibration_required"
+      ],
+      "properties": {
+        "enabled_for_execution": {"const": false},
+        "candidate_model": {"const": "CLM-v0.1-8b"},
+        "sole_gate_authority": {"const": false},
+        "output_schema_version": {"const": "1.0.0-proposal"},
+        "behavior_codes": {
+          "type": "array",
+          "prefixItems": [
+            {"const": "WP"},
+            {"const": "AXIS"},
+            {"const": "STRAW"},
+            {"const": "TAX"},
+            {"const": "PUSH"},
+            {"const": "SYN"},
+            {"const": "CLB"},
+            {"const": "SELF"},
+            {"const": "RUN"},
+            {"const": "MB"},
+            {"const": "SP"}
+          ],
+          "items": false
+        },
+        "calibration_required": {"const": true}
+      }
+    }
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0.0-proposal",
+  "receipt_version": "1.0.0-proposal",
+  "receipt_id": "synthetic-dry-run-plan-000",
+  "record_kind": "dry_run_plan",
+  "execution_state": "NOT_RUN",
+  "package_identity": {
+    "package_id": "synthetic-doctrine-hard-negative-example",
+    "package_version": "0.1.0-proposal",
+    "package_sha256": "6f9cad3d6b8fce9db2bd82e10a2f174faaeab59580a678502b1476b5de7a0caf",
+    "case_version": "0.1.0-proposal",
+    "variant_version": "0.1.0-proposal"
+  },
+  "cell": {
+    "model_receipt_id": "synthetic-model-q4",
+    "execution_profile_id": "default-no-public-thinking",
+    "variant_id": "micro-explicit-adjacent",
+    "case_id": "synthetic-bounded-direct",
+    "scale": "micro",
+    "repetition_index": 0
+  },
+  "model": {
+    "model_id": "synthetic/model-8b",
+    "artifact": "synthetic artifact; no model was loaded",
+    "revision_or_digest": "not-run",
+    "quantization": "Q4_SYNTHETIC"
+  },
+  "provider": {
+    "provider_id": "synthetic-local",
+    "adapter": "not-instantiated",
+    "api_shape": "openai-compatible-shape-only",
+    "endpoint_class": "synthetic://not-connected",
+    "seed_support": "unknown"
+  },
+  "payload": {
+    "canonicalization": "utf8-lf-no-unicode-normalization-rfc8785-v1",
+    "assembled_prompt_sha256": "557d7b0531009d46d2292c288e55fc7eeb11e8ca5f07946da1bdb18088795747",
+    "task_payload_sha256": "07ca12788692689281e8e21b7ba477ba41616d0961e1f333e045509852186dce",
+    "response_sha256": null,
+    "modules": [
+      {
+        "logical_name": "synthetic-micro-doctrine",
+        "version": "0.1.0-proposal",
+        "sha256": "557d7b0531009d46d2292c288e55fc7eeb11e8ca5f07946da1bdb18088795747",
+        "order": 0
+      }
+    ]
+  },
+  "tools": {
+    "tool_schema_sha256": "e0d51cb53e6b6d6dabd799ac37cca3bd2588fcf41229d8437e5b416dedd9cf16",
+    "active_tool_set": [
+      "Agent",
+      "SubagentWorkflow"
+    ]
+  },
+  "seed": {
+    "master_seed": 170,
+    "derivation": "sha256-jcs-array-first-31-bits-v1",
+    "derivation_inputs": [
+      "1.0.0-proposal",
+      "0.1.0-proposal",
+      "synthetic-model-q4",
+      "default-no-public-thinking",
+      "synthetic-bounded-direct",
+      0,
+      170
+    ],
+    "requested_seed": 401822977,
+    "effective_seed": null,
+    "sample_id": "synthetic-bounded-direct-r0-not-run"
+  },
+  "sampling": {
+    "temperature": 0.0,
+    "max_tokens": 256,
+    "effort": "not-requested",
+    "thinking_mode": "not-requested",
+    "public_thinking_observed": "not_applicable"
+  },
+  "context": {
+    "cwd_logical": "synthetic://project",
+    "project_id": "synthetic-project",
+    "repository_commit": "synthetic-not-a-repository-state",
+    "worktree_dirty": false,
+    "extensions": []
+  },
+  "trace": {
+    "complete": false,
+    "native_trace_sha256": null,
+    "normalized_trace_sha256": null,
+    "events": [],
+    "deterministic_facts": {
+      "shape_example": true,
+      "experiment_run": false
+    }
+  },
+  "predicate": {
+    "predicate_version": "1.0.0-proposal",
+    "kind": "direct_route_v1",
+    "verdict": "not_evaluated",
+    "reason_codes": [
+      "NOT_RUN"
+    ]
+  },
+  "judge": {
+    "enabled": false,
+    "sole_gate_authority": false,
+    "model_identity": null,
+    "prompt_sha256": null,
+    "settings": {},
+    "latency_ms": null,
+    "error": null,
+    "output": null
+  },
+  "attempts": [],
+  "usage_cost": {
+    "input_tokens": null,
+    "output_tokens": null,
+    "currency": null,
+    "amount": null,
+    "budget_authorization_id": null
+  },
+  "privacy": {
+    "classification": "synthetic",
+    "contains_private_source_body": false,
+    "contains_secrets": false,
+    "redactions": []
+  },
+  "disposition": {
+    "primary_lane": "NOT_ASSIGNED",
+    "secondary_lanes": [],
+    "assigned_by": "not-run-shape-example",
+    "evidence_refs": []
+  },
+  "timestamps": {
+    "planned_at": "2026-11-05T00:00:00Z",
+    "started_at": null,
+    "completed_at": null
+  }
+}
